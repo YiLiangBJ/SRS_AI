@@ -160,14 +160,13 @@ def custom_config_demo():
     """Demo with custom configuration"""
     # Create a custom SRS configuration
     config = SRSConfig(
-        seq_length=1200,
+        seq_length=48,
         ktc=4,  # K=12
-        num_users=3,
-        ports_per_user=[2, 2, 1],  # 2 ports for first two users, 1 port for third
+        num_users=2,
+        ports_per_user=[2, 2],  # 2 ports for first two users, 1 port for third
         cyclic_shifts=[
             [0, 6],    # User 0's port shifts
-            [3, 9],    # User 1's port shifts
-            [1]        # User 2's port shift
+            [3, 9]    # User 1's port shifts
         ]
     )
     
@@ -186,8 +185,8 @@ def main():
     parser.add_argument('--snr', type=float, default=10.0, help='SNR in dB')
     parser.add_argument('--use_trainable_mmse', action='store_true', help='Use trainable MMSE matrices')
     parser.add_argument('--custom_config', action='store_true', help='Use custom SRS configuration')
-    args = parser.parse_args()
-    
+    args = parser.parse_args(['--snr','20','--custom_config'])
+
     if args.custom_config:
         custom_config_demo()
     else:

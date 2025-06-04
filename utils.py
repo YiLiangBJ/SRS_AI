@@ -1,25 +1,93 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import math
 from typing import List, Tuple, Dict, Optional, Union
 
 
-def generate_base_sequence(length: int) -> torch.Tensor:
+def is_prime(n: int) -> bool:
     """
-    Generate a base SRS sequence
+    Check if a number is prime
     
     Args:
-        length: Length of the sequence
+        n: Number to check
         
     Returns:
-        Complex tensor representing the base SRS sequence
+        True if n is prime, False otherwise
     """
-    # This is a simplified implementation
-    # In a real system, this would follow 3GPP specifications
-    # For now, generate a QPSK sequence with unit power
-    real_part = torch.randint(0, 2, (length,)) * 2 - 1
-    imag_part = torch.randint(0, 2, (length,)) * 2 - 1
-    return torch.complex(real_part.float(), imag_part.float()) / np.sqrt(2)
+    if n <= 1:
+        return False
+    if n <= 3:
+        return True
+    if n % 2 == 0 or n % 3 == 0:
+        return False
+    i = 5
+    while i * i <= n:
+        if n % i == 0 or n % (i + 2) == 0:
+            return False
+        i += 6
+    return True
+
+
+def find_largest_prime_less_than_or_equal_to(n: int) -> int:
+    """
+    Find the largest prime number less than or equal to n
+    
+    Args:
+        n: Upper bound
+        
+    Returns:
+        Largest prime number less than or equal to n
+    """
+    if n < 2:
+        raise ValueError("No prime number exists below 2")
+    
+    # Start from n and move downward
+    for i in range(n, 1, -1):
+        if is_prime(i):
+            return i
+    
+    return 2  # Fallback, but this shouldn't happen for n >= 2
+
+
+def generate_base_sequence(length: int, root_index: int = 25) -> torch.Tensor:
+    """
+    Generate a SRS sequence according to 3GPP specifications
+    
+    Args:
+        length: Length of the SRS sequence (L)
+        root_index: Root index of the ZC sequence (hardcoded default = 25)
+        
+    Returns:
+        Complex tensor representing the SRS sequence of length L
+    """
+    # Find the largest prime p less than or equal to length
+    prime_length = find_largest_prime_less_than_or_equal_to(length)
+    
+    print(f"Generating ZC sequence with prime length {prime_length}, then extending to {length}")
+    
+    # Ensure root index is coprime with the prime length
+    while math.gcd(root_index, prime_length) != 1:
+        root_index += 1
+        if root_index >= prime_length:
+            root_index = 1
+    
+    # Generate ZC sequence of length p
+    # ZC sequence generation formula: x(n) = exp(-j * π * u * n * (n+1) / prime_length)
+    n = torch.arange(prime_length, dtype=torch.float32)
+    exponent = -1j * math.pi * root_index * n * (n + 1) / prime_length
+    zc_sequence = torch.exp(exponent)
+    
+    # Extend to length L through periodic extension if needed
+    if length > prime_length:
+        # Create extended sequence
+        extended_sequence = torch.zeros(length, dtype=torch.complex64)
+        for i in range(length):
+            extended_sequence[i] = zc_sequence[i % prime_length]
+        return extended_sequence
+    else:
+        # If length is already prime, return the ZC sequence directly
+        return zc_sequence
 
 
 def apply_cyclic_shift(base_seq: torch.Tensor, n: int, K: int) -> torch.Tensor:
@@ -50,6 +118,17 @@ def apply_channel(seq: torch.Tensor, channel_taps: torch.Tensor) -> torch.Tensor
         
     Returns:
         Sequence after passing through the channel (frequency domain)
+        
+    Note:
+        In traditional channel estimation approaches:
+        - Timing offsets and delay spread are typically pre-determined or estimated
+          through conventional methods like correlation
+        - MMSE matrices (C and R) are derived analytically based on channel statistics
+        
+        In AI-based channel estimation:
+        - Neural networks can implicitly learn timing and delay characteristics
+        - C and R matrices can be trainable parameters in a neural network, adapting to
+          various channel conditions without explicit modeling
     """
     # Convert sequence to time domain
     seq_time = torch.fft.ifft(seq)
@@ -131,10 +210,14 @@ def generate_channel_taps(
     taps_real = torch.randn(num_taps) * torch.sqrt(powers / 2)
     taps_imag = torch.randn(num_taps) * torch.sqrt(powers / 2)
     taps = torch.complex(taps_real, taps_imag)
-    
-    # Apply delay offset
+      # Apply delay offset
     channel_length = max_delay_samples + num_taps
     h = torch.zeros(channel_length, dtype=torch.complex64)
+    
+    # Ensure delay_offset is within valid range
+    delay_offset = max(0, min(delay_offset, channel_length - num_taps))
+    
+    # Now assign taps with validated offset
     h[delay_offset:delay_offset + num_taps] = taps
     
     return h

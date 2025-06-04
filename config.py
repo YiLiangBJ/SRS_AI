@@ -88,7 +88,7 @@ def create_example_config() -> SRSConfig:
     """
     # Example configuration: 2 users, each with 2 ports
     return SRSConfig(
-        seq_length=1200,  # Example value, can be changed
+        seq_length=48,  # Example value, can be changed
         ktc=4,  # K=12
         num_users=2,
         ports_per_user=[2, 2],

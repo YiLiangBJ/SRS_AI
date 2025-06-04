@@ -209,7 +209,7 @@ class SRSChannelEstimator(nn.Module):
         h_reshaped = h.reshape(L // Locc, Locc)
         h_avg = torch.mean(h_reshaped, dim=1)
         return h_avg
-    
+        
     def _linear_interpolation(self, h_avg: torch.Tensor, target_length: int) -> torch.Tensor:
         """
         Apply linear interpolation to increase sequence length
@@ -226,12 +226,23 @@ class SRSChannelEstimator(nn.Module):
         h_imag = torch.imag(h_avg)
         
         # Create input and target indices for interpolation
-        x = torch.linspace(0, 1, len(h_avg), device=self.device)
-        x_new = torch.linspace(0, 1, target_length, device=self.device)
+        orig_len = len(h_avg)
         
-        # Interpolate real and imaginary parts separately
-        real_interp = torch.interp(x_new, x, h_real)
-        imag_interp = torch.interp(x_new, x, h_imag)
+        # Use numpy for interpolation
+        orig_indices = np.linspace(0, 1, orig_len)
+        new_indices = np.linspace(0, 1, target_length)
+        
+        # Convert tensors to numpy arrays for interpolation
+        h_real_np = h_real.cpu().numpy()
+        h_imag_np = h_imag.cpu().numpy()
+        
+        # Use numpy's interp function
+        real_interp_np = np.interp(new_indices, orig_indices, h_real_np)
+        imag_interp_np = np.interp(new_indices, orig_indices, h_imag_np)
+        
+        # Convert back to torch tensors
+        real_interp = torch.tensor(real_interp_np, device=self.device, dtype=torch.float32)
+        imag_interp = torch.tensor(imag_interp_np, device=self.device, dtype=torch.float32)
         
         # Combine back to complex
         return torch.complex(real_interp, imag_interp)
@@ -286,8 +297,7 @@ class SRSChannelEstimator(nn.Module):
         """
         if self.C_matrix is not None:
             return self.C_matrix
-        else:
-            # Traditional method: construct based on exponential decay model
+        else:            # Traditional method: construct based on exponential decay model
             # This is just an example implementation
             L = self.seq_length
             C = torch.zeros((L, L), dtype=torch.complex64, device=self.device)
@@ -297,7 +307,9 @@ class SRSChannelEstimator(nn.Module):
             for i in range(L):
                 for j in range(L):
                     delay_diff = abs(i - j)
-                    C[i, j] = torch.exp(-delay_diff / (tau * L))
+                    # Convert scalar to tensor before using torch.exp
+                    exponent = torch.tensor(-delay_diff / (tau * L), device=self.device)
+                    C[i, j] = torch.exp(exponent)
             
             return C
     
@@ -381,17 +393,16 @@ class TrainableMMSEModule(nn.Module):
         """
         # Generate C matrix
         C_flat = self.C_generator(channel_stats)
-        C_real = C_flat[:seq_length * seq_length].reshape(seq_length, seq_length)
-        C_imag = C_flat[seq_length * seq_length:].reshape(seq_length, seq_length)
+        C_real = C_flat[:self.seq_length * self.seq_length].reshape(self.seq_length, self.seq_length)
+        C_imag = C_flat[self.seq_length * self.seq_length:].reshape(self.seq_length, self.seq_length)
         C = torch.complex(C_real, C_imag)
         
         # Make C Hermitian (required for covariance matrix)
         C = (C + C.conj().transpose(0, 1)) / 2
-        
-        # Generate R matrix
-        R = self.R_generator(noise_power.view(1, 1)).reshape(seq_length, seq_length)
+          # Generate R matrix
+        R = self.R_generator(noise_power.view(1, 1)).reshape(self.seq_length, self.seq_length)
         
         # Make R positive definite
-        R = R @ R.transpose(0, 1) + torch.eye(seq_length) * 1e-6
+        R = R @ R.transpose(0, 1) + torch.eye(self.seq_length, device=R.device) * 1e-6
         
         return C, R
