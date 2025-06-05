@@ -45,7 +45,8 @@ class SRSChannelEstimator(nn.Module):
         self, 
         ls_estimate: torch.Tensor,
         cyclic_shifts: List[List[int]], 
-        noise_power: Optional[float] = None
+        noise_power: Optional[float] = None,
+        delay_search_range: Tuple[int, int] = (-10, 10)
     ) -> List[torch.Tensor]:
         """
         Forward pass through the channel estimation process
@@ -54,6 +55,7 @@ class SRSChannelEstimator(nn.Module):
             ls_estimate: LS channel estimate sequence h (complex tensor of shape [L])
             cyclic_shifts: List of cyclic shifts for each user's ports [[n_0^0, n_0^1...], [n_1^0, n_1^1...]]
             noise_power: Estimated noise power (if None, will be estimated from ls_estimate)
+            delay_search_range: Range of possible delay offsets to search (min_offset, max_offset)
             
         Returns:
             List of channel estimates for each user's ports
@@ -79,16 +81,15 @@ class SRSChannelEstimator(nn.Module):
             for p in range(num_ports_per_user[u]):
                 # Get cyclic shift for this user and port
                 n_u_p = cyclic_shifts[u][p]
-                
-                # Calculate ideal peak location
+                  # Calculate ideal peak location
                 ideal_peak = (self.K - n_u_p) % self.K * self.seq_length // self.K
                 
-                # Estimate timing offset
-                T_u_p = self._estimate_timing_offset(h_time, ideal_peak)
+                # Estimate timing offset within specified search range
+                T_u_p = self._estimate_timing_offset(h_time, ideal_peak, delay_search_range)
                 timing_offsets[(u, p)] = T_u_p
                 
                 # Calculate cyclic shift amount
-                m_u_p = -(T_u_p + ideal_peak)
+                m_u_p = (T_u_p + ideal_peak)
                 
                 # Generate phasor for shifting
                 phasor = self._generate_phasor(m_u_p)
@@ -117,16 +118,16 @@ class SRSChannelEstimator(nn.Module):
         final_estimates = []
         for u in range(num_users):
             for p in range(num_ports_per_user[u]):
-                for item in h_processed_list:
-                    if item[0] == u and item[1] == p:
-                        h_with_residual = item[2] + residual
-                        
-                        # Apply MMSE filtering
-                        if noise_power is None:
-                            noise_power = self._estimate_noise_power(ls_estimate)
-                        
-                        h_mmse = self._apply_mmse_filter(h_with_residual, noise_power)
-                        final_estimates.append(h_mmse)
+                for _, _, h_interp, phasor in h_processed_list:
+                    # if item[0] == u and item[1] == p:
+                    h_with_residual = h_interp / phasor + residual
+                    
+                    # Apply MMSE filtering
+                    if noise_power is None:
+                        noise_power = self._estimate_noise_power(ls_estimate)
+                    
+                    h_mmse = self._apply_mmse_filter(h_with_residual, noise_power)
+                    final_estimates.append(h_mmse)
         
         return final_estimates
     
@@ -149,13 +150,15 @@ class SRSChannelEstimator(nn.Module):
         """Apply DFT to convert from time domain to frequency domain"""
         return torch.fft.fft(time_domain, dim=0)
     
-    def _estimate_timing_offset(self, h_time: torch.Tensor, ideal_peak: int) -> int:
+    def _estimate_timing_offset(self, h_time: torch.Tensor, ideal_peak: int, search_range: Tuple[int, int] = (-10, 10)) -> int:
         """
-        Estimate timing offset based on CIR peak position relative to ideal position
+        Estimate timing offset based on CIR peak position relative to ideal position,
+        searching only within a limited range around the ideal peak
         
         Args:
             h_time: Channel impulse response in time domain
             ideal_peak: Ideal peak position
+            search_range: Range around ideal_peak to search for the actual peak (min_offset, max_offset)
             
         Returns:
             Timing offset in samples
@@ -163,11 +166,38 @@ class SRSChannelEstimator(nn.Module):
         # Get magnitude of h_time
         h_mag = torch.abs(h_time)
         
-        # Find peak position
-        peak_idx = torch.argmax(h_mag).item()
-        
-        # Calculate timing offset with circular consideration
+        # Define the search range around ideal_peak
+        min_offset, max_offset = search_range
         L = self.seq_length
+        
+        # Calculate search start and end positions with circular wrapping
+        start_pos = (ideal_peak + min_offset) % L
+        end_pos = (ideal_peak + max_offset) % L
+        
+        # Create mask for the search range
+        search_mask = torch.zeros_like(h_mag, dtype=torch.bool)
+        
+        # Handle wraparound case
+        if start_pos <= end_pos:
+            # Simple case: start to end in a continuous segment
+            search_mask[start_pos:end_pos+1] = True
+        else:
+            # Wraparound case: need two segments (end of array and beginning)
+            search_mask[start_pos:] = True  # From start_pos to the end
+            search_mask[:end_pos+1] = True  # From beginning to end_pos
+        
+        # Find peak position only within the masked region
+        # First ensure we don't have all zeros in the mask
+        if torch.any(search_mask):
+            # Get the magnitude values only in the search range
+            search_values = torch.where(search_mask, h_mag, torch.tensor(-float('inf'), device=h_mag.device))
+            peak_idx = torch.argmax(search_values).item()
+        else:
+            # Fallback to full search if mask is empty (shouldn't happen with reasonable search_range)
+            peak_idx = torch.argmax(h_mag).item()
+        
+        # Calculate timing offset relative to ideal peak
+        # Handle circular distance calculation
         if peak_idx > ideal_peak:
             if peak_idx - ideal_peak > L/2:  # Wraparound case
                 offset = peak_idx - L - ideal_peak
@@ -209,14 +239,14 @@ class SRSChannelEstimator(nn.Module):
         h_reshaped = h.reshape(L // Locc, Locc)
         h_avg = torch.mean(h_reshaped, dim=1)
         return h_avg
-        
     def _linear_interpolation(self, h_avg: torch.Tensor, target_length: int) -> torch.Tensor:
         """
-        Apply linear interpolation to increase sequence length
+        Apply linear interpolation to increase sequence length, 
+        properly positioning averaged points at the center of their respective groups
         
         Args:
-            h_avg: Input sequence
-            target_length: Target length after interpolation
+            h_avg: Input sequence (averaged values from groups of samples)
+            target_length: Target length after interpolation (original sequence length)
             
         Returns:
             Interpolated sequence of target_length
@@ -225,18 +255,21 @@ class SRSChannelEstimator(nn.Module):
         h_real = torch.real(h_avg)
         h_imag = torch.imag(h_avg)
         
-        # Create input and target indices for interpolation
-        orig_len = len(h_avg)
+        # Calculate group size (Locc) based on input and target length
+        group_size = target_length // len(h_avg)
         
-        # Use numpy for interpolation
-        orig_indices = np.linspace(0, 1, orig_len)
-        new_indices = np.linspace(0, 1, target_length)
+        # Create properly positioned input indices (at the center of each group)
+        # For example, if group_size=4, the centers would be at indices 1.5, 5.5, 9.5, etc.
+        orig_indices = np.array([np.mean(np.arange(group_size)) + i * group_size for i in range(len(h_avg))])
+        
+        # Create output indices (all integer positions from 0 to target_length-1)
+        new_indices = np.arange(target_length)
         
         # Convert tensors to numpy arrays for interpolation
         h_real_np = h_real.cpu().numpy()
         h_imag_np = h_imag.cpu().numpy()
         
-        # Use numpy's interp function
+        # Use numpy's interp function with the properly positioned indices
         real_interp_np = np.interp(new_indices, orig_indices, h_real_np)
         imag_interp_np = np.interp(new_indices, orig_indices, h_imag_np)
         

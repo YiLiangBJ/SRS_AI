@@ -100,13 +100,14 @@ def demo_srs_channel_estimation(
             # Set MMSE matrices in estimator
             srs_estimator.set_mmse_matrices(C=C, R=R)
         else:
-            print("Using traditional MMSE approach")
-        
-        # Process through SRS estimator
+            print("Using traditional MMSE approach")        # Process through SRS estimator
+        # Use the same range as data_generator's delay_offset_range for consistency
+        delay_search_range = data_gen.delay_offset_range
         channel_estimates = srs_estimator(
             ls_estimate=ls_estimate,
             cyclic_shifts=config.cyclic_shifts,
-            noise_power=noise_power
+            noise_power=noise_power,
+            delay_search_range=delay_search_range
         )
     
     # Analyze and visualize results
@@ -160,7 +161,7 @@ def custom_config_demo():
     """Demo with custom configuration"""
     # Create a custom SRS configuration
     config = SRSConfig(
-        seq_length=48,
+        seq_length=1200,
         ktc=4,  # K=12
         num_users=2,
         ports_per_user=[2, 2],  # 2 ports for first two users, 1 port for third
