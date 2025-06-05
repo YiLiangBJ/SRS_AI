@@ -175,7 +175,6 @@ def add_noise(seq: torch.Tensor, snr_db: float) -> torch.Tensor:
 
 def generate_channel_taps(
     num_taps: int,
-    max_delay_samples: int,
     power_delay_profile: str = 'exponential',
     delay_offset: int = 0
 ) -> torch.Tensor:
@@ -183,10 +182,9 @@ def generate_channel_taps(
     Generate random channel impulse response taps
     
     Args:
-        num_taps: Number of channel taps
-        max_delay_samples: Maximum delay spread in samples
+        num_taps: Number of channel taps (representing the delay spread)
         power_delay_profile: Type of power delay profile
-        delay_offset: Timing offset in samples
+        delay_offset: Timing offset in samples (can be negative or positive)
         
     Returns:
         Complex tensor representing the channel impulse response
@@ -210,15 +208,25 @@ def generate_channel_taps(
     taps_real = torch.randn(num_taps) * torch.sqrt(powers / 2)
     taps_imag = torch.randn(num_taps) * torch.sqrt(powers / 2)
     taps = torch.complex(taps_real, taps_imag)
-      # Apply delay offset
-    channel_length = max_delay_samples + num_taps
-    h = torch.zeros(channel_length, dtype=torch.complex64)
     
-    # Ensure delay_offset is within valid range
-    delay_offset = max(0, min(delay_offset, channel_length - num_taps))
-    
-    # Now assign taps with validated offset
-    h[delay_offset:delay_offset + num_taps] = taps
+    # Handle positive and negative delay offsets correctly
+    if delay_offset >= 0:
+        # For positive delay_offset, create a channel vector with enough space
+        channel_length = delay_offset + num_taps
+        h = torch.zeros(channel_length, dtype=torch.complex64)
+        h[delay_offset:delay_offset + num_taps] = taps
+    else:
+        # For negative delay_offset, truncate the beginning of taps if necessary
+        start_idx = max(0, -delay_offset)
+        # Calculate how many taps we can actually use after truncation
+        usable_taps = num_taps - start_idx
+        if usable_taps <= 0:
+            # If all taps would be truncated, return at least one sample
+            h = torch.zeros(1, dtype=torch.complex64)
+        else:
+            # Create channel vector with proper length and place truncated taps at the beginning
+            h = torch.zeros(usable_taps, dtype=torch.complex64)
+            h[:usable_taps] = taps[start_idx:]
     
     return h
 

@@ -16,7 +16,6 @@ class SRSDataGenerator:
         config: SRSConfig,
         snr_range: Tuple[float, float] = (0, 30),
         num_taps_range: Tuple[int, int] = (5, 15),
-        max_delay_spread: int = 30,
         delay_offset_range: Tuple[int, int] = (-10, 10),
         device: str = "cuda" if torch.cuda.is_available() else "cpu"
     ):
@@ -26,15 +25,13 @@ class SRSDataGenerator:
         Args:
             config: SRS configuration
             snr_range: Range of SNR values in dB
-            num_taps_range: Range of number of channel taps
-            max_delay_spread: Maximum delay spread in samples
+            num_taps_range: Range of number of channel taps (represents delay spread)
             delay_offset_range: Range of timing offsets
             device: Computation device
         """
         self.config = config
         self.snr_range = snr_range
         self.num_taps_range = num_taps_range
-        self.max_delay_spread = max_delay_spread
         self.delay_offset_range = delay_offset_range
         self.device = device
         
@@ -80,11 +77,9 @@ class SRSDataGenerator:
                 # Generate random channel
                 num_taps = random.randint(*self.num_taps_range)
                 delay_offset = random.randint(*self.delay_offset_range)
-                
-                # Generate channel taps
+                  # Generate channel taps
                 h_taps = generate_channel_taps(
                     num_taps=num_taps,
-                    max_delay_samples=self.max_delay_spread,
                     power_delay_profile='exponential',
                     delay_offset=delay_offset
                 ).to(self.device)
