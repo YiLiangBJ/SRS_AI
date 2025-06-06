@@ -45,7 +45,8 @@ class SRSTrainer:
         
         # Create data generator
         self.data_gen = SRSDataGenerator(config, device=device)
-          # Create models
+        
+        # Create models
         self.srs_estimator = SRSChannelEstimator(
             seq_length=config.seq_length,
             ktc=config.ktc,
@@ -54,7 +55,8 @@ class SRSTrainer:
             mmse_block_size=config.mmse_block_size,
             device=device
         ).to(device)
-          # Create trainable MMSE module if needed
+        
+        # Create trainable MMSE module if needed
         if use_trainable_mmse:
             self.mmse_module = TrainableMMSEModule(
                 seq_length=config.seq_length
@@ -62,16 +64,29 @@ class SRSTrainer:
         else:
             self.mmse_module = None
         
+        # Make sure all model parameters require gradients
+        for param in self.srs_estimator.parameters():
+            param.requires_grad = True
+        
+        if self.mmse_module:
+            for param in self.mmse_module.parameters():
+                param.requires_grad = True
+        
         # Create optimizer
         model_params = list(self.srs_estimator.parameters())
         if self.mmse_module:
             model_params += list(self.mmse_module.parameters())
         
+        # Print number of trainable parameters
+        total_params = sum(p.numel() for p in model_params if p.requires_grad)
+        print(f"Total trainable parameters: {total_params}")
+        
         self.optimizer = optim.Adam(model_params, lr=0.001)
         
         # Loss function
         self.loss_fn = nn.MSELoss()
-          # Create save directory if it doesn't exist
+        
+        # Create save directory if it doesn't exist
         os.makedirs(save_dir, exist_ok=True)
         
         # Create logs directory for TensorBoard
@@ -101,11 +116,12 @@ class SRSTrainer:
         total_loss = 0
         total_nmse = 0
         
+        # Set models to training mode
         self.srs_estimator.train()
         if self.mmse_module:
             self.mmse_module.train()
         
-        for _ in tqdm(range(num_batches), desc="Training"):
+        for batch_idx in tqdm(range(num_batches), desc="Training"):
             # Generate batch
             batch = self.data_gen.generate_batch(batch_size)
             
@@ -136,7 +152,7 @@ class SRSTrainer:
                     # Set MMSE matrices in estimator
                     self.srs_estimator.set_mmse_matrices(C=C, R=R)
                 
-                # Process through SRS estimator
+                # Process through SRS estimator - make sure output requires grad
                 channel_estimates = self.srs_estimator(
                     ls_estimate=ls_estimate,
                     cyclic_shifts=self.config.cyclic_shifts,
@@ -151,14 +167,21 @@ class SRSTrainer:
                             true_channel = true_channels[(u, p)][i]
                             est_channel = channel_estimates[idx]
                             
-                            # Calculate loss
-                            sample_loss = self.loss_fn(
-                                torch.real(est_channel),
-                                torch.real(true_channel)
-                            ) + self.loss_fn(
-                                torch.imag(est_channel),
-                                torch.imag(true_channel)
-                            )
+                            # Ensure estimated channel requires gradient
+                            if not est_channel.requires_grad:
+                                print(f"Warning: Estimated channel doesn't require grad in batch {batch_idx}, sample {i}, user {u}, port {p}")
+                                est_channel = est_channel.detach().clone().requires_grad_(True)
+                            
+                            # 使用复数张量的实部和虚部计算损失
+                            real_loss = self.loss_fn(torch.real(est_channel), torch.real(true_channel))
+                            imag_loss = self.loss_fn(torch.imag(est_channel), torch.imag(true_channel))
+                            
+                            # 总损失
+                            sample_loss = real_loss + imag_loss
+                            
+                            # 检查损失是否需要梯度
+                            if not sample_loss.requires_grad:
+                                print(f"Warning: Loss doesn't require grad in batch {batch_idx}, sample {i}, user {u}, port {p}")
                             
                             batch_loss += sample_loss
                             
@@ -167,17 +190,36 @@ class SRSTrainer:
                             batch_nmse += nmse
                             
                         idx += 1
-              # Average loss and NMSE over batch
-            batch_loss /= (batch_size * sum(self.config.ports_per_user))
-            batch_nmse /= (batch_size * sum(self.config.ports_per_user))
+            
+            # Average loss and NMSE over batch
+            num_channels = sum(self.config.ports_per_user)
+            batch_loss = batch_loss / (batch_size * num_channels)
+            batch_nmse = batch_nmse / (batch_size * num_channels)
             
             # Ensure loss has requires_grad=True
             if batch_loss.requires_grad:
                 # Backward pass and optimize
                 batch_loss.backward()
+                
+                # Gradient clipping to avoid explosion
+                torch.nn.utils.clip_grad_norm_(
+                    [p for p in self.srs_estimator.parameters() if p.requires_grad], 
+                    max_norm=1.0
+                )
+                
+                if self.mmse_module:
+                    torch.nn.utils.clip_grad_norm_(
+                        [p for p in self.mmse_module.parameters() if p.requires_grad], 
+                        max_norm=1.0
+                    )
+                
                 self.optimizer.step()
             else:
-                print("Warning: Loss does not require grad. Skipping backward pass.")
+                print(f"Warning: Loss does not require grad in batch {batch_idx}. Skipping backward pass.")
+                # Debug information
+                print(f"Number of parameters requiring gradients: {sum(p.requires_grad for p in self.srs_estimator.parameters())}")
+                if self.mmse_module:
+                    print(f"Number of MMSE parameters requiring gradients: {sum(p.requires_grad for p in self.mmse_module.parameters())}")
             
             # Update totals
             total_loss += batch_loss.item()
@@ -307,7 +349,8 @@ class SRSTrainer:
             
             print(f"Train Loss: {train_loss:.6f}, Train NMSE: {train_nmse:.2f} dB")
             print(f"Val Loss: {val_loss:.6f}, Val NMSE: {val_nmse:.2f} dB")
-              # Log metrics to TensorBoard
+            
+            # Log metrics to TensorBoard
             self.writer.add_scalar('Loss/train', train_loss, epoch)
             self.writer.add_scalar('Loss/val', val_loss, epoch)
             self.writer.add_scalar('NMSE/train', train_nmse, epoch)
@@ -420,6 +463,11 @@ def main():
     args.use_trainable_mmse = True   # 使用可训练的MMSE矩阵
     args.load_checkpoint = None      # 不加载现有检查点
     args.enable_plotting = False     # 禁用绘图
+    
+    print("使用的设备：", "cuda" if torch.cuda.is_available() else "cpu")
+    print("TensorBoard日志路径：", os.path.join(args.save_dir, 'logs'))
+    print("可以使用以下命令启动TensorBoard：")
+    print("tensorboard --logdir=./checkpoints/logs")
     
     # Create example config
     config = create_example_config()
