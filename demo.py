@@ -37,8 +37,7 @@ def demo_srs_channel_estimation(
         config,
         snr_range=(snr_db, snr_db),  # Fixed SNR
         device=device
-    )
-      # Create SRS channel estimator
+    )      # Create SRS channel estimator
     srs_estimator = SRSChannelEstimator(
         seq_length=config.seq_length,
         ktc=config.ktc,
@@ -163,11 +162,13 @@ def custom_config_demo():
         seq_length=1200,
         ktc=4,  # K=12
         num_users=2,
-        ports_per_user=[2, 2],  # 2 ports for first two users, 1 port for third
+        ports_per_user=[2, 2],  # Different number of ports for each user: 2, 3 and 1
         cyclic_shifts=[
-            [0, 6],    # User 0's port shifts
-            [3, 9]    # User 1's port shifts
-        ]
+            [0, 6],     # User 0's port shifts (2 ports)
+            [3, 9]  # User 1's port shifts (3 ports)
+            # [10]        # User 2's port shift (1 port)
+        ],
+        mmse_block_size=12
     )
     
     # Run demo with custom config

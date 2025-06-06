@@ -36,13 +36,13 @@ def evaluate_model(
     
     # Determine device
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    # Create models
+      # Create models
     srs_estimator = SRSChannelEstimator(
         seq_length=config.seq_length,
         ktc=config.ktc,
         max_users=config.num_users,
         max_ports_per_user=max(config.ports_per_user),
+        mmse_block_size=config.mmse_block_size,
         device=device
     ).to(device)
     

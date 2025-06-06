@@ -11,7 +11,6 @@ class SRSChannelEstimator(nn.Module):
     This module implements the SRS channel estimation process as described,
     with flexibility to incorporate AI-based components for improved estimation.
     """
-    
     def __init__(
         self,
         seq_length: int,
@@ -28,7 +27,7 @@ class SRSChannelEstimator(nn.Module):
             seq_length: Length of SRS sequence (L)
             ktc: Configuration parameter (ktc=4 -> K=12, ktc=2 -> K=8)
             max_users: Maximum number of users to support
-            max_ports_per_user: Maximum number of ports per user to support
+            max_ports_per_user: Maximum number of ports across all users (different users can have different numbers of ports)
             mmse_block_size: Size of blocks for MMSE filtering
             device: Computation device
         """
@@ -118,22 +117,30 @@ class SRSChannelEstimator(nn.Module):
         
         # Calculate residual
         residual = ls_estimate - h_reconstructed
-        
-        # Add residual back to each estimate
+          # Add residual back to each estimate
         final_estimates = []
+        
+        # Create a dictionary to store processed channels for each user-port combination
+        processed_channels = {}
+        for u, p, h_interp, phasor in h_processed_list:
+            processed_channels[(u, p)] = (h_interp, phasor)
+        
+        # Process each user-port combination to get final estimates
         for u in range(num_users):
             for p in range(num_ports_per_user[u]):
-                for _, _, h_interp, phasor in h_processed_list:
-                    # if item[0] == u and item[1] == p:
-                    h_with_residual = h_interp + residual * phasor
-                      # Apply MMSE filtering
-                    if noise_power is None:
-                        noise_power = self._estimate_noise_power(ls_estimate)
-                    
-                    h_mmse = self._apply_mmse_filter(h_with_residual, noise_power)
-                    phasor = self._generate_phasor(timing_offsets[(u, p)])
-                    h_mmse_aligned = h_mmse / phasor
-                    final_estimates.append(h_mmse_aligned)
+                h_interp, phasor = processed_channels[(u, p)]
+                
+                # Add residual with appropriate phase correction
+                h_with_residual = h_interp + residual * phasor
+                  
+                # Apply MMSE filtering
+                if noise_power is None:
+                    noise_power = self._estimate_noise_power(ls_estimate)
+                
+                h_mmse = self._apply_mmse_filter(h_with_residual, noise_power)
+                phasor = self._generate_phasor(timing_offsets[(u, p)])
+                h_mmse_aligned = h_mmse / phasor
+                final_estimates.append(h_mmse_aligned)
         
         return final_estimates
     
