@@ -126,13 +126,14 @@ class SRSChannelEstimator(nn.Module):
                 for _, _, h_interp, phasor in h_processed_list:
                     # if item[0] == u and item[1] == p:
                     h_with_residual = h_interp + residual * phasor
-                    
-                    # Apply MMSE filtering
+                      # Apply MMSE filtering
                     if noise_power is None:
                         noise_power = self._estimate_noise_power(ls_estimate)
                     
                     h_mmse = self._apply_mmse_filter(h_with_residual, noise_power)
-                    final_estimates.append(h_mmse)
+                    phasor = self._generate_phasor(timing_offsets[(u, p)])
+                    h_mmse_aligned = h_mmse / phasor
+                    final_estimates.append(h_mmse_aligned)
         
         return final_estimates
     
