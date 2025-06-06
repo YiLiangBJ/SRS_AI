@@ -15,8 +15,8 @@ class SRSDataGenerator:
         self,
         config: SRSConfig,
         snr_range: Tuple[float, float] = (0, 30),
-        num_taps_range: Tuple[int, int] = (5, 15),
-        delay_offset_range: Tuple[int, int] = (0, 10),
+        num_taps_range: Tuple[int, int] = (5, 6),
+        delay_offset_range: Tuple[int, int] = (0, 1),
         device: str = "cuda" if torch.cuda.is_available() else "cpu"
     ):
         """

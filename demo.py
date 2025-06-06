@@ -38,13 +38,13 @@ def demo_srs_channel_estimation(
         snr_range=(snr_db, snr_db),  # Fixed SNR
         device=device
     )
-    
-    # Create SRS channel estimator
+      # Create SRS channel estimator
     srs_estimator = SRSChannelEstimator(
         seq_length=config.seq_length,
         ktc=config.ktc,
         max_users=config.num_users,
         max_ports_per_user=max(config.ports_per_user),
+        mmse_block_size=config.mmse_block_size,
         device=device
     ).to(device)
     
@@ -129,23 +129,22 @@ def demo_srs_channel_estimation(
                 # Calculate NMSE
                 nmse = calculate_nmse(true_channel, est_channel)
                 print(f"User {u}, Port {p}: NMSE = {nmse:.2f} dB")
-                
-                # Visualize
+                  # Visualize
                 plt.figure(figsize=(12, 10))
                 
-                # Plot magnitude
+                # Plot real part
                 plt.subplot(2, 1, 1)
-                plt.plot(torch.abs(true_channel).cpu().numpy(), 'b-', label='True Channel')
-                plt.plot(torch.abs(est_channel).cpu().numpy(), 'r--', label='Estimated Channel')
-                plt.title(f"User {u}, Port {p} - Magnitude (NMSE: {nmse:.2f} dB)")
+                plt.plot(torch.real(true_channel).cpu().numpy(), 'b-', label='True Channel')
+                plt.plot(torch.real(est_channel).cpu().numpy(), 'r--', label='Estimated Channel')
+                plt.title(f"User {u}, Port {p} - Real Part (NMSE: {nmse:.2f} dB)")
                 plt.legend()
                 plt.grid(True)
                 
-                # Plot phase
+                # Plot imaginary part
                 plt.subplot(2, 1, 2)
-                plt.plot(torch.angle(true_channel).cpu().numpy(), 'b-', label='True Channel')
-                plt.plot(torch.angle(est_channel).cpu().numpy(), 'r--', label='Estimated Channel')
-                plt.title(f"User {u}, Port {p} - Phase")
+                plt.plot(torch.imag(true_channel).cpu().numpy(), 'b-', label='True Channel')
+                plt.plot(torch.imag(est_channel).cpu().numpy(), 'r--', label='Estimated Channel')
+                plt.title(f"User {u}, Port {p} - Imaginary Part")
                 plt.legend()
                 plt.grid(True)
                 

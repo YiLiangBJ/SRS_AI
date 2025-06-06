@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from typing import List, Tuple, Dict, Optional, Union
+import matplotlib.pyplot as plt
 
 class SRSChannelEstimator(nn.Module):
     """
@@ -10,12 +11,14 @@ class SRSChannelEstimator(nn.Module):
     This module implements the SRS channel estimation process as described,
     with flexibility to incorporate AI-based components for improved estimation.
     """
+    
     def __init__(
         self,
         seq_length: int,
         ktc: int = 4,
         max_users: int = 8,
         max_ports_per_user: int = 4,
+        mmse_block_size: int = 12,
         device: str = "cuda" if torch.cuda.is_available() else "cpu"
     ):
         """
@@ -26,6 +29,7 @@ class SRSChannelEstimator(nn.Module):
             ktc: Configuration parameter (ktc=4 -> K=12, ktc=2 -> K=8)
             max_users: Maximum number of users to support
             max_ports_per_user: Maximum number of ports per user to support
+            mmse_block_size: Size of blocks for MMSE filtering
             device: Computation device
         """
         super().__init__()
@@ -34,6 +38,7 @@ class SRSChannelEstimator(nn.Module):
         self.K = 12 if ktc == 4 else 8  # Number of cyclic shifts
         self.max_users = max_users
         self.max_ports_per_user = max_ports_per_user
+        self.mmse_block_size = mmse_block_size
         self.device = device
         
         # Initialize parameters for MMSE filter matrices
@@ -120,7 +125,7 @@ class SRSChannelEstimator(nn.Module):
             for p in range(num_ports_per_user[u]):
                 for _, _, h_interp, phasor in h_processed_list:
                     # if item[0] == u and item[1] == p:
-                    h_with_residual = h_interp / phasor + residual
+                    h_with_residual = h_interp + residual * phasor
                     
                     # Apply MMSE filtering
                     if noise_power is None:
@@ -296,10 +301,12 @@ class SRSChannelEstimator(nn.Module):
         # Calculate average power of differences (divided by 2 as explained in theory)
         noise_power = torch.mean(torch.abs(diff)**2) / 2
         return noise_power.item()
-    
     def _apply_mmse_filter(self, h: torch.Tensor, noise_power: float) -> torch.Tensor:
         """
-        Apply MMSE filtering: h_mmse = C * (C + R)^-1 * h
+        Apply MMSE filtering in blocks: h_mmse = C * (C + R)^-1 * h
+        
+        Process the channel in blocks of size mmse_block_size to improve efficiency.
+        Each block is filtered separately with a smaller MMSE matrix.
         
         Args:
             h: Input channel estimate
@@ -308,30 +315,95 @@ class SRSChannelEstimator(nn.Module):
         Returns:
             MMSE filtered channel estimate
         """
-        # Either use learned matrices or compute traditional MMSE matrices
-        C = self._get_C_matrix()
-        R = self._get_R_matrix(noise_power)
+        # Get sequence length and block size
+        L = self.seq_length
+        block_size = self.mmse_block_size
         
-        # Apply MMSE filter
-        h_vec = h.reshape(-1, 1)  # Convert to column vector
+        # Create output tensor
+        h_mmse = torch.zeros_like(h)
         
-        # MMSE formula: C * (C + R)^-1 * h
-        mmse_filter = C @ torch.inverse(C + R)
-        h_mmse = mmse_filter @ h_vec
+        # Process each block separately
+        num_blocks = (L + block_size - 1) // block_size  # Ceiling division
         
-        return h_mmse.reshape(-1)
+        for i in range(num_blocks):
+            # Calculate block indices with proper handling of the last block
+            start_idx = i * block_size
+            end_idx = min((i + 1) * block_size, L)
+            current_block_size = end_idx - start_idx
+            
+            if current_block_size < 2:  # Skip processing for very small blocks
+                h_mmse[start_idx:end_idx] = h[start_idx:end_idx]
+                continue
+            
+            # Extract block
+            h_block = h[start_idx:end_idx]
+            
+            # Get block-specific MMSE matrices
+            C_block = self._get_block_C_matrix(current_block_size)
+            R_block = self._get_block_R_matrix(noise_power, current_block_size)
+            
+            # Apply MMSE filter to block
+            h_block_vec = h_block.reshape(-1, 1)  # Convert to column vector
+            
+            # MMSE formula: C * (C + R)^-1 * h
+            mmse_filter = C_block @ torch.inverse(C_block + R_block)
+            h_block_mmse = mmse_filter @ h_block_vec
+            
+            # Store filtered block in output
+            h_mmse[start_idx:end_idx] = h_block_mmse.reshape(-1)
+        
+        return h_mmse
+    def _get_block_C_matrix(self, block_size: int) -> torch.Tensor:
+        """
+        Get channel correlation matrix C for a specific block size
+        
+        Args:
+            block_size: Size of the block to process
+            
+        Returns:
+            C matrix for MMSE filtering of the specified block
+        """
+        # Construct based on exponential decay model for this block
+        C = torch.zeros((block_size, block_size), dtype=torch.complex64, device=self.device)
+        
+        # Exponential power delay profile
+        tau = 0.1  # Time constant
+        for i in range(block_size):
+            for j in range(block_size):
+                delay_diff = abs(i - j)
+                # Convert scalar to tensor before using torch.exp
+                exponent = torch.tensor(-delay_diff / (tau * block_size), device=self.device)
+                C[i, j] = torch.exp(exponent)
+        
+        return C
+    
+    def _get_block_R_matrix(self, noise_power: float, block_size: int) -> torch.Tensor:
+        """
+        Get noise correlation matrix R for a specific block size
+        
+        Args:
+            noise_power: Estimated noise power
+            block_size: Size of the block to process
+            
+        Returns:
+            R matrix for MMSE filtering of the specified block
+        """
+        # Diagonal matrix with noise power for this block size
+        R = torch.eye(block_size, device=self.device) * noise_power
+        return R
     
     def _get_C_matrix(self) -> torch.Tensor:
         """
-        Get channel correlation matrix C
+        Get channel correlation matrix C for the entire sequence
+        (This method is kept for compatibility but blocks should use _get_block_C_matrix)
         
         Returns:
             C matrix for MMSE filtering
         """
         if self.C_matrix is not None:
             return self.C_matrix
-        else:            # Traditional method: construct based on exponential decay model
-            # This is just an example implementation
+        else:
+            # Traditional method: construct based on exponential decay model
             L = self.seq_length
             C = torch.zeros((L, L), dtype=torch.complex64, device=self.device)
             
@@ -348,7 +420,8 @@ class SRSChannelEstimator(nn.Module):
     
     def _get_R_matrix(self, noise_power: float) -> torch.Tensor:
         """
-        Get noise correlation matrix R
+        Get noise correlation matrix R for the entire sequence
+        (This method is kept for compatibility but blocks should use _get_block_R_matrix)
         
         Args:
             noise_power: Estimated noise power

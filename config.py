@@ -17,6 +17,9 @@ class SRSConfig:
     # Cyclic shift configuration
     cyclic_shifts: List[List[int]]  # Cyclic shift parameters for each user's ports
     
+    # MMSE processing parameters
+    mmse_block_size: int = 12  # Size of blocks for MMSE filtering
+    
     @property
     def K(self) -> int:
         """Get number of cyclic shifts K based on ktc"""
@@ -95,5 +98,6 @@ def create_example_config() -> SRSConfig:
         cyclic_shifts=[
             [0, 6],  # User 0's port shifts
             [3, 9]   # User 1's port shifts
-        ]
+        ],
+        mmse_block_size=12  # Default block size for MMSE filtering
     )
