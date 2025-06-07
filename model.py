@@ -465,24 +465,36 @@ class TrainableMMSEModule(nn.Module):
     
     This module can be used to train the C and R matrices for MMSE filtering
     """
-    def __init__(self, seq_length: int, hidden_dim: int = 64):
+    def __init__(self, seq_length: int, mmse_block_size: int = 12, hidden_dim: int = 64, use_complex_input: bool = False):
         """
         Initialize the trainable MMSE module
         
         Args:
             seq_length: Length of sequence (L)
+            mmse_block_size: Size of blocks for MMSE filtering
             hidden_dim: Hidden dimension for the neural network
+            use_complex_input: Whether to use complex input (real + imaginary parts)
         """
         super().__init__()
         self.seq_length = seq_length
+        self.mmse_block_size = mmse_block_size
+        self.use_complex_input = use_complex_input
         
-        # Networks to generate C and R matrices
+        # Input dimension depends on whether we use complex input
+        input_dim = seq_length * 2 if use_complex_input else seq_length
+          # Calculate number of parameters for upper triangular parts
+        # For n x n matrix, upper triangular has n*(n+1)/2 elements
+        n = mmse_block_size
+        c_matrix_size = n * (n + 1) // 2 * 2  # *2 for real and imaginary parts
+        r_matrix_size = n * (n + 1) // 2 * 2  # R is also complex with real and imaginary parts
+        
+        # Networks to generate C and R matrices (only upper triangular parts)
         self.C_generator = nn.Sequential(
-            nn.Linear(seq_length, hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, seq_length * seq_length * 2)  # 2 for real and imaginary parts
+            nn.Linear(hidden_dim, c_matrix_size)  # Only upper triangular elements
         )
         
         self.R_generator = nn.Sequential(
@@ -490,33 +502,92 @@ class TrainableMMSEModule(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, seq_length * seq_length)  # Only real part (noise is real)
+            nn.Linear(hidden_dim, r_matrix_size)  # Only upper triangular elements
         )
-    
     def forward(self, channel_stats: torch.Tensor, noise_power: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Generate C and R matrices
+        Generate C and R matrices for specified block size
         
         Args:
             channel_stats: Channel statistics (can be frequency domain samples)
+               - If use_complex_input=False: magnitude of frequency domain samples (shape [L])
+               - If use_complex_input=True: concatenated real and imag parts (shape [2*L]) or complex tensor
             noise_power: Estimated noise power
             
         Returns:
-            C: Channel correlation matrix
-            R: Noise correlation matrix
+            C: Channel correlation matrix (mmse_block_size x mmse_block_size)
+            R: Noise correlation matrix (mmse_block_size x mmse_block_size)
         """
-        # Generate C matrix
-        C_flat = self.C_generator(channel_stats)
-        C_real = C_flat[:self.seq_length * self.seq_length].reshape(self.seq_length, self.seq_length)
-        C_imag = C_flat[self.seq_length * self.seq_length:].reshape(self.seq_length, self.seq_length)
+        # Process input based on configuration
+        if self.use_complex_input and channel_stats.is_complex():
+            # Split complex input into real and imaginary parts and concatenate
+            input_tensor = torch.cat([torch.real(channel_stats), torch.imag(channel_stats)])
+        else:
+            # Use input as-is (should be magnitude if use_complex_input=False)
+            input_tensor = channel_stats
+        
+        n = self.mmse_block_size
+        
+        # Generate upper triangular elements for C matrix
+        C_flat = self.C_generator(input_tensor)
+        
+        # Calculate split point between real and imaginary parts
+        split_point = n * (n + 1) // 2
+        C_real_upper = C_flat[:split_point]
+        C_imag_upper = C_flat[split_point:]
+        
+        # Create full matrices from upper triangular parts
+        C_real = torch.zeros((n, n), device=C_flat.device)
+        C_imag = torch.zeros((n, n), device=C_flat.device)
+        
+        # Fill upper triangular parts
+        idx = 0
+        for i in range(n):
+            for j in range(i, n):
+                C_real[i, j] = C_real_upper[idx]
+                C_imag[i, j] = C_imag_upper[idx]
+                idx += 1
+        
+        # Make Hermitian by copying with conjugate transpose
+        # For lower triangular part: C[j,i] = conj(C[i,j])
+        for i in range(n):
+            for j in range(i+1, n):
+                C_real[j, i] = C_real[i, j]  # Real part is symmetric
+                C_imag[j, i] = -C_imag[i, j]  # Imaginary part gets negated for conjugate
+        
+        # Combine to complex matrix
         C = torch.complex(C_real, C_imag)
         
-        # Make C Hermitian (required for covariance matrix)
-        C = (C + C.conj().transpose(0, 1)) / 2
-          # Generate R matrix
-        R = self.R_generator(noise_power.view(1, 1)).reshape(self.seq_length, self.seq_length)
+        # Generate R matrix (also complex and Hermitian, like C matrix)
+        R_flat = self.R_generator(noise_power.view(1, 1))
+        
+        # Calculate split point between real and imaginary parts
+        split_point_R = n * (n + 1) // 2
+        R_real_upper = R_flat[:split_point_R]
+        R_imag_upper = R_flat[split_point_R:]
+        
+        # Create full matrices from upper triangular parts
+        R_real = torch.zeros((n, n), device=R_flat.device)
+        R_imag = torch.zeros((n, n), device=R_flat.device)
+        
+        # Fill upper triangular parts
+        idx = 0
+        for i in range(n):
+            for j in range(i, n):
+                R_real[i, j] = R_real_upper[idx]
+                R_imag[i, j] = R_imag_upper[idx]
+                idx += 1
+        
+        # Make Hermitian by copying with conjugate transpose
+        # For lower triangular part: R[j,i] = conj(R[i,j])
+        for i in range(n):
+            for j in range(i+1, n):
+                R_real[j, i] = R_real[i, j]  # Real part is symmetric
+                R_imag[j, i] = -R_imag[i, j]  # Imaginary part gets negated for conjugate
+        
+        # Combine to complex matrix
+        R = torch.complex(R_real, R_imag)
         
         # Make R positive definite
-        R = R @ R.transpose(0, 1) + torch.eye(self.seq_length, device=R.device) * 1e-6
-        
+        R = R @ R.conj().transpose(0, 1) + torch.eye(n, device=R.device) * 1e-6
         return C, R

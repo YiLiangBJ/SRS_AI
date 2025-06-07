@@ -1,0 +1,66 @@
+import torch
+import argparse
+from train import SRSTrainer
+from config import SRSConfig
+
+
+def main():
+    """训练使用自定义配置的 MMSE 矩阵"""
+    
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='Train SRS Channel Estimator with custom config')
+    parser.add_argument('--epochs', type=int, default=50, help='Number of epochs')
+    parser.add_argument('--train_batches', type=int, default=100, help='Number of training batches per epoch')
+    parser.add_argument('--val_batches', type=int, default=20, help='Number of validation batches per epoch')
+    parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
+    parser.add_argument('--save_dir', type=str, default='./custom_mmse_checkpoints', help='Directory for saving checkpoints')
+    parser.add_argument('--load_checkpoint', type=str, default=None, help='Path to checkpoint to load')
+    parser.add_argument('--enable_plotting', action='store_true', help='Enable plotting during training (default: disabled)')
+    args = parser.parse_args([])  # 传入空列表，忽略命令行参数
+    
+    # 为参数设置默认值，这样不需要通过命令行指定
+    args.epochs = 50              # 训练轮数
+    args.train_batches = 100      # 每轮训练的批次数
+    args.val_batches = 20         # 每轮验证的批次数
+    args.batch_size = 16          # 批次大小
+    args.save_dir = './custom_mmse_checkpoints'  # 保存检查点的目录
+    args.load_checkpoint = None   # 不加载现有检查点
+    args.enable_plotting = False  # 禁用绘图
+    
+    # 创建自定义配置
+    config = SRSConfig(
+        seq_length=1200,
+        ktc=4,  # K=12
+        num_users=3,
+        ports_per_user=[2, 3, 1],  # 不同用户有不同数量的端口
+        cyclic_shifts=[
+            [0, 6],     # 用户0的端口移位 (2个端口)
+            [2, 4, 8],  # 用户1的端口移位 (3个端口)
+            [10]        # 用户2的端口移位 (1个端口)
+        ],
+        mmse_block_size=12  # MMSE 滤波器块大小
+    )
+    
+    # 创建训练器，始终使用可训练的MMSE模块
+    trainer = SRSTrainer(
+        config=config,
+        save_dir=args.save_dir,
+        use_trainable_mmse=True,  # 总是使用可训练的MMSE模块
+        enable_plotting=args.enable_plotting  # 使用参数控制是否启用绘图功能
+    )
+    
+    # 如果指定，加载检查点
+    if args.load_checkpoint:
+        trainer.load_checkpoint(args.load_checkpoint)
+    
+    # 训练
+    trainer.train(
+        num_epochs=args.epochs,
+        train_batches=args.train_batches,
+        val_batches=args.val_batches,
+        batch_size=args.batch_size
+    )
+
+
+if __name__ == "__main__":
+    main()

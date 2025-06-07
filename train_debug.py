@@ -74,18 +74,32 @@ class SRSTrainer:
                 param.requires_grad = True
         
         # Create optimizer
-        model_params = list(self.srs_estimator.parameters())
+        model_params = []
+        # 添加SRSChannelEstimator的参数
+        for name, param in self.srs_estimator.named_parameters():
+            if param.requires_grad:
+                print(f"Adding trainable parameter: {name}, shape: {param.shape}")
+                model_params.append(param)
+        
+        # 添加MMSE模块的参数
         if self.mmse_module:
-            model_params += list(self.mmse_module.parameters())
+            for name, param in self.mmse_module.named_parameters():
+                if param.requires_grad:
+                    print(f"Adding trainable MMSE parameter: {name}, shape: {param.shape}")
+                    model_params.append(param)
+        
+        # 确保模型有可训练参数
+        if len(model_params) == 0:
+            raise ValueError("No trainable parameters found in the model!")
         
         # Print number of trainable parameters
-        total_params = sum(p.numel() for p in model_params if p.requires_grad)
-        print(f"Total trainable parameters: {total_params}")
+        total_params = sum(p.numel() for p in model_params)
+        print(f"总共有 {total_params} 个可训练参数")
         
         self.optimizer = optim.Adam(model_params, lr=0.001)
         
         # Loss function
-        self.loss_fn = nn.MSELoss()
+        self.loss_fn = nn.MSELoss(reduction='sum')
         
         # Create save directory if it doesn't exist
         os.makedirs(save_dir, exist_ok=True)
@@ -122,7 +136,7 @@ class SRSTrainer:
         if self.mmse_module:
             self.mmse_module.train()
         
-        for batch_idx in tqdm(range(num_batches), desc="Training"):
+        for batch_idx in tqdm(range(num_batches), desc="训练中"):
             # Generate batch
             batch = self.data_gen.generate_batch(batch_size)
             
@@ -134,18 +148,18 @@ class SRSTrainer:
             # Clear gradients
             self.optimizer.zero_grad()
             
-            # Forward pass
-            batch_loss = 0
-            batch_nmse = 0
+            # Forward pass - 整个批次的累计损失
+            batch_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+            batch_nmse = 0.0
             
             for i in range(batch_size):
                 ls_estimate = ls_estimates[i]
-                noise_power = noise_powers[i].item()
+                noise_power = noise_powers[i].item()  # noise_power是标量，不需要梯度
                 
                 # Use trainable MMSE module if available
                 if self.mmse_module:
                     # Extract channel statistics from ls_estimate
-                    channel_stats = torch.abs(ls_estimate)  # Use magnitude as channel statistics
+                    channel_stats = torch.abs(ls_estimate).detach()  # 用于MMSE的统计信息不需要梯度
                     
                     # Get trainable C and R matrices
                     C, R = self.mmse_module(channel_stats, torch.tensor([noise_power], device=self.device))
@@ -153,12 +167,15 @@ class SRSTrainer:
                     # Set MMSE matrices in estimator
                     self.srs_estimator.set_mmse_matrices(C=C, R=R)
                 
-                # Process through SRS estimator - make sure output requires grad
+                # Process through SRS estimator
                 channel_estimates = self.srs_estimator(
                     ls_estimate=ls_estimate,
                     cyclic_shifts=self.config.cyclic_shifts,
                     noise_power=noise_power
                 )
+                
+                # 创建一个新的损失累积器 (requires_grad=True)
+                sample_total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
                 
                 # Calculate loss for each user/port
                 idx = 0
@@ -168,67 +185,60 @@ class SRSTrainer:
                             true_channel = true_channels[(u, p)][i]
                             est_channel = channel_estimates[idx]
                             
-                            # Ensure estimated channel requires gradient
+                            # 确保估计信道需要梯度
                             if not est_channel.requires_grad:
-                                print(f"Warning: Estimated channel doesn't require grad in batch {batch_idx}, sample {i}, user {u}, port {p}")
-                                est_channel = est_channel.detach().clone().requires_grad_(True)
+                                print(f"警告：估计的信道在批次 {batch_idx}，样本 {i}，用户 {u}，端口 {p} 不需要梯度")
+                                continue
+                                
+                            # 计算实部和虚部的损失
+                            real_loss = torch.mean((torch.real(est_channel) - torch.real(true_channel))**2)
+                            imag_loss = torch.mean((torch.imag(est_channel) - torch.imag(true_channel))**2)
                             
-                            # 使用复数张量的实部和虚部计算损失
-                            real_loss = self.loss_fn(torch.real(est_channel), torch.real(true_channel))
-                            imag_loss = self.loss_fn(torch.imag(est_channel), torch.imag(true_channel))
-                            
-                            # 总损失
+                            # 此样本的损失
                             sample_loss = real_loss + imag_loss
                             
-                            # 检查损失是否需要梯度
-                            if not sample_loss.requires_grad:
-                                print(f"Warning: Loss doesn't require grad in batch {batch_idx}, sample {i}, user {u}, port {p}")
-                            
-                            batch_loss += sample_loss
+                            # 使用加法赋值更新样本总损失
+                            sample_total_loss = sample_total_loss + sample_loss
                             
                             # Calculate NMSE
-                            nmse = calculate_nmse(true_channel, est_channel)
-                            batch_nmse += nmse
+                            with torch.no_grad():  # NMSE只用于监控，不需要梯度
+                                nmse = calculate_nmse(true_channel, est_channel)
+                                batch_nmse += nmse.item()
                             
                         idx += 1
+                
+                # 将这个样本的总损失加到批次损失中
+                batch_loss = batch_loss + sample_total_loss
             
-            # Average loss and NMSE over batch
-            num_channels = sum(self.config.ports_per_user)
-            batch_loss = batch_loss / (batch_size * num_channels)
-            batch_nmse = batch_nmse / (batch_size * num_channels)
-            
-            # Ensure loss has requires_grad=True
+            # 确保损失是一个需要梯度的标量
             if batch_loss.requires_grad:
                 # Backward pass and optimize
                 batch_loss.backward()
                 
-                # Gradient clipping to avoid explosion
-                torch.nn.utils.clip_grad_norm_(
-                    [p for p in self.srs_estimator.parameters() if p.requires_grad], 
-                    max_norm=1.0
-                )
+                # 打印所有参数的梯度信息，用于调试
+                for name, param in self.srs_estimator.named_parameters():
+                    if param.requires_grad:
+                        if param.grad is None:
+                            print(f"参数 {name} 没有梯度")
+                        elif param.grad.abs().sum().item() == 0:
+                            print(f"参数 {name} 的梯度全为零")
                 
-                if self.mmse_module:
-                    torch.nn.utils.clip_grad_norm_(
-                        [p for p in self.mmse_module.parameters() if p.requires_grad], 
-                        max_norm=1.0
-                    )
-                
+                # 执行梯度更新
                 self.optimizer.step()
             else:
-                print(f"Warning: Loss does not require grad in batch {batch_idx}. Skipping backward pass.")
-                # Debug information
-                print(f"Number of parameters requiring gradients: {sum(p.requires_grad for p in self.srs_estimator.parameters())}")
-                if self.mmse_module:
-                    print(f"Number of MMSE parameters requiring gradients: {sum(p.requires_grad for p in self.mmse_module.parameters())}")
+                print(f"警告：批次 {batch_idx} 的损失不需要梯度。跳过反向传播。")
+                print(f"批次损失的类型：{type(batch_loss)}")
+                print(f"批次损失的requires_grad：{batch_loss.requires_grad}")
             
             # Update totals
-            total_loss += batch_loss.item()
-            total_nmse += batch_nmse
+            with torch.no_grad():
+                total_loss += batch_loss.item()
+                total_nmse += batch_nmse
         
         # Calculate averages
-        avg_loss = total_loss / num_batches
-        avg_nmse = total_nmse / num_batches
+        num_channels = batch_size * sum(self.config.ports_per_user) * num_batches
+        avg_loss = total_loss / num_channels
+        avg_nmse = total_nmse / num_channels
         
         return avg_loss, avg_nmse
     
@@ -251,7 +261,7 @@ class SRSTrainer:
             self.mmse_module.eval()
         
         with torch.no_grad():
-            for _ in tqdm(range(num_batches), desc="Validating"):
+            for _ in tqdm(range(num_batches), desc="验证中"):
                 # Generate batch
                 batch = self.data_gen.generate_batch(batch_size)
                 
@@ -271,7 +281,7 @@ class SRSTrainer:
                     # Use trainable MMSE module if available
                     if self.mmse_module:
                         # Extract channel statistics from ls_estimate
-                        channel_stats = torch.abs(ls_estimate)  # Use magnitude as channel statistics
+                        channel_stats = torch.abs(ls_estimate)
                         
                         # Get trainable C and R matrices
                         C, R = self.mmse_module(channel_stats, torch.tensor([noise_power], device=self.device))
@@ -295,33 +305,26 @@ class SRSTrainer:
                                 est_channel = channel_estimates[idx]
                                 
                                 # Calculate loss
-                                sample_loss = self.loss_fn(
-                                    torch.real(est_channel),
-                                    torch.real(true_channel)
-                                ) + self.loss_fn(
-                                    torch.imag(est_channel),
-                                    torch.imag(true_channel)
-                                )
+                                real_loss = torch.mean((torch.real(est_channel) - torch.real(true_channel))**2)
+                                imag_loss = torch.mean((torch.imag(est_channel) - torch.imag(true_channel))**2)
+                                sample_loss = real_loss + imag_loss
                                 
-                                batch_loss += sample_loss
+                                batch_loss += sample_loss.item()
                                 
                                 # Calculate NMSE
                                 nmse = calculate_nmse(true_channel, est_channel)
-                                batch_nmse += nmse
+                                batch_nmse += nmse.item()
                                 
                             idx += 1
                 
-                # Average loss and NMSE over batch
-                batch_loss /= (batch_size * sum(self.config.ports_per_user))
-                batch_nmse /= (batch_size * sum(self.config.ports_per_user))
-                
                 # Update totals
-                total_loss += batch_loss.item()
+                total_loss += batch_loss
                 total_nmse += batch_nmse
         
         # Calculate averages
-        avg_loss = total_loss / num_batches
-        avg_nmse = total_nmse / num_batches
+        num_channels = batch_size * sum(self.config.ports_per_user) * num_batches
+        avg_loss = total_loss / num_channels
+        avg_nmse = total_nmse / num_channels
         
         return avg_loss, avg_nmse
     
@@ -336,7 +339,7 @@ class SRSTrainer:
             batch_size: Batch size
         """
         for epoch in range(num_epochs):
-            print(f"Epoch {epoch+1}/{num_epochs}")
+            print(f"训练轮次 {epoch+1}/{num_epochs}")
             
             # Train
             train_loss, train_nmse = self.train_epoch(train_batches, batch_size)
@@ -348,8 +351,8 @@ class SRSTrainer:
             self.val_losses.append(val_loss)
             self.val_nmse.append(val_nmse)
             
-            print(f"Train Loss: {train_loss:.6f}, Train NMSE: {train_nmse:.2f} dB")
-            print(f"Val Loss: {val_loss:.6f}, Val NMSE: {val_nmse:.2f} dB")
+            print(f"训练损失: {train_loss:.6f}, 训练NMSE: {train_nmse:.2f} dB")
+            print(f"验证损失: {val_loss:.6f}, 验证NMSE: {val_nmse:.2f} dB")
             
             # Log metrics to TensorBoard
             self.writer.add_scalar('Loss/train', train_loss, epoch)
@@ -416,7 +419,7 @@ class SRSTrainer:
         self.train_nmse = checkpoint['train_nmse']
         self.val_nmse = checkpoint['val_nmse']
         
-        print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
+        print(f"加载了第 {checkpoint['epoch']} 轮的检查点")
     
     def plot_training_progress(self) -> None:
         """Plot training progress"""
@@ -428,21 +431,21 @@ class SRSTrainer:
         
         # Loss plot
         plt.subplot(1, 2, 1)
-        plt.plot(self.train_losses, 'b-', label='Train Loss')
-        plt.plot(self.val_losses, 'r-', label='Val Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.title('Training and Validation Loss')
+        plt.plot(self.train_losses, 'b-', label='训练损失')
+        plt.plot(self.val_losses, 'r-', label='验证损失')
+        plt.xlabel('轮次')
+        plt.ylabel('损失')
+        plt.title('训练和验证损失')
         plt.legend()
         plt.grid(True)
         
         # NMSE plot
         plt.subplot(1, 2, 2)
-        plt.plot(self.train_nmse, 'b-', label='Train NMSE')
-        plt.plot(self.val_nmse, 'r-', label='Val NMSE')
-        plt.xlabel('Epoch')
+        plt.plot(self.train_nmse, 'b-', label='训练NMSE')
+        plt.plot(self.val_nmse, 'r-', label='验证NMSE')
+        plt.xlabel('轮次')
         plt.ylabel('NMSE (dB)')
-        plt.title('Training and Validation NMSE')
+        plt.title('训练和验证NMSE')
         plt.legend()
         plt.grid(True)
         
@@ -478,7 +481,7 @@ def main():
         config=config,
         save_dir=args.save_dir,
         use_trainable_mmse=args.use_trainable_mmse,
-        enable_plotting=args.enable_plotting  # Use the command line argument
+        enable_plotting=args.enable_plotting
     )
     
     # Load checkpoint if specified

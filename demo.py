@@ -46,12 +46,13 @@ def demo_srs_channel_estimation(
         mmse_block_size=config.mmse_block_size,
         device=device
     ).to(device)
-    
-    # Create MMSE module if needed
+      # Create MMSE module if needed
     mmse_module = None
     if use_trainable_mmse:
         mmse_module = TrainableMMSEModule(
-            seq_length=config.seq_length
+            seq_length=config.seq_length,
+            mmse_block_size=config.mmse_block_size,
+            use_complex_input=True
         ).to(device)
     
     # Load checkpoint if provided

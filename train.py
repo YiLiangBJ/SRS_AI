@@ -53,11 +53,12 @@ class SRSTrainer:
             max_ports_per_user=max(config.ports_per_user),
             mmse_block_size=config.mmse_block_size,
             device=device
-        ).to(device)
-          # Create trainable MMSE module if needed
+        ).to(device)        # Create trainable MMSE module if needed
         if use_trainable_mmse:
             self.mmse_module = TrainableMMSEModule(
-                seq_length=config.seq_length
+                seq_length=config.seq_length,
+                mmse_block_size=config.mmse_block_size,
+                use_complex_input=True
             ).to(device)
         else:
             self.mmse_module = None
