@@ -5,7 +5,9 @@ from model import SRSChannelEstimator
 
 def test_linear_interpolation():
     # Initialize SRS estimator with minimal parameters for testing
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    model = SRSChannelEstimator(
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
+    
+    model = SRSChannelEstimator(
         seq_length=12,  # Use small values for visualization
         ktc=4,
         max_users=1,
