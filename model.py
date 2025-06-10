@@ -318,7 +318,8 @@ class SRSChannelEstimator(nn.Module):
         
         # Calculate average power of differences (divided by 2 as explained in theory)
         noise_power = torch.mean(torch.abs(diff)**2) / 2
-        return noise_power.item()    
+        return noise_power.item()
+        
     def _apply_mmse_filter(self, h: torch.Tensor, noise_power: float, user_port: Tuple[int, int] = None) -> torch.Tensor:
         """
         Apply MMSE filtering in blocks: h_mmse = C * (C + R)^-1 * h
@@ -356,10 +357,9 @@ class SRSChannelEstimator(nn.Module):
             
             # Extract block
             h_block = h[start_idx:end_idx]
-            
-            # Get block-specific MMSE matrices
-            C_block = self._get_block_C_matrix(current_block_size)
-            R_block = self._get_block_R_matrix(noise_power, current_block_size)
+              # Get block-specific MMSE matrices - use user_port specific if provided
+            C_block = self._get_block_C_matrix(current_block_size, user_port)
+            R_block = self._get_block_R_matrix(noise_power, current_block_size, user_port)
             
             # Apply MMSE filter to block
             h_block_vec = h_block.reshape(-1, 1)  # Convert to column vector
@@ -370,20 +370,27 @@ class SRSChannelEstimator(nn.Module):
             
             # Store filtered block in output
             h_mmse[start_idx:end_idx] = h_block_mmse.reshape(-1)
-        
         return h_mmse
         
-    def _get_block_C_matrix(self, block_size: int) -> torch.Tensor:
+    def _get_block_C_matrix(self, block_size: int, user_port: Tuple[int, int] = None) -> torch.Tensor:
         """
         Get channel correlation matrix C for a specific block size
         
         Args:
             block_size: Size of the block to process
+            user_port: Optional tuple of (user_idx, port_idx) for user/port specific matrices
             
         Returns:
             C matrix for MMSE filtering of the specified block
         """
-        # If we have a stored C_matrix from the MLP, use it directly
+        # Check if we have a user-specific matrix
+        if user_port is not None and hasattr(self, 'C_matrices') and user_port in self.C_matrices:
+            user_matrix = self.C_matrices[user_port]
+            # Check if dimensions match
+            if user_matrix.shape[0] == block_size:
+                return user_matrix
+        
+        # If not, try the global matrix
         if self.C_matrix is not None:
             # Check if dimensions match
             if self.C_matrix.shape[0] == block_size:
@@ -400,24 +407,32 @@ class SRSChannelEstimator(nn.Module):
         tau = 0.1  # Time constant
         for i in range(block_size):
             for j in range(block_size):
-                delay_diff = abs(i - j)
-                # Convert scalar to tensor before using torch.exp
+                delay_diff = abs(i - j)                # Convert scalar to tensor before using torch.exp
                 exponent = torch.tensor(-delay_diff / (tau * block_size), device=self.device)
                 C[i, j] = torch.exp(exponent)
         
         return C
-    def _get_block_R_matrix(self, noise_power: float, block_size: int) -> torch.Tensor:
+        
+    def _get_block_R_matrix(self, noise_power: float, block_size: int, user_port: Tuple[int, int] = None) -> torch.Tensor:
         """
         Get noise correlation matrix R for a specific block size
         
         Args:
             noise_power: Estimated noise power
             block_size: Size of the block to process
+            user_port: Optional tuple of (user_idx, port_idx) for user/port specific matrices
             
         Returns:
             R matrix for MMSE filtering of the specified block
         """
-        # If we have a stored R_matrix from the MLP, use it directly
+        # Check if we have a user-specific matrix
+        if user_port is not None and hasattr(self, 'R_matrices') and user_port in self.R_matrices:
+            user_matrix = self.R_matrices[user_port]
+            # Check if dimensions match
+            if user_matrix.shape[0] == block_size:
+                return user_matrix
+        
+        # If not, try the global matrix
         if self.R_matrix is not None:
             # Check if dimensions match
             if self.R_matrix.shape[0] == block_size:
@@ -456,7 +471,6 @@ class SRSChannelEstimator(nn.Module):
                     C[i, j] = torch.exp(exponent)
             
             return C
-    
     def _get_R_matrix(self, noise_power: float) -> torch.Tensor:
         """
         Get noise correlation matrix R for the entire sequence
@@ -475,19 +489,34 @@ class SRSChannelEstimator(nn.Module):
             L = self.seq_length
             R = torch.eye(L, device=self.device) * noise_power
             return R
-
-    def set_mmse_matrices(self, C: torch.Tensor = None, R: torch.Tensor = None):
+            
+    def set_mmse_matrices(self, C: torch.Tensor = None, R: torch.Tensor = None, user_port: Tuple[int, int] = None):
         """
         Set custom MMSE filter matrices
         
         Args:
             C: Channel correlation matrix
             R: Noise correlation matrix
+            user_port: Optional tuple of (user_idx, port_idx) for user/port specific matrices
         """
-        if C is not None:
-            self.C_matrix = C
-        if R is not None:
-            self.R_matrix = R
+        if user_port is not None:
+            # Initialize dictionaries if they don't exist yet
+            if not hasattr(self, 'C_matrices'):
+                self.C_matrices = {}
+            if not hasattr(self, 'R_matrices'):
+                self.R_matrices = {}
+            
+            # Store matrices for this specific user/port
+            if C is not None:
+                self.C_matrices[user_port] = C
+            if R is not None:
+                self.R_matrices[user_port] = R
+        else:
+            # Legacy behavior - set global matrices
+            if C is not None:
+                self.C_matrix = C
+            if R is not None:
+                self.R_matrix = R
 
 
 class TrainableMMSEModule(nn.Module):
