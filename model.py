@@ -38,13 +38,15 @@ class SRSChannelEstimator(nn.Module):
         self.max_users = max_users
         self.max_ports_per_user = max_ports_per_user
         self.mmse_block_size = mmse_block_size
-        self.device = device
-          # Initialize parameters for MMSE filter matrices
+        self.device = device        # Initialize parameters for MMSE filter matrices
         # These could be trainable or set by traditional methods
         self.C_matrix = None
         self.R_matrix = None
         
         # Initialize h_with_residual/phasor for use in MMSE matrix generation
+        # 存储每个用户/端口的h_with_residual_phasor
+        self.current_h_with_residual_phasors = {}
+        # 保留单个变量作为向后兼容
         self.current_h_with_residual_phasor = None
 
     def forward(
@@ -98,10 +100,12 @@ class SRSChannelEstimator(nn.Module):
                 m_u_p = (T_u_p + ideal_peak)
                 
                 # Generate phasor for shifting
-                phasor = self._generate_phasor(m_u_p)
+                phasor_m = self._generate_phasor(m_u_p)
+                phasor_T = self._generate_phasor(T_u_p)
+                phasor_ideal = self._generate_phasor(ideal_peak)
                 
                 # Shift the channel to align peak at position 0
-                h_u_p = ls_estimate * phasor
+                h_u_p = ls_estimate * phasor_m
                 
                 # Apply OCC de-multiplexing
                 h_avg = self._apply_occ_demux(h_u_p, Locc)
@@ -109,13 +113,13 @@ class SRSChannelEstimator(nn.Module):
                 # Linear interpolation back to full length
                 h_interpolated = self._linear_interpolation(h_avg, self.seq_length)
                 
-                h_processed_list.append((u, p, h_interpolated, phasor))
+                h_processed_list.append((u, p, h_interpolated, phasor_m, phasor_T, phasor_ideal))
         
         # Reconstruct combined signal
         h_reconstructed = torch.zeros_like(ls_estimate, dtype=torch.complex64)
-        for u, p, h_interp, phasor in h_processed_list:
+        for u, p, h_interp, phasor_m, _, _ in h_processed_list:
             # Shift back to original position
-            h_reconstructed += h_interp / phasor
+            h_reconstructed += h_interp / phasor_m
         
         # Calculate residual
         residual = ls_estimate - h_reconstructed
@@ -124,26 +128,28 @@ class SRSChannelEstimator(nn.Module):
         
         # Create a dictionary to store processed channels for each user-port combination
         processed_channels = {}
-        for u, p, h_interp, phasor in h_processed_list:
-            processed_channels[(u, p)] = (h_interp, phasor)
-        
-        # Process each user-port combination to get final estimates
+        for u, p, h_interp, phasor_m, phasor_T, phasor_ideal in h_processed_list:
+            processed_channels[(u, p)] = (h_interp, phasor_m, phasor_T)
+          # Process each user-port combination to get final estimates
         for u in range(num_users):
             for p in range(num_ports_per_user[u]):
-                h_interp, phasor = processed_channels[(u, p)]
+                h_interp, phasor_m, phasor_T = processed_channels[(u, p)]
                   # Add residual with appropriate phase correction
-                h_with_residual = h_interp + residual * phasor
+                h_with_residual = h_interp + residual * phasor_m
                 
                 # 保存相位校正后的信道信息，可以用作MMSE矩阵生成的输入
-                self.current_h_with_residual_phasor = h_with_residual / phasor
+                # 为每个用户/端口单独存储h_with_residual_phasor
+                self.current_h_with_residual_phasors[(u, p)] = h_with_residual / phasor_T
+                # 同时更新单个变量以保持向后兼容 - 保存最后一个处理的值
+                # self.current_h_with_residual_phasor = h_with_residual / phasor_m
                   
                 # Apply MMSE filtering
                 if noise_power is None:
                     noise_power = self._estimate_noise_power(ls_estimate)
                 
                 h_mmse = self._apply_mmse_filter(h_with_residual, noise_power)
-                phasor = self._generate_phasor(timing_offsets[(u, p)])
-                h_mmse_aligned = h_mmse / phasor
+                phasor_m = self._generate_phasor(timing_offsets[(u, p)])
+                h_mmse_aligned = h_mmse / phasor_m
                 final_estimates.append(h_mmse_aligned)
         
         return final_estimates
@@ -312,8 +318,8 @@ class SRSChannelEstimator(nn.Module):
         
         # Calculate average power of differences (divided by 2 as explained in theory)
         noise_power = torch.mean(torch.abs(diff)**2) / 2
-        return noise_power.item()
-    def _apply_mmse_filter(self, h: torch.Tensor, noise_power: float) -> torch.Tensor:
+        return noise_power.item()    
+    def _apply_mmse_filter(self, h: torch.Tensor, noise_power: float, user_port: Tuple[int, int] = None) -> torch.Tensor:
         """
         Apply MMSE filtering in blocks: h_mmse = C * (C + R)^-1 * h
         
@@ -323,6 +329,7 @@ class SRSChannelEstimator(nn.Module):
         Args:
             h: Input channel estimate
             noise_power: Noise power estimate
+            user_port: Optional tuple of (user_idx, port_idx) to use specific matrices
             
         Returns:
             MMSE filtered channel estimate

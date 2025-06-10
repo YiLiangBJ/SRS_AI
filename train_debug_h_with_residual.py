@@ -162,23 +162,41 @@ class SRSTrainerModified:
                   
                 # 创建一个新的损失累积器 (requires_grad=True)
                 sample_total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
-                
-                # 使用trainable MMSE模块 - 但与原来不同，我们使用h_with_residual/phasor作为输入
+                  # 使用trainable MMSE模块 - 但与原来不同，我们使用h_with_residual/phasor作为输入
                 if self.mmse_module:
-                    # 首先运行SRS估计器来生成h_with_residual/phasor
+                    # 首先运行SRS估计器来生成每个用户/端口的h_with_residual/phasor
                     channel_estimates_initial = self.srs_estimator(
                         ls_estimate=ls_estimate,
                         cyclic_shifts=self.config.cyclic_shifts,
                         noise_power=noise_power
                     )
                     
-                    # 检查是否有h_with_residual/phasor可用
-                    if self.srs_estimator.current_h_with_residual_phasor is not None:
-                        # 使用h_with_residual/phasor作为输入来生成MMSE矩阵
-                        C, R = self.mmse_module(self.srs_estimator.current_h_with_residual_phasor)
+                    # 对所有用户/端口的h_with_residual/phasor进行处理
+                    h_inputs = []  # 收集所有用户/端口的h_with_residual/phasor
+                    user_port_pairs = []
+                    
+                    # 检查是否有h_with_residual/phasors字典可用
+                    if hasattr(self.srs_estimator, 'current_h_with_residual_phasors') and self.srs_estimator.current_h_with_residual_phasors:
+                        for (u, p), h_input in self.srs_estimator.current_h_with_residual_phasors.items():
+                            h_inputs.append(h_input)
+                            user_port_pairs.append((u, p))
+                            
+                        # 所有用户/端口共享同一个MMSE矩阵生成网络
+                        # 对每个用户/端口分别生成MMSE矩阵
+                        all_C = {}
+                        all_R = {}
                         
-                        # 设置MMSE矩阵
-                        self.srs_estimator.set_mmse_matrices(C=C, R=R)
+                        for idx, (u, p) in enumerate(user_port_pairs):
+                            # 使用当前用户/端口的h_with_residual/phasor作为输入
+                            C, R = self.mmse_module(h_inputs[idx])
+                            all_C[(u, p)] = C
+                            all_R[(u, p)] = R
+                        
+                        # 使用最后一个MMSE矩阵设置估计器（这是为了兼容性）
+                        # 在理想情况下，我们应该为每个用户/端口分别应用对应的MMSE矩阵
+                        if user_port_pairs:
+                            last_u, last_p = user_port_pairs[-1]
+                            self.srs_estimator.set_mmse_matrices(C=all_C[(last_u, last_p)], R=all_R[(last_u, last_p)])
                         
                         # 重新运行估计器，使用新生成的MMSE矩阵
                         channel_estimates = self.srs_estimator(
@@ -187,7 +205,17 @@ class SRSTrainerModified:
                             noise_power=noise_power
                         )
                     else:
-                        channel_estimates = channel_estimates_initial
+                        # 如果没有可用的字典，则回退到使用单个h_with_residual_phasor
+                        if self.srs_estimator.current_h_with_residual_phasor is not None:
+                            C, R = self.mmse_module(self.srs_estimator.current_h_with_residual_phasor)
+                            self.srs_estimator.set_mmse_matrices(C=C, R=R)
+                            channel_estimates = self.srs_estimator(
+                                ls_estimate=ls_estimate,
+                                cyclic_shifts=self.config.cyclic_shifts,
+                                noise_power=noise_power
+                            )
+                        else:
+                            channel_estimates = channel_estimates_initial
                 else:
                     # 正常运行SRS估计器
                     channel_estimates = self.srs_estimator(
@@ -350,8 +378,7 @@ class SRSTrainerModified:
                 for i in range(batch_size):
                     ls_estimate = ls_estimates[i]
                     noise_power = noise_powers[i].item()
-                      
-                    # Use trainable MMSE module with h_with_residual/phasor
+                        # Use trainable MMSE module with h_with_residual/phasor
                     if self.mmse_module:
                         # 首先运行SRS估计器来生成h_with_residual/phasor
                         channel_estimates_initial = self.srs_estimator(
@@ -360,13 +387,30 @@ class SRSTrainerModified:
                             noise_power=noise_power
                         )
                         
-                        # 检查是否有h_with_residual/phasor可用
-                        if self.srs_estimator.current_h_with_residual_phasor is not None:
-                            # 使用h_with_residual/phasor作为输入来生成MMSE矩阵
-                            C, R = self.mmse_module(self.srs_estimator.current_h_with_residual_phasor)
+                        # 对所有用户/端口的h_with_residual/phasor进行处理
+                        h_inputs = []
+                        user_port_pairs = []
+                        
+                        # 检查是否有h_with_residual/phasors字典可用
+                        if hasattr(self.srs_estimator, 'current_h_with_residual_phasors') and self.srs_estimator.current_h_with_residual_phasors:
+                            for (u, p), h_input in self.srs_estimator.current_h_with_residual_phasors.items():
+                                h_inputs.append(h_input)
+                                user_port_pairs.append((u, p))
+                                
+                            # 对每个用户/端口分别生成MMSE矩阵
+                            all_C = {}
+                            all_R = {}
                             
-                            # 设置MMSE矩阵
-                            self.srs_estimator.set_mmse_matrices(C=C, R=R)
+                            for idx, (u, p) in enumerate(user_port_pairs):
+                                # 使用当前用户/端口的h_with_residual/phasor作为输入
+                                C, R = self.mmse_module(h_inputs[idx])
+                                all_C[(u, p)] = C
+                                all_R[(u, p)] = R
+                            
+                            # 使用最后一个MMSE矩阵设置估计器
+                            if user_port_pairs:
+                                last_u, last_p = user_port_pairs[-1]
+                                self.srs_estimator.set_mmse_matrices(C=all_C[(last_u, last_p)], R=all_R[(last_u, last_p)])
                             
                             # 重新运行估计器，使用新生成的MMSE矩阵
                             channel_estimates = self.srs_estimator(
@@ -375,7 +419,17 @@ class SRSTrainerModified:
                                 noise_power=noise_power
                             )
                         else:
-                            channel_estimates = channel_estimates_initial
+                            # 如果没有可用的字典，则回退到使用单个h_with_residual_phasor
+                            if self.srs_estimator.current_h_with_residual_phasor is not None:
+                                C, R = self.mmse_module(self.srs_estimator.current_h_with_residual_phasor)
+                                self.srs_estimator.set_mmse_matrices(C=C, R=R)
+                                channel_estimates = self.srs_estimator(
+                                    ls_estimate=ls_estimate,
+                                    cyclic_shifts=self.config.cyclic_shifts,
+                                    noise_power=noise_power
+                                )
+                            else:
+                                channel_estimates = channel_estimates_initial
                     else:
                         channel_estimates = self.srs_estimator(
                             ls_estimate=ls_estimate,
