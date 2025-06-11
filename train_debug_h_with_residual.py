@@ -191,12 +191,8 @@ class SRSTrainerModified:
                             C, R = self.mmse_module(h_inputs[idx])
                             all_C[(u, p)] = C
                             all_R[(u, p)] = R
-                        
-                        # 使用最后一个MMSE矩阵设置估计器（这是为了兼容性）
-                        # 在理想情况下，我们应该为每个用户/端口分别应用对应的MMSE矩阵
-                        if user_port_pairs:
-                            last_u, last_p = user_port_pairs[-1]
-                            self.srs_estimator.set_mmse_matrices(C=all_C[(last_u, last_p)], R=all_R[(last_u, last_p)])
+                            self.srs_estimator.set_mmse_matrices(C=all_C[(u, p)], R=all_R[(u, p)], user_port=(u, p))
+                            
                         
                         # 重新运行估计器，使用新生成的MMSE矩阵
                         channel_estimates = self.srs_estimator(

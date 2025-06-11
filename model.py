@@ -147,8 +147,8 @@ class SRSChannelEstimator(nn.Module):
                 if noise_power is None:
                     noise_power = self._estimate_noise_power(ls_estimate)
                 
-                h_mmse = self._apply_mmse_filter(h_with_residual, noise_power)
-                phasor_m = self._generate_phasor(timing_offsets[(u, p)])
+                h_mmse = self._apply_mmse_filter(h_with_residual, noise_power, (u,p))
+                # phasor_m = self._generate_phasor(timing_offsets[(u, p)])
                 h_mmse_aligned = h_mmse / phasor_m
                 final_estimates.append(h_mmse_aligned)
         
