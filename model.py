@@ -18,7 +18,8 @@ class SRSChannelEstimator(nn.Module):
         max_users: int = 8,
         max_ports_per_user: int = 4,
         mmse_block_size: int = 12,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu"
+        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        mmse_module = None
     ):
         """
         Initialize the SRS Channel Estimator
@@ -39,6 +40,7 @@ class SRSChannelEstimator(nn.Module):
         self.max_ports_per_user = max_ports_per_user
         self.mmse_block_size = mmse_block_size
         self.device = device        # Initialize parameters for MMSE filter matrices
+        self.mmse_module = mmse_module
         # These could be trainable or set by traditional methods
         self.C_matrix = None
         self.R_matrix = None
@@ -143,6 +145,13 @@ class SRSChannelEstimator(nn.Module):
                 # 同时更新单个变量以保持向后兼容 - 保存最后一个处理的值
                 # self.current_h_with_residual_phasor = h_with_residual / phasor_m
                   
+                # 如果存在 MMSE 模块，使用它生成 MMSE 矩阵
+                if self.mmse_module is not None:
+                    # 使用该用户/端口的 h_with_residual_phasor 生成 MMSE 矩阵
+                    C, R = self.mmse_module(self.current_h_with_residual_phasors[(u, p)])
+                    # 设置该用户/端口的 MMSE 矩阵
+                    self.set_mmse_matrices(C=C, R=R, user_port=(u, p))
+
                 # Apply MMSE filtering
                 if noise_power is None:
                     noise_power = self._estimate_noise_power(ls_estimate)

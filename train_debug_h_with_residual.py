@@ -46,16 +46,6 @@ class SRSTrainerModified:
         
         # Create data generator
         self.data_gen = SRSDataGenerator(config, device=device)
-        
-        # Create models
-        self.srs_estimator = SRSChannelEstimator(
-            seq_length=config.seq_length,
-            ktc=config.ktc,
-            max_users=config.num_users,
-            max_ports_per_user=max(config.ports_per_user),
-            mmse_block_size=config.mmse_block_size,
-            device=device
-        ).to(device)
           
         # Create trainable MMSE module if needed
         if use_trainable_mmse:
@@ -67,6 +57,17 @@ class SRSTrainerModified:
         else:
             self.mmse_module = None
             
+        # Create models
+        self.srs_estimator = SRSChannelEstimator(
+            seq_length=config.seq_length,
+            ktc=config.ktc,
+            max_users=config.num_users,
+            max_ports_per_user=max(config.ports_per_user),
+            mmse_block_size=config.mmse_block_size,
+            device=device,
+            mmse_module=self.mmse_module if use_trainable_mmse else None  # 传入 MMSE 模块
+        ).to(device)
+
         # Make sure all model parameters require gradients
         for name, param in self.srs_estimator.named_parameters():
             param.requires_grad = True
@@ -164,54 +165,12 @@ class SRSTrainerModified:
                 sample_total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
                   # 使用trainable MMSE模块 - 但与原来不同，我们使用h_with_residual/phasor作为输入
                 if self.mmse_module:
-                    # 首先运行SRS估计器来生成每个用户/端口的h_with_residual/phasor
-                    channel_estimates_initial = self.srs_estimator(
+                    # 运行MLP生成的MMSE滤波器
+                    channel_estimates = self.srs_estimator(
                         ls_estimate=ls_estimate,
                         cyclic_shifts=self.config.cyclic_shifts,
                         noise_power=noise_power
                     )
-                    
-                    # 对所有用户/端口的h_with_residual/phasor进行处理
-                    h_inputs = []  # 收集所有用户/端口的h_with_residual/phasor
-                    user_port_pairs = []
-                    
-                    # 检查是否有h_with_residual/phasors字典可用
-                    if hasattr(self.srs_estimator, 'current_h_with_residual_phasors') and self.srs_estimator.current_h_with_residual_phasors:
-                        for (u, p), h_input in self.srs_estimator.current_h_with_residual_phasors.items():
-                            h_inputs.append(h_input)
-                            user_port_pairs.append((u, p))
-                            
-                        # 所有用户/端口共享同一个MMSE矩阵生成网络
-                        # 对每个用户/端口分别生成MMSE矩阵
-                        all_C = {}
-                        all_R = {}
-                        
-                        for idx, (u, p) in enumerate(user_port_pairs):
-                            # 使用当前用户/端口的h_with_residual/phasor作为输入
-                            C, R = self.mmse_module(h_inputs[idx])
-                            all_C[(u, p)] = C
-                            all_R[(u, p)] = R
-                            self.srs_estimator.set_mmse_matrices(C=all_C[(u, p)], R=all_R[(u, p)], user_port=(u, p))
-                            
-                        
-                        # 重新运行估计器，使用新生成的MMSE矩阵
-                        channel_estimates = self.srs_estimator(
-                            ls_estimate=ls_estimate,
-                            cyclic_shifts=self.config.cyclic_shifts,
-                            noise_power=noise_power
-                        )
-                    else:
-                        # 如果没有可用的字典，则回退到使用单个h_with_residual_phasor
-                        if self.srs_estimator.current_h_with_residual_phasor is not None:
-                            C, R = self.mmse_module(self.srs_estimator.current_h_with_residual_phasor)
-                            self.srs_estimator.set_mmse_matrices(C=C, R=R)
-                            channel_estimates = self.srs_estimator(
-                                ls_estimate=ls_estimate,
-                                cyclic_shifts=self.config.cyclic_shifts,
-                                noise_power=noise_power
-                            )
-                        else:
-                            channel_estimates = channel_estimates_initial
                 else:
                     # 正常运行SRS估计器
                     channel_estimates = self.srs_estimator(
