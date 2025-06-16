@@ -135,13 +135,8 @@ def apply_channel(seq: torch.Tensor, channel_taps: torch.Tensor) -> torch.Tensor
     channel_taps_padded = torch.zeros(L, dtype=torch.complex64)
     channel_taps_padded[:len(channel_taps)] = channel_taps
     
-    # Circular convolution in time domain
-    seq_after_channel_time = torch.fft.ifft(
-        seq * torch.fft.fft(channel_taps_padded)
-    )
-    
     # Convert back to frequency domain
-    return torch.fft.fft(seq_after_channel_time)
+    return seq * torch.fft.fft(channel_taps_padded)
 
 
 def add_noise(seq: torch.Tensor, snr_db: float) -> torch.Tensor:
