@@ -128,38 +128,39 @@ class SRSChannelEstimator(nn.Module):
           # Add residual back to each estimate
         final_estimates = []
         
-        # Create a dictionary to store processed channels for each user-port combination
-        processed_channels = {}
-        for u, p, h_interp, phasor_m, phasor_T, phasor_ideal in h_processed_list:
-            processed_channels[(u, p)] = (h_interp, phasor_m, phasor_T)
-          # Process each user-port combination to get final estimates
-        for u in range(num_users):
-            for p in range(num_ports_per_user[u]):
-                h_interp, phasor_m, phasor_T = processed_channels[(u, p)]
-                  # Add residual with appropriate phase correction
-                h_with_residual = h_interp + residual * phasor_m
+        # # Create a dictionary to store processed channels for each user-port combination
+        # processed_channels = {}
+        # for u, p, h_interp, phasor_m, phasor_T, phasor_ideal in h_processed_list:
+        #     processed_channels[(u, p)] = (h_interp, phasor_m, phasor_T)
+        #   # Process each user-port combination to get final estimates
+        # for u in range(num_users):
+        #     for p in range(num_ports_per_user[u]):
+        #         h_interp, phasor_m, phasor_T = processed_channels[(u, p)]
+        for u, p, h_interp, phasor_m, phasor_T, _ in h_processed_list:
+            # Add residual with appropriate phase correction
+            h_with_residual = h_interp + residual * phasor_m
+            
+            # 保存相位校正后的信道信息，可以用作MMSE矩阵生成的输入
+            # 为每个用户/端口单独存储h_with_residual_phasor
+            self.current_h_with_residual_phasors[(u, p)] = h_with_residual / phasor_T
+            # 同时更新单个变量以保持向后兼容 - 保存最后一个处理的值
+            # self.current_h_with_residual_phasor = h_with_residual / phasor_m
                 
-                # 保存相位校正后的信道信息，可以用作MMSE矩阵生成的输入
-                # 为每个用户/端口单独存储h_with_residual_phasor
-                self.current_h_with_residual_phasors[(u, p)] = h_with_residual / phasor_T
-                # 同时更新单个变量以保持向后兼容 - 保存最后一个处理的值
-                # self.current_h_with_residual_phasor = h_with_residual / phasor_m
-                  
-                # 如果存在 MMSE 模块，使用它生成 MMSE 矩阵
-                if self.mmse_module is not None:
-                    # 使用该用户/端口的 h_with_residual_phasor 生成 MMSE 矩阵
-                    C, R = self.mmse_module(self.current_h_with_residual_phasors[(u, p)])
-                    # 设置该用户/端口的 MMSE 矩阵
-                    self.set_mmse_matrices(C=C, R=R, user_port=(u, p))
+            # 如果存在 MMSE 模块，使用它生成 MMSE 矩阵
+            if self.mmse_module is not None:
+                # 使用该用户/端口的 h_with_residual_phasor 生成 MMSE 矩阵
+                C, R = self.mmse_module(h_with_residual)
+                # 设置该用户/端口的 MMSE 矩阵
+                self.set_mmse_matrices(C=C, R=R, user_port=(u, p))
 
-                # Apply MMSE filtering
-                if noise_power is None:
-                    noise_power = self._estimate_noise_power(ls_estimate)
-                
-                h_mmse = self._apply_mmse_filter(h_with_residual, noise_power, (u,p))
-                # phasor_m = self._generate_phasor(timing_offsets[(u, p)])
-                h_mmse_aligned = h_mmse / phasor_m
-                final_estimates.append(h_mmse_aligned)
+            # Apply MMSE filtering
+            if noise_power is None:
+                noise_power = self._estimate_noise_power(ls_estimate)
+            
+            h_mmse = self._apply_mmse_filter(h_with_residual, noise_power, (u,p))
+            # phasor_m = self._generate_phasor(timing_offsets[(u, p)])
+            h_mmse_aligned = h_mmse / phasor_T
+            final_estimates.append(h_mmse_aligned)
         
         return final_estimates
     

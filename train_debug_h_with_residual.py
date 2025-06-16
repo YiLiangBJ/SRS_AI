@@ -191,13 +191,10 @@ class SRSTrainerModified:
                             if not est_channel.requires_grad:
                                 print(f"警告：估计的信道在批次 {batch_idx}，样本 {i}，用户 {u}，端口 {p} 不需要梯度")
                                 continue
-                                
-                            # 将估计信道转换回频域进行比较 (从K个时域抽头转换为L个频域点)
-                            est_channel_freq = torch.fft.fft(est_channel, n=self.config.seq_length)
                             
                             # 计算实部和虚部的损失
-                            real_loss = torch.mean((torch.real(est_channel_freq) - torch.real(true_channel))**2)
-                            imag_loss = torch.mean((torch.imag(est_channel_freq) - torch.imag(true_channel))**2)
+                            real_loss = torch.mean((torch.real(est_channel) - torch.real(true_channel))**2)
+                            imag_loss = torch.mean((torch.imag(est_channel) - torch.imag(true_channel))**2)
                               
                             # 此样本的损失
                             sample_loss = real_loss + imag_loss
@@ -207,7 +204,7 @@ class SRSTrainerModified:
                             
                             # Calculate NMSE
                             with torch.no_grad():  # NMSE只用于监控，不需要梯度
-                                nmse = calculate_nmse(true_channel, est_channel_freq)
+                                nmse = calculate_nmse(true_channel, est_channel)
                                 batch_nmse += nmse  # 累加NMSE值，稍后在打印时将除以样本数
                             
                         idx += 1
@@ -233,25 +230,25 @@ class SRSTrainerModified:
                             print(f"SRS参数 {name} 的梯度范数: {grad_norm:.6f}")
                             self.writer.add_scalar(f'Gradients/SRS_{name}', grad_norm, self.global_step)
                   
-                # 打印MMSE模块的梯度信息
-                if self.mmse_module:
-                    # 确保梯度信息打印在新行，避免与进度条同行
-                    print("")
-                    for name, param in self.mmse_module.named_parameters():
-                        if param.requires_grad:
-                            if param.grad is None:
-                                print(f"MMSE参数 {name} 没有梯度")
-                            elif param.grad.abs().sum().item() == 0:
-                                print(f"MMSE参数 {name} 的梯度全为零")
-                            else:
-                                grad_norm = param.grad.abs().sum().item()
-                                print(f"MMSE参数 {name} 的梯度范数: {grad_norm:.6f}")
+                # # 打印MMSE模块的梯度信息
+                # if self.mmse_module:
+                #     # 确保梯度信息打印在新行，避免与进度条同行
+                #     print("")
+                #     for name, param in self.mmse_module.named_parameters():
+                #         if param.requires_grad:
+                #             if param.grad is None:
+                #                 print(f"MMSE参数 {name} 没有梯度")
+                #             elif param.grad.abs().sum().item() == 0:
+                #                 print(f"MMSE参数 {name} 的梯度全为零")
+                #             else:
+                #                 grad_norm = param.grad.abs().sum().item()
+                #                 print(f"MMSE参数 {name} 的梯度范数: {grad_norm:.6f}")
                     
-                    # 记录每个MMSE参数的梯度范数到TensorBoard
-                    for name, param in self.mmse_module.named_parameters():
-                        if param.requires_grad and param.grad is not None:
-                            grad_norm = param.grad.abs().sum().item()
-                            self.writer.add_scalar(f'Gradients/{name}', grad_norm, self.global_step)
+                #     # 记录每个MMSE参数的梯度范数到TensorBoard
+                #     for name, param in self.mmse_module.named_parameters():
+                #         if param.requires_grad and param.grad is not None:
+                #             grad_norm = param.grad.abs().sum().item()
+                #             self.writer.add_scalar(f'Gradients/{name}', grad_norm, self.global_step)
                 
                 # 执行梯度更新
                 self.optimizer.step()            
@@ -284,13 +281,13 @@ class SRSTrainerModified:
                 
                 self.global_step += 1
           
-        # Calculate averages
-        # 我们需要计算整个epoch处理的总样本数
-        # 每个批次处理的样本数 = 批次大小 * 实际信道数量
-        # 整个epoch处理的总样本数 = 批次数 * 每个批次处理的样本数
-        actual_channel_count = sum(1 for u in range(self.config.num_users) 
-                                 for p in range(self.config.ports_per_user[u]) 
-                                 if (u, p) in true_channels)  # 使用最后一个批次的数据
+        # # Calculate averages
+        # # 我们需要计算整个epoch处理的总样本数
+        # # 每个批次处理的样本数 = 批次大小 * 实际信道数量
+        # # 整个epoch处理的总样本数 = 批次数 * 每个批次处理的样本数
+        # actual_channel_count = sum(1 for u in range(self.config.num_users) 
+        #                          for p in range(self.config.ports_per_user[u]) 
+        #                          if (u, p) in true_channels)  # 使用最后一个批次的数据
         num_channels = batch_size * actual_channel_count * num_batches
         avg_loss = total_loss / num_channels
         avg_nmse = total_nmse / num_channels
