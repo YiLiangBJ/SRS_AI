@@ -130,9 +130,6 @@ def apply_channel(seq: torch.Tensor, channel_taps: torch.Tensor) -> torch.Tensor
         - C and R matrices can be trainable parameters in a neural network, adapting to
           various channel conditions without explicit modeling
     """
-    # Convert sequence to time domain
-    seq_time = torch.fft.ifft(seq)
-    
     # Apply channel (circular convolution)
     L = len(seq)
     channel_taps_padded = torch.zeros(L, dtype=torch.complex64)
@@ -140,7 +137,7 @@ def apply_channel(seq: torch.Tensor, channel_taps: torch.Tensor) -> torch.Tensor
     
     # Circular convolution in time domain
     seq_after_channel_time = torch.fft.ifft(
-        torch.fft.fft(seq_time) * torch.fft.fft(channel_taps_padded)
+        seq * torch.fft.fft(channel_taps_padded)
     )
     
     # Convert back to frequency domain
