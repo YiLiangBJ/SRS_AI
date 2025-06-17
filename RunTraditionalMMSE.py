@@ -6,7 +6,7 @@ from typing import List, Dict, Optional, Tuple
 
 from config import SRSConfig, create_example_config
 from data_generator import SRSDataGenerator
-from model import SRSChannelEstimator, TrainableMMSEModule
+from model_Traditional import SRSChannelEstimator
 from utils import calculate_nmse
 
 
@@ -46,27 +46,9 @@ def demo_srs_channel_estimation(
         mmse_block_size=config.mmse_block_size,
         device=device
     ).to(device)
-      # Create MMSE module if needed
-    mmse_module = None
-    if use_trainable_mmse:
-        mmse_module = TrainableMMSEModule(
-            seq_length=config.seq_length,
-            mmse_block_size=config.mmse_block_size,
-            use_complex_input=True
-        ).to(device)
-    
-    # Load checkpoint if provided
-    if checkpoint_path:
-        checkpoint = torch.load(checkpoint_path)
-        srs_estimator.load_state_dict(checkpoint['srs_estimator_state_dict'])
-        
-        if 'mmse_module_state_dict' in checkpoint and mmse_module:
-            mmse_module.load_state_dict(checkpoint['mmse_module_state_dict'])
     
     # Set models to evaluation mode
     srs_estimator.eval()
-    if mmse_module:
-        mmse_module.eval()
     
     # Generate sample
     print("Generating sample data...")
@@ -88,19 +70,6 @@ def demo_srs_channel_estimation(
     # Process through model
     print("\nPerforming channel estimation...")
     with torch.no_grad():
-        # Use trainable MMSE module if available
-        if mmse_module:
-            print("Using trainable MMSE module")
-            # Extract channel statistics from ls_estimate
-            channel_stats = torch.abs(ls_estimate)
-            
-            # Get trainable C and R matrices
-            C, R = mmse_module(channel_stats, torch.tensor([noise_power], device=device))
-            
-            # Set MMSE matrices in estimator
-            srs_estimator.set_mmse_matrices(C=C, R=R)
-        else:
-            print("Using traditional MMSE approach")        # Process through SRS estimator
         # Use the same range as data_generator's delay_offset_range for consistency
         delay_search_range = data_gen.delay_offset_range
         channel_estimates = srs_estimator(
