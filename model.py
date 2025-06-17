@@ -121,7 +121,7 @@ class SRSChannelEstimator(nn.Module):
         h_reconstructed = torch.zeros_like(ls_estimate, dtype=torch.complex64)
         for u, p, h_interp, phasor_m, _, _ in h_processed_list:
             # Shift back to original position
-            h_reconstructed += h_interp / phasor_m
+            h_reconstructed += h_interp * torch.conj(phasor_m)
         
         # Calculate residual
         residual = ls_estimate - h_reconstructed
@@ -142,7 +142,7 @@ class SRSChannelEstimator(nn.Module):
             
             # 保存相位校正后的信道信息，可以用作MMSE矩阵生成的输入
             # 为每个用户/端口单独存储h_with_residual_phasor
-            self.current_h_with_residual_phasors[(u, p)] = h_with_residual / phasor_T
+            self.current_h_with_residual_phasors[(u, p)] = h_with_residual * torch.conj(phasor_T)
             # 同时更新单个变量以保持向后兼容 - 保存最后一个处理的值
             # self.current_h_with_residual_phasor = h_with_residual / phasor_m
                 
@@ -159,7 +159,7 @@ class SRSChannelEstimator(nn.Module):
             
             h_mmse = self._apply_mmse_filter(h_with_residual, noise_power, (u,p))
             # phasor_m = self._generate_phasor(timing_offsets[(u, p)])
-            h_mmse_aligned = h_mmse / phasor_T
+            h_mmse_aligned = h_mmse * torch.conj(phasor_T)
             final_estimates.append(h_mmse_aligned)
         
         return final_estimates
@@ -197,7 +197,7 @@ class SRSChannelEstimator(nn.Module):
             Timing offset in samples
         """
         # Get magnitude of h_time
-        h_mag = torch.abs(h_time)
+        h_mag = torch.abs(h_time)**2
         
         # Define the search range around ideal_peak
         min_offset, max_offset = search_range

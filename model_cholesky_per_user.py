@@ -70,12 +70,16 @@ class TrainableMMSEPerUserModule(nn.Module):
                     nn.ReLU(),
                     nn.Linear(hidden_dim, hidden_dim),
                     nn.ReLU(),
+                    nn.Linear(hidden_dim, hidden_dim),
+                    nn.ReLU(),
                     nn.Linear(hidden_dim, c_matrix_size)
                 )
                 
                 # 为该用户和端口创建R矩阵生成器
                 self.R_generators[key] = nn.Sequential(
                     nn.Linear(input_dim, hidden_dim),
+                    nn.ReLU(),
+                    nn.Linear(hidden_dim, hidden_dim),
                     nn.ReLU(),
                     nn.Linear(hidden_dim, hidden_dim),
                     nn.ReLU(),

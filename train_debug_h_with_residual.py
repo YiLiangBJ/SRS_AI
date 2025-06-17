@@ -223,32 +223,12 @@ class SRSTrainerModified:
                     if param.requires_grad:
                         if param.grad is None:
                             print(f"SRS参数 {name} 没有梯度")
-                        elif param.grad.abs().sum().item() == 0:
+                        elif param.grad.abs().mean().item() == 0:
                             print(f"SRS参数 {name} 的梯度全为零")
                         else:
-                            grad_norm = param.grad.abs().sum().item()
+                            grad_norm = param.grad.abs().mean().item()
                             print(f"SRS参数 {name} 的梯度范数: {grad_norm:.6f}")
                             self.writer.add_scalar(f'Gradients/SRS_{name}', grad_norm, self.global_step)
-                  
-                # # 打印MMSE模块的梯度信息
-                # if self.mmse_module:
-                #     # 确保梯度信息打印在新行，避免与进度条同行
-                #     print("")
-                #     for name, param in self.mmse_module.named_parameters():
-                #         if param.requires_grad:
-                #             if param.grad is None:
-                #                 print(f"MMSE参数 {name} 没有梯度")
-                #             elif param.grad.abs().sum().item() == 0:
-                #                 print(f"MMSE参数 {name} 的梯度全为零")
-                #             else:
-                #                 grad_norm = param.grad.abs().sum().item()
-                #                 print(f"MMSE参数 {name} 的梯度范数: {grad_norm:.6f}")
-                    
-                #     # 记录每个MMSE参数的梯度范数到TensorBoard
-                #     for name, param in self.mmse_module.named_parameters():
-                #         if param.requires_grad and param.grad is not None:
-                #             grad_norm = param.grad.abs().sum().item()
-                #             self.writer.add_scalar(f'Gradients/{name}', grad_norm, self.global_step)
                 
                 # 执行梯度更新
                 self.optimizer.step()            
