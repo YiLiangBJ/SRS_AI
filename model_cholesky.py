@@ -50,24 +50,32 @@ class TrainableMMSEModule(nn.Module):
         r_matrix_size = real_params + imag_params
           # Networks to generate Cholesky factors (L matrices) for C and R
         self.C_factor_generator = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Linear(input_dim, hidden_dim * 2),  # 增加神经元数量
+            nn.LayerNorm(hidden_dim * 2),         # 添加批标准化
+            nn.LeakyReLU(0.1),                     # 使用LeakyReLU
+            nn.Dropout(0.2),                       # 添加Dropout防止过拟合
+            nn.Linear(hidden_dim * 2, hidden_dim * 2),
+            nn.LayerNorm(hidden_dim * 2), 
+            nn.LeakyReLU(0.1),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.LeakyReLU(0.1),
             nn.Linear(hidden_dim, c_matrix_size)
         )
         
         # R矩阵的Cholesky因子生成器，也使用完整的频域样本作为输入
         self.R_factor_generator = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, r_matrix_size)
+            nn.Linear(input_dim, hidden_dim * 2),  # 增加神经元数量
+            nn.LayerNorm(hidden_dim * 2),         # 添加批标准化
+            nn.LeakyReLU(0.1),                     # 使用LeakyReLU
+            nn.Dropout(0.2),                       # 添加Dropout防止过拟合
+            nn.Linear(hidden_dim * 2, hidden_dim * 2),
+            nn.LayerNorm(hidden_dim * 2), 
+            nn.LeakyReLU(0.1),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.LeakyReLU(0.1),
+            nn.Linear(hidden_dim, c_matrix_size)
         )
     def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:        
         """
