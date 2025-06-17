@@ -87,44 +87,45 @@ class SRSChannelEstimator(nn.Module):
         h_processed_list = []
         timing_offsets = {}
         
-        for u in range(num_users):
-            for p in range(num_ports_per_user[u]):
-                # Get cyclic shift for this user and port
-                n_u_p = cyclic_shifts[u][p]
-                  # Calculate ideal peak location
-                ideal_peak = (self.K - n_u_p) % self.K * self.seq_length // self.K
-                
-                # Estimate timing offset within specified search range
-                T_u_p = self._estimate_timing_offset(h_time, ideal_peak, delay_search_range)
-                timing_offsets[(u, p)] = T_u_p
-                
-                # Calculate cyclic shift amount
-                m_u_p = (T_u_p + ideal_peak)
-                
-                # Generate phasor for shifting
-                phasor_m = self._generate_phasor(m_u_p)
-                phasor_T = self._generate_phasor(T_u_p)
-                phasor_ideal = self._generate_phasor(ideal_peak)
-                
-                # Shift the channel to align peak at position 0
-                h_u_p = ls_estimate * phasor_m
-                
-                # Apply OCC de-multiplexing
-                h_avg = self._apply_occ_demux(h_u_p, Locc)
-                
-                # Linear interpolation back to full length
-                h_interpolated = self._linear_interpolation(h_avg, self.seq_length)
-                
-                h_processed_list.append((u, p, h_interpolated, phasor_m, phasor_T, phasor_ideal))
+        with torch.no_grad():
+            for u in range(num_users):
+                for p in range(num_ports_per_user[u]):
+                    # Get cyclic shift for this user and port
+                    n_u_p = cyclic_shifts[u][p]
+                    # Calculate ideal peak location
+                    ideal_peak = (self.K - n_u_p) % self.K * self.seq_length // self.K
+                    
+                    # Estimate timing offset within specified search range
+                    T_u_p = self._estimate_timing_offset(h_time, ideal_peak, delay_search_range)
+                    timing_offsets[(u, p)] = T_u_p
+                    
+                    # Calculate cyclic shift amount
+                    m_u_p = (T_u_p + ideal_peak)
+                    
+                    # Generate phasor for shifting
+                    phasor_m = self._generate_phasor(m_u_p)
+                    phasor_T = self._generate_phasor(T_u_p)
+                    phasor_ideal = self._generate_phasor(ideal_peak)
+                    
+                    # Shift the channel to align peak at position 0
+                    h_u_p = ls_estimate * phasor_m
+                    
+                    # Apply OCC de-multiplexing
+                    h_avg = self._apply_occ_demux(h_u_p, Locc)
+                    
+                    # Linear interpolation back to full length
+                    h_interpolated = self._linear_interpolation(h_avg, self.seq_length)
+                    
+                    h_processed_list.append((u, p, h_interpolated, phasor_m, phasor_T, phasor_ideal))
         
-        # Reconstruct combined signal
-        h_reconstructed = torch.zeros_like(ls_estimate, dtype=torch.complex64)
-        for u, p, h_interp, phasor_m, _, _ in h_processed_list:
-            # Shift back to original position
-            h_reconstructed += h_interp * torch.conj(phasor_m)
+            # Reconstruct combined signal
+            h_reconstructed = torch.zeros_like(ls_estimate, dtype=torch.complex64)
+            for u, p, h_interp, phasor_m, _, _ in h_processed_list:
+                # Shift back to original position
+                h_reconstructed += h_interp * torch.conj(phasor_m)
         
-        # Calculate residual
-        residual = ls_estimate - h_reconstructed
+            # Calculate residual
+            residual = ls_estimate - h_reconstructed
           # Add residual back to each estimate
         final_estimates = []
         
@@ -137,14 +138,16 @@ class SRSChannelEstimator(nn.Module):
         #     for p in range(num_ports_per_user[u]):
         #         h_interp, phasor_m, phasor_T = processed_channels[(u, p)]
         for u, p, h_interp, phasor_m, phasor_T, _ in h_processed_list:
-            # Add residual with appropriate phase correction
-            h_with_residual = h_interp + residual * phasor_m
-            
-            # 保存相位校正后的信道信息，可以用作MMSE矩阵生成的输入
-            # 为每个用户/端口单独存储h_with_residual_phasor
-            self.current_h_with_residual_phasors[(u, p)] = h_with_residual * torch.conj(phasor_T)
-            # 同时更新单个变量以保持向后兼容 - 保存最后一个处理的值
-            # self.current_h_with_residual_phasor = h_with_residual / phasor_m
+
+            with torch.no_grad():
+                # Add residual with appropriate phase correction
+                h_with_residual = h_interp + residual * phasor_m
+                
+                # 保存相位校正后的信道信息，可以用作MMSE矩阵生成的输入
+                # 为每个用户/端口单独存储h_with_residual_phasor
+                self.current_h_with_residual_phasors[(u, p)] = h_with_residual * torch.conj(phasor_T)
+                # 同时更新单个变量以保持向后兼容 - 保存最后一个处理的值
+                # self.current_h_with_residual_phasor = h_with_residual / phasor_m
                 
             # 如果存在 MMSE 模块，使用它生成 MMSE 矩阵
             if self.mmse_module is not None:
