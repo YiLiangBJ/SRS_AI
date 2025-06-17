@@ -100,7 +100,7 @@ class SRSTrainerModified:
         total_params = sum(p.numel() for p in model_params)
         print(f"总共有 {total_params} 个可训练参数")
         
-        self.optimizer = optim.Adam(model_params, lr=0.001)
+        self.optimizer = optim.Adam(model_params, lr=0.01)
         
         # Create save directory if it doesn't exist
         os.makedirs(save_dir, exist_ok=True)
