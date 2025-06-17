@@ -11,8 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from config import SRSConfig, create_example_config
 from data_generator import SRSDataGenerator
-from model import SRSChannelEstimator
-from model_cholesky import TrainableMMSEModule
+from model import SRSChannelEstimator, TrainableMMSEModule
 from utils import calculate_nmse, visualize_channel_estimate
 
 

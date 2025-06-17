@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Tuple
 from config import SRSConfig, create_example_config
 from data_generator import SRSDataGenerator
 from model import SRSChannelEstimator, TrainableMMSEModule
-from utils import calculate_nmse, visualize_channel_estimate
+from utils import calculate_nmse
 
 
 def demo_srs_channel_estimation(

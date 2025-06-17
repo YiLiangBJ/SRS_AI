@@ -531,16 +531,20 @@ class SRSChannelEstimator(nn.Module):
             if R is not None:
                 self.R_matrix = R
 
-
-class TrainableMMSEModule(nn.Module):
+class TrainableMMSEModule(nn.Module):    
     """
-    Trainable MMSE Filter Module
+    Trainable MMSE Filter Module using Cholesky factor construction
     
-    This module can be used to train the C and R matrices for MMSE filtering
-    """    
+    This module can be used to train the C and R matrices for MMSE filtering,
+    using Cholesky factor construction to ensure positive definiteness without post-processing.
+    
+    Rather than generating matrices C and R directly and then enforcing constraints,
+    we parameterize their Cholesky factors (L matrices where C = L*L^H) directly,
+    which guarantees that the resulting matrices are Hermitian positive definite.
+    """
     def __init__(self, seq_length: int, mmse_block_size: int = 12, hidden_dim: int = 64, use_complex_input: bool = False):
         """
-        Initialize the trainable MMSE module with Cholesky decomposition
+        Initialize the trainable MMSE module with Cholesky factor construction
         
         Args:
             seq_length: Length of sequence (L)
@@ -556,9 +560,8 @@ class TrainableMMSEModule(nn.Module):
         # Input dimension depends on whether we use complex input
         input_dim = seq_length * 2 if use_complex_input else seq_length
         
-        # Calculate parameter counts for Cholesky factors
+        # Calculate parameter counts for Cholesky factors (lower triangular matrices)
         n = mmse_block_size
-        # 下三角矩阵的参数计算
         # 对角线元素 (只有实部) = n
         # 严格下三角元素 (实部+虚部) = n*(n-1)/2
         diag_size = n  # 对角线元素数量
@@ -572,25 +575,38 @@ class TrainableMMSEModule(nn.Module):
         # 总参数量
         c_matrix_size = real_params + imag_params
         r_matrix_size = real_params + imag_params
-          # Networks to generate C and R matrices (only upper triangular parts)
-        self.C_generator = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, c_matrix_size)  # Only upper triangular elements
+          # Networks to generate Cholesky factors (L matrices) for C and R
+        self.C_factor_generator = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim * 2),  # 增加神经元数量
+            nn.LayerNorm(hidden_dim * 2),         # 添加批标准化
+            nn.LeakyReLU(0.1),                     # 使用LeakyReLU
+            nn.Dropout(0.2),                       # 添加Dropout防止过拟合
+            nn.Linear(hidden_dim * 2, hidden_dim * 2),
+            nn.LayerNorm(hidden_dim * 2), 
+            nn.LeakyReLU(0.1),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.LeakyReLU(0.1),
+            nn.Linear(hidden_dim, c_matrix_size)
         )
-          # R矩阵也使用完整的频域样本作为输入，而不仅是噪声功率
-        self.R_generator = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),  # Use channel data instead of just noise power
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, r_matrix_size)  # Only upper triangular elements
-        )    
-    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        
+        # R矩阵的Cholesky因子生成器，也使用完整的频域样本作为输入
+        self.R_factor_generator = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim * 2),  # 增加神经元数量
+            nn.LayerNorm(hidden_dim * 2),         # 添加批标准化
+            nn.LeakyReLU(0.1),                     # 使用LeakyReLU
+            nn.Dropout(0.2),                       # 添加Dropout防止过拟合
+            nn.Linear(hidden_dim * 2, hidden_dim * 2),
+            nn.LayerNorm(hidden_dim * 2), 
+            nn.LeakyReLU(0.1),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.LeakyReLU(0.1),
+            nn.Linear(hidden_dim, c_matrix_size)
+        )
+    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:        
         """
-        Generate C and R matrices for specified block size using Cholesky decomposition
+        Generate C and R matrices for specified block size using Cholesky factor construction
         
         Args:
             channel_stats: Channel statistics (can be frequency domain samples)
@@ -601,7 +617,6 @@ class TrainableMMSEModule(nn.Module):
         Returns:
             C: Channel correlation matrix (mmse_block_size x mmse_block_size)
             R: Noise and interference correlation matrix (mmse_block_size x mmse_block_size)
-            pd_loss: 正定性约束损失 (在使用Cholesky分解时不再需要，但保留用于API兼容)
         """
         # Process input based on configuration
         if self.use_complex_input and channel_stats.is_complex():
@@ -611,23 +626,15 @@ class TrainableMMSEModule(nn.Module):
             # Use input as-is (should be magnitude if use_complex_input=False)
             input_tensor = channel_stats
         
-        n = self.mmse_block_size
-        
-        # 基于Cholesky分解生成C矩阵
-        # 生成下三角矩阵L，然后计算C = L @ L^H
-        # 为了生成下三角矩阵，我们需要n*(n+1)//2个参数（实部和虚部）
-        
-        # 生成下三角矩阵L的元素
-        C_flat = self.C_generator(input_tensor)
+        n = self.mmse_block_size        # 使用Cholesky因子构造法确保C矩阵为正定Hermitian
+        # 直接生成下三角矩阵L，然后通过C = L @ L^H构造正定Hermitian矩阵
+          # 生成C矩阵对应的下三角Cholesky因子L的元素
+        C_flat = self.C_factor_generator(input_tensor)
         
         # 计算实部和虚部的参数数量
-        # 对角线元素只有实部，其他元素有实部和虚部
         diag_size = n  # 对角线元素数量
-        off_diag_size = n * (n - 1) // 2  # 非对角线元素数量
-        
-        # 实部总共需要的参数数量 = 对角线元素 + 非对角线元素
+        off_diag_size = n * (n - 1) // 2  # 严格下三角元素数量
         real_size = diag_size + off_diag_size
-        # 虚部只需要非对角线元素
         imag_size = off_diag_size
         
         # 分割网络输出为实部和虚部
@@ -661,10 +668,8 @@ class TrainableMMSEModule(nn.Module):
         # 计算C = L @ L^H (L^H是L的共轭转置)
         # 这样构造的矩阵自然是厄米特正定的
         C = L @ L.conj().transpose(0, 1)
-        
-        # 对R矩阵执行相同的操作
-        # 使用与C相同的输入，让网络自己学习提取噪声和干扰特性
-        R_flat = self.R_generator(input_tensor)
+          # 对R矩阵执行相同的操作 - 生成其对应的Cholesky因子
+        R_flat = self.R_factor_generator(input_tensor)
         
         # 分割网络输出为实部和虚部
         L_real_flat = R_flat[:real_size]
@@ -695,89 +700,10 @@ class TrainableMMSEModule(nn.Module):
         L = torch.complex(L_real, L_imag)
         
         # 计算R = L @ L^H
-        R = L @ L.conj().transpose(0, 1)        # 使用Cholesky分解生成的矩阵已经保证是厄米特正定的
-        # 但为了数值稳定性，我们可以添加一个很小的对角加载
+        R = L @ L.conj().transpose(0, 1)
+          # 为了数值稳定性，添加一个很小的对角加载
         epsilon = 1e-6
         C = C + torch.eye(n, device=C.device) * epsilon
         R = R + torch.eye(n, device=R.device) * epsilon
         
-        # 为了与原来的API兼容，仍然返回pd_loss（但不再需要计算）
-        pd_loss = None if not self.training else torch.tensor(0.0, device=C.device)
-        
-        return C, R, pd_loss
-    def _ensure_positive_definite(self, matrix: torch.Tensor, min_eigenvalue: float = 1e-6) -> torch.Tensor:
-        """
-        确保复矩阵是正定的，方法是确保所有特征值都大于指定的最小值
-        
-        Args:
-            matrix: 输入的复矩阵
-            min_eigenvalue: 最小特征值阈值
-            
-        Returns:
-            正定的复矩阵
-        """
-        # 检查矩阵是否已经是厄米特矩阵
-        n = matrix.shape[0]
-        is_hermitian = torch.allclose(matrix, matrix.conj().transpose(0, 1), atol=1e-5)
-        
-        if not is_hermitian:
-            # 如果不是厄米特矩阵，先将其转换为厄米特矩阵
-            matrix = 0.5 * (matrix + matrix.conj().transpose(0, 1))
-        
-        # 计算特征值和特征向量
-        try:
-            eigenvalues, eigenvectors = torch.linalg.eigh(matrix)
-            
-            # 对特征值进行限制，确保都大于min_eigenvalue
-            adjusted_eigenvalues = torch.clamp(eigenvalues, min=min_eigenvalue)
-            
-            # 重建矩阵 U * diag(λ) * U^H
-            reconstructed = eigenvectors @ torch.diag(adjusted_eigenvalues) @ eigenvectors.conj().transpose(0, 1)
-            
-            # 确保结果是厄米特矩阵
-            reconstructed = 0.5 * (reconstructed + reconstructed.conj().transpose(0, 1))
-            
-            return reconstructed
-        except Exception:
-            # 如果分解失败，使用简单的对角加载
-            return matrix + torch.eye(n, device=matrix.device) * min_eigenvalue
-    def compute_positive_definite_loss(self, matrix: torch.Tensor, margin: float = 1e-4) -> torch.Tensor:
-        """
-        计算矩阵正定性约束的损失
-        促使网络学习生成自然正定的矩阵，而不是依赖后处理
-        
-        Args:
-            matrix: 输入复矩阵
-            margin: 特征值下界的边界值
-            
-        Returns:
-            表示非正定程度的损失值
-        """        # 计算厄米特性损失 - 直接在原始矩阵上操作
-        hermitian_loss = torch.norm(matrix - matrix.conj().transpose(0, 1)) 
-        
-        # 添加对角元素的约束 - 直接在原始矩阵上操作
-        diag_real = torch.diagonal(torch.real(matrix), 0)
-        diag_imag = torch.diagonal(torch.imag(matrix), 0)
-        
-        # 对角元素虚部应为0，实部应为正
-        diag_imag_loss = torch.sum(diag_imag**2)  # 惩罚对角元素的虚部
-        diag_real_neg_loss = torch.sum(torch.clamp(-diag_real + margin, min=0)**2)  # 惩罚对角元素小于margin
-        
-        # 计算特征值相关的损失 - 直接使用原始矩阵本身计算特征值
-        try:
-            # 使用原始矩阵matrix计算特征值，而不是matrix_h
-            eigenvalues = torch.linalg.eigvalsh(matrix)
-            
-            # 对于小于margin的特征值，给予惩罚
-            eigenvalue_loss = torch.sum(torch.clamp(margin - eigenvalues, min=0)**2)
-            
-            # 组合所有损失，包括厄米特性损失
-            return eigenvalue_loss + diag_imag_loss + diag_real_neg_loss + hermitian_loss
-        except Exception:
-            # 如果分解失败，返回一个基于矩阵结构的约束损失
-            n = matrix.shape[0]
-            identity = torch.eye(n, device=matrix.device)
-            structure_loss = torch.norm(matrix @ matrix.conj().transpose(0, 1) - identity)
-            
-            # 即使特征值计算失败，也要返回对角元素和厄米特性的约束
-            return structure_loss + diag_imag_loss + diag_real_neg_loss + hermitian_loss
+        return C, R
