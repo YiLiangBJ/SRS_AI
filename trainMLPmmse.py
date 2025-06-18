@@ -307,68 +307,17 @@ class SRSTrainerModified:
                 # Forward pass
                 batch_loss = 0
                 batch_nmse = 0
-                
                 for i in range(batch_size):
                     ls_estimate = ls_estimates[i]
                     noise_power = noise_powers[i].item()
-                        # Use trainable MMSE module with h_with_residual/phasor
-                    if self.mmse_module:
-                        # 首先运行SRS估计器来生成h_with_residual/phasor
-                        channel_estimates_initial = self.srs_estimator(
-                            ls_estimate=ls_estimate,
-                            cyclic_shifts=self.config.cyclic_shifts,
-                            noise_power=noise_power
-                        )
-                        
-                        # 对所有用户/端口的h_with_residual/phasor进行处理
-                        h_inputs = []
-                        user_port_pairs = []
-                        
-                        # 检查是否有h_with_residual/phasors字典可用
-                        if hasattr(self.srs_estimator, 'current_h_with_residual_phasors') and self.srs_estimator.current_h_with_residual_phasors:
-                            for (u, p), h_input in self.srs_estimator.current_h_with_residual_phasors.items():
-                                h_inputs.append(h_input)
-                                user_port_pairs.append((u, p))
-                                
-                            # 对每个用户/端口分别生成MMSE矩阵
-                            all_C = {}
-                            all_R = {}
-                            
-                            for idx, (u, p) in enumerate(user_port_pairs):
-                                # 使用当前用户/端口的h_with_residual/phasor作为输入
-                                C, R = self.mmse_module(h_inputs[idx])
-                                all_C[(u, p)] = C
-                                all_R[(u, p)] = R
-                            
-                            # 使用最后一个MMSE矩阵设置估计器
-                            if user_port_pairs:
-                                last_u, last_p = user_port_pairs[-1]
-                                self.srs_estimator.set_mmse_matrices(C=all_C[(last_u, last_p)], R=all_R[(last_u, last_p)])
-                            
-                            # 重新运行估计器，使用新生成的MMSE矩阵
-                            channel_estimates = self.srs_estimator(
-                                ls_estimate=ls_estimate,
-                                cyclic_shifts=self.config.cyclic_shifts,
-                                noise_power=noise_power
-                            )
-                        else:
-                            # 如果没有可用的字典，则回退到使用单个h_with_residual_phasor
-                            if self.srs_estimator.current_h_with_residual_phasor is not None:
-                                C, R = self.mmse_module(self.srs_estimator.current_h_with_residual_phasor)
-                                self.srs_estimator.set_mmse_matrices(C=C, R=R)
-                                channel_estimates = self.srs_estimator(
-                                    ls_estimate=ls_estimate,
-                                    cyclic_shifts=self.config.cyclic_shifts,
-                                    noise_power=noise_power
-                                )
-                            else:
-                                channel_estimates = channel_estimates_initial
-                    else:
-                        channel_estimates = self.srs_estimator(
-                            ls_estimate=ls_estimate,
-                            cyclic_shifts=self.config.cyclic_shifts,
-                            noise_power=noise_power
-                        )
+                    
+                    # 验证阶段直接使用当前模型参数进行前向传播
+                    # 不需要重新生成MMSE矩阵
+                    channel_estimates = self.srs_estimator(
+                        ls_estimate=ls_estimate,
+                        cyclic_shifts=self.config.cyclic_shifts,
+                        noise_power=noise_power
+                    )
                     
                     # Calculate loss for each user/port
                     idx = 0
@@ -378,18 +327,15 @@ class SRSTrainerModified:
                                 true_channel = true_channels[(u, p)][i]
                                 est_channel = channel_estimates[idx]
                                 
-                                # 将估计信道转换回频域进行比较
-                                est_channel_freq = torch.fft.fft(est_channel, n=self.config.seq_length)
-                                
                                 # Calculate loss
-                                real_loss = torch.mean((torch.real(est_channel_freq) - torch.real(true_channel))**2).item()
-                                imag_loss = torch.mean((torch.imag(est_channel_freq) - torch.imag(true_channel))**2).item()
+                                real_loss = torch.mean((torch.real(est_channel) - torch.real(true_channel))**2).item()
+                                imag_loss = torch.mean((torch.imag(est_channel) - torch.imag(true_channel))**2).item()
                                 sample_loss = real_loss + imag_loss
                                 
                                 batch_loss += sample_loss
                                 
                                 # Calculate NMSE
-                                nmse = calculate_nmse(true_channel, est_channel_freq)
+                                nmse = calculate_nmse(true_channel, est_channel)
                                 batch_nmse += nmse
                                 
                             idx += 1
@@ -556,7 +502,7 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train SRS Channel Estimator with h_with_residual/phasor as input")
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
-    parser.add_argument('--train_batches', type=int, default=100, help='Number of training batches per epoch')
+    parser.add_argument('--train_batches', type=int, default=40, help='Number of training batches per epoch')
     parser.add_argument('--val_batches', type=int, default=20, help='Number of validation batches')
     parser.add_argument('--batch_size', type=int, default=10, help='Batch size')
     parser.add_argument('--val_every', type=int, default=1, help='Validate every n epochs')
