@@ -45,8 +45,7 @@ class SRSTrainerModified:
         self.enable_plotting = enable_plotting
         
         # Create data generator
-        self.data_gen = SRSDataGenerator(config, device=device)
-          
+        self.data_gen = SRSDataGenerator(config, device=device, channel_model="TDL-A", delay_spread=300e-9)
         # Create trainable MMSE module if needed
         if use_trainable_mmse:
             self.mmse_module = TrainableMMSEModule(
@@ -502,8 +501,8 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train SRS Channel Estimator with h_with_residual/phasor as input")
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
-    parser.add_argument('--train_batches', type=int, default=40, help='Number of training batches per epoch')
-    parser.add_argument('--val_batches', type=int, default=20, help='Number of validation batches')
+    parser.add_argument('--train_batches', type=int, default=50, help='Number of training batches per epoch')
+    parser.add_argument('--val_batches', type=int, default=10, help='Number of validation batches')
     parser.add_argument('--batch_size', type=int, default=10, help='Batch size')
     parser.add_argument('--val_every', type=int, default=1, help='Validate every n epochs')
     parser.add_argument('--save_every', type=int, default=5, help='Save checkpoint every n epochs')
