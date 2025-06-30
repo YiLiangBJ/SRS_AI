@@ -75,13 +75,32 @@ class TDLChannelModel:
         self.powers_linear = 10 ** (self.powers / 10)
         
         # Normalize powers if needed
-        self.powers_linear = self.powers_linear / torch.sum(self.powers_linear)
-        
-        # Scale delays by delay spread to get actual time delays
+        # self.powers_linear = self.powers_linear / torch.sum(self.powers_linear)
+          # Scale delays by delay spread to get actual time delays
         self.delays_scaled = self.delays * delay_spread
         
         # Convert time delays to sample indices based on sampling rate
-        self.tap_indices = torch.round(self.delays_scaled * sampling_rate).to(torch.long)
+        initial_tap_indices = torch.round(self.delays_scaled * sampling_rate).to(torch.long)
+        
+        # 处理映射到相同采样点索引的taps，合并它们的功率
+        unique_indices, inverse_indices = torch.unique(initial_tap_indices, return_inverse=True)
+        
+        # 创建新的功率数组，用于合并相同索引的功率
+        merged_powers = torch.zeros(len(unique_indices), device=self.powers_linear.device)
+        
+        # 合并映射到相同采样点的功率
+        for i, idx in enumerate(inverse_indices):
+            merged_powers[idx] += self.powers_linear[i]
+            
+        # 更新tap索引和对应的功率
+        self.tap_indices = unique_indices
+        self.powers_linear = merged_powers
+        
+        # 确保合并后的功率仍然是归一化的
+        self.powers_linear = self.powers_linear / torch.sum(self.powers_linear)
+        
+        # 更新dB形式的功率（仅用于参考）
+        self.powers = 10 * torch.log10(self.powers_linear + 1e-20)  # 加入小值防止log(0)
         
         # Move to device
         self.delays = self.delays.to(device)
