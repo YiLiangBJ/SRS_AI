@@ -6,7 +6,7 @@ import math
 
 from config import SRSConfig
 from utils import generate_base_sequence, apply_cyclic_shift
-
+import matplotlib.pyplot as plt
 
 class TDLChannelModel:
     """
@@ -111,27 +111,27 @@ class TDLChannelModel:
     
     def generate_channel_taps(
         self, 
+        num_tx_antennas: int = 1,
         num_rx_antennas: Optional[int] = None,
-        num_taps_max: Optional[int] = None,
-        timing_offset: int = 0
+        num_taps_max: Optional[int] = None
     ) -> torch.Tensor:
         """
-        Generate channel impulse response taps according to TDL model
+        Generate channel impulse response taps according to TDL model (without timing offset)
         
         Args:
+            num_tx_antennas: Number of transmit antennas (ports)
             num_rx_antennas: Number of receive antennas for the channel taps
             num_taps_max: Maximum number of taps to generate (truncates longer channels)
-            timing_offset: Timing offset in samples (+ for delayed signal, - for early signal)
             
         Returns:
             Complex tensor representing the channel impulse response
-            Shape: [num_rx_antennas, num_taps] if num_rx_antennas > 1 else [num_taps]
+            Shape: [num_rx_antennas, num_tx_antennas, num_taps]
         """
         # Use default number of antennas if not specified
         if num_rx_antennas is None:
             num_rx_antennas = self.num_rx_antennas
         
-        # Determine maximum delay index
+        # Determine maximum delay index (without timing offset)
         max_index = torch.max(self.tap_indices).item()
         
         if num_taps_max is not None:
@@ -139,147 +139,179 @@ class TDLChannelModel:
         else:
             max_taps = max_index + 1
         
-        # Create channel impulse response vector for multiple receive antennas
-        if num_rx_antennas > 1:
-            h = torch.zeros((num_rx_antennas, max_taps), dtype=torch.complex64, device=self.device)
-            
-            # Generate independent channel realizations for each receive antenna
-            for rx_ant in range(num_rx_antennas):
-                # Generate complex Gaussian taps (Rayleigh fading)
+        # Create channel impulse response tensor: [num_rx_antennas, num_tx_antennas, num_taps]
+        h = torch.zeros((num_rx_antennas, num_tx_antennas, max_taps), dtype=torch.complex64, device=self.device)
+        
+        # Generate independent channel realizations for each rx-tx antenna pair
+        for rx_ant in range(num_rx_antennas):
+            for tx_ant in range(num_tx_antennas):
+                # Generate complex Gaussian taps (Rayleigh fading) with random scaling
                 for i, (idx, power) in enumerate(zip(self.tap_indices, self.powers_linear)):
-                    # Apply timing offset
-                    effective_idx = idx + timing_offset
                     
-                    # Skip if out of bounds
-                    if effective_idx < 0 or effective_idx >= max_taps:
-                        continue
+                    # Generate random scaling factor (mean=1, std=1 complex Gaussian)
+                    # For complex Gaussian: real and imag parts are independent N(0, 0.5)
+                    # This gives |z|^2 ~ Exponential(1) with mean=1
+                    random_real = torch.normal(mean=0.0, std=np.sqrt(0.5), size=(), device=self.device)
+                    random_imag = torch.normal(mean=0.0, std=np.sqrt(0.5), size=(), device=self.device)
+                    random_factor = torch.complex(random_real, random_imag)
                     
-                    # Generate complex Gaussian tap with appropriate power
-                    tap_real = torch.normal(mean=0.0, std=np.sqrt(power / 2), size=(1,), device=self.device)
-                    tap_imag = torch.normal(mean=0.0, std=np.sqrt(power / 2), size=(1,), device=self.device)
+                    # Generate complex Gaussian tap with appropriate power and randomness
+                    tap_real = torch.normal(mean=0.0, std=np.sqrt(power / 2), size=(), device=self.device)
+                    tap_imag = torch.normal(mean=0.0, std=np.sqrt(power / 2), size=(), device=self.device)
+                    base_tap = torch.complex(tap_real, tap_imag)
+                    
+                    # Apply random scaling
+                    final_tap = base_tap * random_factor
                     
                     # For LOS components (first tap of TDL-D and TDL-E)
                     if (self.model_type in ["TDL-D", "TDL-E"]) and i == 0 and self.k_factor > 0:
                         # Add LOS component (Rician fading)
                         los_amplitude = np.sqrt(power * self.k_factor / (self.k_factor + 1))
-                        los_phase = torch.rand(1, device=self.device) * 2 * np.pi
+                        los_phase = torch.rand((), device=self.device) * 2 * np.pi
                         los_real = los_amplitude * torch.cos(los_phase)
                         los_imag = los_amplitude * torch.sin(los_phase)
+                        los_component = torch.complex(los_real, los_imag)
                         
                         # Scale NLOS component
                         nlos_scale = np.sqrt(1 / (self.k_factor + 1))
-                        tap_real *= nlos_scale
-                        tap_imag *= nlos_scale
+                        final_tap *= nlos_scale
                         
                         # Combine LOS and NLOS
-                        tap_real += los_real
-                        tap_imag += los_imag
+                        final_tap += los_component
                     
-                    # Add to channel impulse response for this antenna
-                    h[rx_ant, effective_idx] += torch.complex(tap_real, tap_imag)
-        else:
-            # For single antenna, keep original implementation
-            h = torch.zeros(max_taps, dtype=torch.complex64, device=self.device)
-            
-            # Generate complex Gaussian taps (Rayleigh fading)
-            for i, (idx, power) in enumerate(zip(self.tap_indices, self.powers_linear)):
-                # Apply timing offset
-                effective_idx = idx + timing_offset
-                
-                # Skip if out of bounds
-                if effective_idx < 0 or effective_idx >= max_taps:
-                    continue
-                
-                # Generate complex Gaussian tap with appropriate power
-                tap_real = torch.normal(mean=0.0, std=np.sqrt(power / 2), size=(1,), device=self.device)
-                tap_imag = torch.normal(mean=0.0, std=np.sqrt(power / 2), size=(1,), device=self.device)
-                
-                # For LOS components (first tap of TDL-D and TDL-E)
-                if (self.model_type in ["TDL-D", "TDL-E"]) and i == 0 and self.k_factor > 0:
-                    # Add LOS component (Rician fading)
-                    los_amplitude = np.sqrt(power * self.k_factor / (self.k_factor + 1))
-                    los_phase = torch.rand(1, device=self.device) * 2 * np.pi
-                    los_real = los_amplitude * torch.cos(los_phase)
-                    los_imag = los_amplitude * torch.sin(los_phase)
-                    
-                    # Scale NLOS component
-                    nlos_scale = np.sqrt(1 / (self.k_factor + 1))
-                    tap_real *= nlos_scale
-                    tap_imag *= nlos_scale
-                    
-                    # Combine LOS and NLOS
-                    tap_real += los_real
-                    tap_imag += los_imag
-                
-                # Add to channel impulse response
-                h[effective_idx] += torch.complex(tap_real, tap_imag)
+                    # Add to channel impulse response for this rx-tx antenna pair at the correct delay index
+                    h[rx_ant, tx_ant, idx] += final_tap
         
         return h
     
     def apply_channel(
         self, 
-        signal: torch.Tensor,
-        timing_offset: int = 0,
-        rx_antenna_idx: Optional[int] = None
-    ) -> torch.Tensor:
+        signals: Union[torch.Tensor, List[torch.Tensor], Dict[int, torch.Tensor]],
+        delay_offset_samples: int = 0,
+        mapping_indices: Optional[torch.Tensor] = None,
+        ifft_size: Optional[int] = None,
+        debug_dict: Optional[Dict] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Apply the TDL channel model to a time domain signal
+        Apply the TDL channel model to time domain signals from multiple transmit antennas
         
         Args:
-            signal: Time domain signal
-            timing_offset: Timing offset in samples
-            rx_antenna_idx: If provided, applies only the channel for the specified receive antenna
+            signals: Time domain signals from transmit antennas
+                    - If tensor: shape [num_tx_antennas, signal_length] 
+                    - If list: list of signals, one per transmit antenna
+                    - If dict: dictionary of signals, keys are port indices
+            delay_offset_samples: Timing offset in samples (+ for delay, - for advance)
+            mapping_indices: Subcarrier mapping indices for frequency domain channel calculation
+            ifft_size: IFFT size for frequency domain channel calculation
+            debug_dict: Optional dictionary to store intermediate signals for debugging
             
         Returns:
-            Time domain signal after passing through the channel.
-            If rx_antenna_idx is None and num_rx_antennas > 1, returns a tensor of shape [num_rx_antennas, signal_length]
+            Tuple of (processed_signals, frequency_domain_channels):
+            - processed_signals: [num_rx_antennas, signal_length] - combined received signals
+            - frequency_domain_channels: [num_rx_antennas, num_tx_antennas, len(mapping_indices)] (if mapping_indices provided)
         """
-        # Generate channel impulse response
-        if rx_antenna_idx is not None:
-            # Generate for specific antenna
-            h = self.generate_channel_taps(num_rx_antennas=1, timing_offset=timing_offset)
+        # Convert input to tensor format
+        if isinstance(signals, dict):
+            # Dictionary input: convert to list in order of keys
+            signals_list = [signals[key] for key in sorted(signals.keys())]
+            signals = torch.stack(signals_list)  # [num_tx_antennas, signal_length]
+        elif isinstance(signals, list):
+            signals = torch.stack(signals)  # [num_tx_antennas, signal_length]
+        elif signals.dim() == 1:
+            # Single signal case - add tx antenna dimension
+            signals = signals.unsqueeze(0)  # [1, signal_length]
+        
+        num_tx_antennas = signals.shape[0]
+        signal_length = signals.shape[1]
+        
+        # Store intermediate results in debug dictionary if provided
+        if debug_dict is not None:
+            debug_dict['input_signals'] = signals.clone()
+            debug_dict['num_tx_antennas'] = num_tx_antennas
+            debug_dict['signal_length'] = signal_length
+            debug_dict['delay_offset_samples'] = delay_offset_samples
+        
+        # Generate channel impulse response for all tx-rx antenna pairs
+        h_taps = self.generate_channel_taps(
+            num_tx_antennas=num_tx_antennas,
+            num_rx_antennas=self.num_rx_antennas
+        )  # Shape: [num_rx_antennas, num_tx_antennas, num_taps]
+        
+        if debug_dict is not None:
+            debug_dict['h_taps'] = h_taps.clone()
+            debug_dict['h_taps_energy'] = h_taps.abs().pow(2).sum()
+            debug_dict['h_taps_shape'] = h_taps.shape
+        
+        # Initialize output signals for each receive antenna
+        y_signals = torch.zeros((self.num_rx_antennas, signal_length), dtype=torch.complex64, device=self.device)
+        
+        # Apply channel for each rx-tx antenna pair
+        for rx_ant in range(self.num_rx_antennas):
+            for tx_ant in range(num_tx_antennas):
+                # Get channel taps for this rx-tx pair
+                h = h_taps[rx_ant, tx_ant, :]
+                
+                # Apply channel convolution
+                tx_signal = signals[tx_ant]
+                
+                # Apply circular convolution
+                # For circular convolution, output length equals input length
+                # y[n] = sum_{k=0}^{K-1} h[k] * x[(n-k) mod N]
+                # where N is the signal length and K is the number of channel taps
+                
+                conv_output = torch.zeros_like(tx_signal, dtype=torch.complex64)
+                
+                # Manual circular convolution implementation
+                for n in range(signal_length):
+                    for k, h_k in enumerate(h):
+                        if torch.abs(h_k) > 1e-10:  # Skip negligible taps for efficiency
+                            # Circular indexing: (n - k) mod N
+                            src_idx = (n - k) % signal_length
+                            conv_output[n] += h_k * tx_signal[src_idx]
+                
+                # Apply timing offset by circular shifting
+                if delay_offset_samples != 0:
+                    conv_output = torch.roll(conv_output, shifts=delay_offset_samples, dims=0)
+                
+                # Accumulate signal from this transmit antenna to this receive antenna
+                y_signals[rx_ant] += conv_output
+        
+        # Store processed signals in debug dictionary if provided
+        if debug_dict is not None:
+            debug_dict['y_signals'] = y_signals.clone()
+            debug_dict['y_signals_energy'] = y_signals.abs().pow(2).sum()
+        
+        # Calculate frequency domain channels if requested
+        h_freq_multi = None
+        if mapping_indices is not None and ifft_size is not None:
+            h_freq_multi = torch.zeros((self.num_rx_antennas, num_tx_antennas, len(mapping_indices)), 
+                                     dtype=torch.complex64, device=self.device)
             
-            # Perform circular convolution
-            output = torch.nn.functional.conv1d(
-                signal.reshape(1, 1, -1),  # Reshape to [batch, channels, length]
-                h.reshape(1, 1, -1),       # Reshape to [out_channels, in_channels, kernel_size]
-                padding='same'             # 'same' for circular convolution
-            )
-            
-            return output.reshape(signal.shape)
-        elif self.num_rx_antennas > 1:
-            # Generate for all receive antennas
-            h_multi = self.generate_channel_taps(timing_offset=timing_offset)
-            
-            # Initialize output tensor for all antennas
-            output = torch.zeros((self.num_rx_antennas,) + signal.shape, dtype=torch.complex64, device=self.device)
-            
-            # Apply channel for each antenna
             for rx_ant in range(self.num_rx_antennas):
-                h = h_multi[rx_ant]
-                
-                # Perform circular convolution
-                ant_output = torch.nn.functional.conv1d(
-                    signal.reshape(1, 1, -1),  # Reshape to [batch, channels, length]
-                    h.reshape(1, 1, -1),       # Reshape to [out_channels, in_channels, kernel_size]
-                    padding='same'             # 'same' for circular convolution
-                )
-                
-                output[rx_ant] = ant_output.reshape(signal.shape)
+                for tx_ant in range(num_tx_antennas):
+                    # Step 1: FFT to get ideal frequency domain channel
+                    h = h_taps[rx_ant, tx_ant, :]
+                    h_freq_full = torch.fft.fft(h, n=ifft_size) / math.sqrt(ifft_size)
+                    h_ideal = h_freq_full[mapping_indices]
+                    
+                    # Step 2: Apply phase rotation due to timing offset
+                    if delay_offset_samples != 0:
+                        # Create frequency indices tensor for phase rotation
+                        freq_indices = torch.arange(ifft_size, device=self.device, dtype=torch.float32)
+                        phase_rotation_full = torch.exp(-1j * 2 * np.pi * freq_indices * delay_offset_samples / ifft_size)
+                        phase_rotation = phase_rotation_full[mapping_indices]
+                        h_freq_multi[rx_ant, tx_ant] = h_ideal * phase_rotation
+                    else:
+                        h_freq_multi[rx_ant, tx_ant] = h_ideal
             
-            return output
-        else:
-            # Single antenna case (original implementation)
-            h = self.generate_channel_taps(timing_offset=timing_offset)
-            
-            # Perform circular convolution
-            output = torch.nn.functional.conv1d(
-                signal.reshape(1, 1, -1),  # Reshape to [batch, channels, length]
-                h.reshape(1, 1, -1),       # Reshape to [out_channels, in_channels, kernel_size]
-                padding='same'             # 'same' for circular convolution
-            )
-            
-            return output.reshape(signal.shape)
+            # Store frequency domain channels in debug dictionary if provided
+            if debug_dict is not None:
+                debug_dict['h_freq_multi'] = h_freq_multi.clone()
+                debug_dict['h_freq_energy'] = h_freq_multi.abs().pow(2).sum()
+                debug_dict['mapping_indices'] = mapping_indices.clone()
+                debug_dict['ifft_size'] = ifft_size
+        
+        return y_signals, h_freq_multi
 
 
 class SRSDataGenerator:
@@ -385,13 +417,14 @@ class SRSDataGenerator:
                 torch.cuda.manual_seed(seed)
                 torch.cuda.manual_seed_all(seed)
 
-    def generate_sample(self, fixed_snr: Optional[float] = None) -> Dict:
+    def generate_sample(self, fixed_snr: Optional[float] = None, enable_debug: bool = False) -> Dict:
         """
         Generate a single training/testing sample
         
         Args:
             fixed_snr: If provided, uses this fixed SNR value instead of random from range.
                        This is a UE-specific parameter.
+            enable_debug: If True, stores all intermediate signals and processing steps
         
         Returns:
             Dictionary containing:
@@ -400,28 +433,55 @@ class SRSDataGenerator:
             - noise_power: True noise power
             - snr: SNR in dB for each UE
             - mapping_indices: Indices for subcarrier mapping
+            - debug_info: (if enable_debug=True) All intermediate signals and processing steps
         """
         L = self.config.seq_length
         K = self.config.K
         num_users = self.config.num_users
         
+        # Initialize unified debug dictionary for all intermediate signals
+        debug_info = {} if enable_debug else None
+        
+        if enable_debug:
+            debug_info.update({
+                # Basic configuration info
+                'seq_length': L,
+                'K': K,
+                'num_users': num_users,
+                'num_rx_antennas': self.num_rx_antennas,
+                'base_sequence': self.base_sequence.clone(),
+                'mapping_indices': self.mapping_indices.clone(),
+                'ifft_size': self.ifft_size,
+                'cp_length': self.cp_length,
+                'sampling_rate': self.sampling_rate,
+                'delay_offset_range': self.delay_offset_range,
+                
+                # Initialize storage for per-user data
+                'user_signals_before_channel': {},  # [user][port] -> signal
+                'user_signals_after_channel': {},   # [user][rx_ant] -> signal  
+                'user_snrs': {},                    # [user] -> SNR
+                'user_delay_offsets': {},           # [user] -> delay_offset_samples
+                'user_scale_factors': {},           # [user] -> scale_factor
+                'user_powers': {},                  # [user] -> signal_power
+                'channel_debug': {},                # [user] -> TDL channel debug info
+            })
+        
         # Initialize received signal for each receive antenna at the basestation
-        y_freq_rx_antennas = torch.zeros(
-            (self.num_rx_antennas, L),
-            dtype=torch.complex64, 
-            device=self.device
-        )
+        y_freq_rx_antennas = {
+            rx_ant: torch.zeros(L, dtype=torch.complex64, device=self.device)
+            for rx_ant in range(self.num_rx_antennas)
+        }
         
         # Store true channels for each user/port/rx_antenna
-        true_channels = []
+        true_channels = {}  # [user][port][rx_ant] -> channel
         
-        # Store SNR per user
-        user_snrs = []
+        # Store SNR per user using dictionary structure
+        user_snrs = {}  # [user] -> SNR in dB
         
-        # User-specific signals (to calculate per-user powers)
-        user_signals = {}
+        # User-specific signals storage
+        user_signals = {}  # [user][rx_ant] -> signal after channel
         
-        # First, generate signals for all users and ports
+        # Generate signals for all users and apply channel
         for u in range(num_users):
             # Select SNR for this UE
             if fixed_snr is not None:
@@ -429,24 +489,41 @@ class SRSDataGenerator:
             else:
                 ue_snr_db = random.uniform(*self.snr_range)
             
-            # Store the UE's SNR
-            user_snrs.append(ue_snr_db)
+            # Store the UE's SNR using dictionary structure
+            user_snrs[u] = ue_snr_db
+            
+            if enable_debug:
+                debug_info['user_snrs'][u] = ue_snr_db
             
             # Account for multiple ports: the power is divided among ports
             num_ports = self.config.ports_per_user[u]
             port_power_factor = 1.0 / math.sqrt(num_ports)  # sqrt(N) reduction in amplitude
             
-            # Initialize combined signal for this user (for power calculation)
-            user_signals[u] = [
-                torch.zeros(L, dtype=torch.complex64, device=self.device)
-                for _ in range(self.num_rx_antennas)
-            ]
+            # Initialize signals for this user using dictionary structure
+            user_signals[u] = {
+                rx_ant: torch.zeros(L, dtype=torch.complex64, device=self.device)
+                for rx_ant in range(self.num_rx_antennas)
+            }
             
             # Generate one timing offset per user (all ports of the same UE use the same timing offset)
             delay_offset_seconds = random.uniform(*self.delay_offset_range)
             delay_offset_samples = int(delay_offset_seconds * self.sampling_rate)
             
-            # For each port of this user
+            if enable_debug:
+                debug_info['user_delay_offsets'][u] = {
+                    'delay_offset_seconds': delay_offset_seconds,
+                    'delay_offset_samples': delay_offset_samples
+                }
+                debug_info['user_signals_before_channel'][u] = {}
+                debug_info['user_signals_after_channel'][u] = {}
+            
+            # Initialize true channels dictionary for this user with correct structure: [user][rx_ant][tx_ant]
+            true_channels[u] = {}
+            for rx_ant in range(self.num_rx_antennas):
+                true_channels[u][rx_ant] = {}
+            
+            # Generate separate signals for each port (transmit antenna)
+            tx_signals = {}  # [port] -> signal
             for p in range(num_ports):
                 # Get cyclic shift
                 n_u_p = self.config.cyclic_shifts[u][p]
@@ -454,182 +531,364 @@ class SRSDataGenerator:
                 # Generate cyclically shifted sequence (frequency domain)
                 x_u_p_freq = apply_cyclic_shift(self.base_sequence, n_u_p, K).to(self.device)
                 
-                # Apply port power scaling (divide power equally among ports)
-                x_u_p_freq = x_u_p_freq * port_power_factor
-                
-                # Map sequence to IFFT inputs (comb-like structure with distance)
-                x_mapped = torch.zeros(self.ifft_size, dtype=torch.complex64, device=self.device)
-                x_mapped[self.mapping_indices] = x_u_p_freq
+                # Create full OFDM symbol in frequency domain
+                x_port_mapped = torch.zeros(self.ifft_size, dtype=torch.complex64, device=self.device)
+                x_port_mapped[self.mapping_indices] = x_u_p_freq
                 
                 # Convert to time domain with IFFT
-                x_time = torch.fft.ifft(x_mapped) * math.sqrt(self.ifft_size)
+                x_time = torch.fft.ifft(x_port_mapped) * math.sqrt(self.ifft_size)
                 
-                # Add cyclic prefix - take last cp_length samples and prepend
+                # Add cyclic prefix
                 x_with_cp = torch.cat([
                     x_time[-self.cp_length:],  # CP from end of symbol
                     x_time,                    # Full symbol
                     x_time[:self.cp_length]    # CP for the end (to handle negative timing offsets)
                 ])
                 
-                # Apply TDL channel in time domain with UE-specific timing offset across all receive antennas
-                y_time_with_cp = self.tdl_model.apply_channel(
-                    x_with_cp,
-                    timing_offset=delay_offset_samples
-                )  # Shape: [num_rx_antennas, signal_length]
+                tx_signals[p] = x_with_cp
                 
-                # Generate channel impulse response for reference
-                h_taps = self.tdl_model.generate_channel_taps(
-                    num_taps_max=self.ifft_size//4,
-                    timing_offset=delay_offset_samples
-                )  # Shape: [num_rx_antennas, num_taps]
-                
-                # Now process each receive antenna separately
-                for rx_ant in range(self.num_rx_antennas):
-                    # Remove cyclic prefix - extract only the main symbol part
-                    y_time = y_time_with_cp[rx_ant, self.cp_length:self.cp_length+self.ifft_size]
-                    
-                    # Convert back to frequency domain
-                    y_freq = torch.fft.fft(y_time) / math.sqrt(self.ifft_size)
-                    
-                    # Extract only the mapped positions to get back to original sequence length
-                    y_u_p = y_freq[self.mapping_indices]
-                    
-                    # Add to user-specific combined signal for this receive antenna (for power calculation)
-                    user_signals[u][rx_ant] += y_u_p
-                    
-                    # Calculate true frequency domain channel at SRS positions
-                    h_freq = torch.fft.fft(h_taps[rx_ant], n=self.ifft_size)
-                    h_true = h_freq[self.mapping_indices]
-                    
-                    # Store the original channel for now (scaling will be applied later)
-                    true_channels.append((u, p, rx_ant, h_true * port_power_factor))
-        
-        # Now combine all user signals at each receive antenna
-        for u in range(num_users):
+                if enable_debug:
+                    debug_info['user_signals_before_channel'][u][p] = {
+                        'cyclic_shift': n_u_p,
+                        'x_u_p_freq': x_u_p_freq.clone(),
+                        'x_port_mapped': x_port_mapped.clone(),
+                        'x_time': x_time.clone(),
+                        'x_with_cp': x_with_cp.clone(),
+                        'signal_energy': x_with_cp.abs().pow(2).sum().item()
+                    }
+            
+            # Apply TDL channel: multiple transmit antennas to multiple receive antennas
+            channel_debug = {} if enable_debug else None
+            y_time_with_cp_shifted, h_freq_channels = self.tdl_model.apply_channel(
+                tx_signals,  # Dictionary of signals from each port (transmit antenna)
+                delay_offset_samples=delay_offset_samples,
+                mapping_indices=self.mapping_indices,
+                ifft_size=self.ifft_size,
+                debug_dict=channel_debug
+            )  # Shape: [num_rx_antennas, signal_length], [num_rx_antennas, num_tx_antennas, L]
+            
+            if enable_debug:
+                debug_info['channel_debug'][u] = channel_debug
+            
+            # Process each receive antenna separately
             for rx_ant in range(self.num_rx_antennas):
-                # Add this user's signal to the combined receive signal for this antenna
-                y_freq_rx_antennas[rx_ant] += user_signals[u][rx_ant]
+                # Remove cyclic prefix - extract only the main symbol part
+                y_time = y_time_with_cp_shifted[rx_ant, self.cp_length:self.cp_length+self.ifft_size]
+                
+                # Convert back to frequency domain
+                y_freq = torch.fft.fft(y_time) / math.sqrt(self.ifft_size)
+                
+                # Extract only the mapped positions to get back to original sequence length
+                y_user_combined = y_freq[self.mapping_indices]
+                
+                # Store user's combined signal after channel
+                user_signals[u][rx_ant] = y_user_combined
+                
+                if enable_debug:
+                    debug_info['user_signals_after_channel'][u][rx_ant] = {
+                        'y_time_with_cp': y_time_with_cp_shifted[rx_ant].clone(),
+                        'y_time': y_time.clone(),
+                        'y_freq': y_freq.clone(),
+                        'y_user_combined': y_user_combined.clone(),
+                        'signal_energy': y_user_combined.abs().pow(2).sum().item()
+                    }
+                
+                # Store channel information for each transmit antenna (port)
+                for tx_ant in range(num_ports):
+                    # Store the channel from tx_ant to rx_ant
+                    true_channels[u][rx_ant][tx_ant] = h_freq_channels[rx_ant, tx_ant]
         
         # Fixed noise power (nominal value)
         nominal_noise_power = 1e-3
         
-        # Calculate user-specific signal powers for each antenna
+        if enable_debug:
+            debug_info['nominal_noise_power'] = nominal_noise_power
+            debug_info['y_freq_rx_antennas_before_scaling'] = {
+                rx_ant: torch.zeros_like(y_freq_rx_antennas[rx_ant])
+                for rx_ant in range(self.num_rx_antennas)
+            }
+        
+        # Calculate user-specific signal powers and scale factors
         user_powers = {}
+        user_scale_factors = {}
+        actual_snrs = {}
+        
         for u in range(num_users):
-            # Average power across all receive antennas
+            # Calculate average power across all receive antennas for this user
             user_power = 0
             for rx_ant in range(self.num_rx_antennas):
                 user_power += torch.mean(torch.abs(user_signals[u][rx_ant]) ** 2).item()
             user_power /= self.num_rx_antennas
             user_powers[u] = user_power
-        
-        # Calculate scaling factor for each user to achieve desired SNR
-        user_scale_factors = {}
-        
-        # Track actual SNR values
-        actual_snrs = []
-        
-        for u, snr_db in enumerate(user_snrs):
+            
+            # Calculate scale factor to achieve desired SNR
+            snr_db = user_snrs[u]
             snr_linear = 10 ** (snr_db / 10)  # Convert dB to linear
             
-            # Calculate scale factor for this user's signal
-            if user_powers[u] > 0:
-                scale_factor = np.sqrt(snr_linear * nominal_noise_power / user_powers[u])
+            if user_power > 0:
+                scale_factor = np.sqrt(snr_linear * nominal_noise_power / user_power)
             else:
                 scale_factor = 0
             
             user_scale_factors[u] = scale_factor
             
-            # Update actual SNR for this user
-            actual_snr = 10 * math.log10(user_powers[u] * (scale_factor ** 2) / nominal_noise_power) if user_powers[u] > 0 else -float('inf')
-            actual_snrs.append(actual_snr)
+            # Calculate actual achieved SNR
+            actual_snr = 10 * math.log10(user_power * (scale_factor ** 2) / nominal_noise_power) if user_power > 0 else -float('inf')
+            actual_snrs[u] = actual_snr
+            
+            if enable_debug:
+                debug_info['user_powers'][u] = user_power
+                debug_info['user_scale_factors'][u] = scale_factor
+                debug_info['actual_snrs'] = actual_snrs
         
-        # Scale all users' signals and combine
-        y_freq_scaled = torch.zeros_like(y_freq_rx_antennas)
+        # Scale each user's signals to achieve desired SNR and combine at receiver
         for u in range(num_users):
             scale_factor = user_scale_factors[u]
-            # Apply scaling to all antennas
+            # Scale and add to combined received signal
             for rx_ant in range(self.num_rx_antennas):
-                y_freq_scaled[rx_ant] += user_signals[u][rx_ant] * scale_factor
+                scaled_signal = user_signals[u][rx_ant] * scale_factor
+                y_freq_rx_antennas[rx_ant] += scaled_signal
+                
+                if enable_debug:
+                    debug_info['y_freq_rx_antennas_before_scaling'][rx_ant] += user_signals[u][rx_ant]
         
-        # Generate noise and add to each receive antenna
-        y_noisy = torch.zeros_like(y_freq_scaled)
+        if enable_debug:
+            debug_info['y_freq_rx_antennas_after_scaling'] = {
+                rx_ant: y_freq_rx_antennas[rx_ant].clone()
+                for rx_ant in range(self.num_rx_antennas)
+            }
+            debug_info['combined_signal_energy_before_noise'] = sum([
+                y_freq_rx_antennas[rx_ant].abs().pow(2).sum().item()
+                for rx_ant in range(self.num_rx_antennas)
+            ])
+        
+        # Add noise to each receive antenna
+        y_noisy = {}
         for rx_ant in range(self.num_rx_antennas):
             # Generate noise with fixed power for this antenna
             noise = torch.complex(
-                torch.randn_like(torch.real(y_freq_scaled[rx_ant])) * np.sqrt(nominal_noise_power / 2),
-                torch.randn_like(torch.imag(y_freq_scaled[rx_ant])) * np.sqrt(nominal_noise_power / 2)
+                torch.randn_like(torch.real(y_freq_rx_antennas[rx_ant])) * np.sqrt(nominal_noise_power / 2),
+                torch.randn_like(torch.imag(y_freq_rx_antennas[rx_ant])) * np.sqrt(nominal_noise_power / 2)
             )
             
             # Add noise to the combined signal
-            y_noisy[rx_ant] = y_freq_scaled[rx_ant] + noise
+            y_noisy[rx_ant] = y_freq_rx_antennas[rx_ant] + noise
+            
+            if enable_debug:
+                if 'noise_signals' not in debug_info:
+                    debug_info['noise_signals'] = {}
+                debug_info['noise_signals'][rx_ant] = noise.clone()
+        
+        if enable_debug:
+            debug_info['y_noisy'] = {rx_ant: y_noisy[rx_ant].clone() for rx_ant in range(self.num_rx_antennas)}
+            debug_info['total_noise_energy'] = sum([
+                debug_info['noise_signals'][rx_ant].abs().pow(2).sum().item()
+                for rx_ant in range(self.num_rx_antennas)
+            ])
         
         # Apply user scale factors to true channels for accurate comparison with estimates
-        scaled_true_channels = []
-        for u, p, rx_ant, h_true in true_channels:
+        scaled_true_channels = {}
+        for u in range(num_users):
+            scaled_true_channels[u] = {}
             scale_factor = user_scale_factors[u]
-            scaled_true_channels.append((u, p, rx_ant, h_true * scale_factor))
+            for rx_ant in range(self.num_rx_antennas):
+                scaled_true_channels[u][rx_ant] = {}
+                for tx_ant in range(self.config.ports_per_user[u]):
+                    scaled_true_channels[u][rx_ant][tx_ant] = true_channels[u][rx_ant][tx_ant] * scale_factor
         
-        # Calculate LS estimate for each antenna
-        ls_estimates = torch.zeros_like(y_noisy)
+        # Calculate LS estimate for each antenna (receiver processing)
+        ls_estimates = {}
         for rx_ant in range(self.num_rx_antennas):
             ls_estimates[rx_ant] = y_noisy[rx_ant] / self.base_sequence
         
-        # Return generated sample
-        return {
-            'ls_estimates': ls_estimates,  # [num_rx_antennas, L]
-            'true_channels': scaled_true_channels,  # List of (u, p, rx_ant, h)
+        if enable_debug:
+            debug_info['ls_estimates'] = {rx_ant: ls_estimates[rx_ant].clone() for rx_ant in range(self.num_rx_antennas)}
+            debug_info['scaled_true_channels'] = {}
+            for u in range(num_users):
+                debug_info['scaled_true_channels'][u] = {}
+                for rx_ant in range(self.num_rx_antennas):
+                    debug_info['scaled_true_channels'][u][rx_ant] = {}
+                    for tx_ant in range(self.config.ports_per_user[u]):
+                        debug_info['scaled_true_channels'][u][rx_ant][tx_ant] = scaled_true_channels[u][rx_ant][tx_ant].clone()
+        
+        # Prepare return dictionary
+        result = {
+            'ls_estimates': ls_estimates,  # [rx_ant] -> signal
+            'true_channels': scaled_true_channels,  # [user][rx_ant][tx_ant] -> channel
             'noise_power': nominal_noise_power,
-            'snr': actual_snrs,  # Returns actual SNRs achieved for each user
+            'snr': actual_snrs,  # [user] -> SNR in dB
             'mapping_indices': self.mapping_indices  # Include mapping indices for reference
         }
         
-    def generate_batch(self, batch_size: int, fixed_snr: Optional[float] = None) -> Dict:
+        # Add debug information if enabled
+        if enable_debug:
+            result['debug_info'] = debug_info
+        
+        return result
+        
+    def generate_batch(self, batch_size: int, fixed_snr: Optional[float] = None, enable_debug: bool = False) -> Dict:
         """
         Generate a batch of training/testing samples
         
         Args:
             batch_size: Number of samples to generate
             fixed_snr: If provided, uses this fixed SNR value instead of random from range
+            enable_debug: If True, stores debug information for the first sample in the batch
             
         Returns:
             Dictionary containing batched data
         """
         # Generate individual samples
-        samples = [self.generate_sample(fixed_snr=fixed_snr) for _ in range(batch_size)]
+        samples = []
+        for i in range(batch_size):
+            # Only enable debug for the first sample to avoid excessive memory usage
+            sample_enable_debug = enable_debug and (i == 0)
+            sample = self.generate_sample(fixed_snr=fixed_snr, enable_debug=sample_enable_debug)
+            samples.append(sample)
         
-        # Batch ls_estimates - now has shape [batch_size, num_rx_antennas, L]
-        ls_estimates = torch.stack([sample['ls_estimates'] for sample in samples])
+        # Batch ls_estimates - convert dictionary structure to tensor
+        ls_estimates_list = []
+        for sample in samples:
+            # Convert dictionary to tensor for this sample
+            sample_estimates = torch.stack([
+                sample['ls_estimates'][rx_ant] 
+                for rx_ant in range(self.num_rx_antennas)
+            ])
+            ls_estimates_list.append(sample_estimates)
+        
+        ls_estimates = torch.stack(ls_estimates_list)  # Shape: [batch_size, num_rx_antennas, L]
         
         # Batch noise_powers
         noise_powers = torch.tensor([sample['noise_power'] for sample in samples], device=self.device)
         
-        # Batch true_channels (this is more complex as different samples may have different orderings)
-        # We'll create a fixed ordering based on user, port, and rx_antenna
+        # Batch true_channels (now using dictionary structure: [u][rx_ant][tx_ant])
         true_channels_batched = {}
         for u in range(self.config.num_users):
-            for p in range(max(self.config.ports_per_user)):
-                if p < self.config.ports_per_user[u]:
-                    for rx_ant in range(self.num_rx_antennas):
-                        channels = []
-                        for sample in samples:
-                            for user, port, ant, channel in sample['true_channels']:
-                                if user == u and port == p and ant == rx_ant:
-                                    channels.append(channel)
-                                    break
-                        if channels:
-                            true_channels_batched[(u, p, rx_ant)] = torch.stack(channels)
+            true_channels_batched[u] = {}
+            for rx_ant in range(self.num_rx_antennas):
+                true_channels_batched[u][rx_ant] = {}
+                for tx_ant in range(self.config.ports_per_user[u]):
+                    channels = []
+                    for sample in samples:
+                        if (u in sample['true_channels'] and 
+                            rx_ant in sample['true_channels'][u] and 
+                            tx_ant in sample['true_channels'][u][rx_ant]):
+                            channels.append(sample['true_channels'][u][rx_ant][tx_ant])
+                    if channels:
+                        true_channels_batched[u][rx_ant][tx_ant] = torch.stack(channels)
         
-        # Batch SNRs (now a list of lists, one list per sample, each inner list has one SNR per user)
-        snrs = [sample['snr'] for sample in samples]
+        # Batch SNRs (convert dictionary structure to list for compatibility)
+        snrs = []
+        for sample in samples:
+            sample_snrs = [sample['snr'][u] for u in range(self.config.num_users)]
+            snrs.append(sample_snrs)
         
         # Include mapping indices (same for all samples)
         mapping_indices = samples[0]['mapping_indices']
         
-        return {
+        # Prepare result dictionary
+        result = {
             'ls_estimates': ls_estimates,
             'true_channels': true_channels_batched,
             'noise_powers': noise_powers,
             'snrs': snrs,
             'mapping_indices': mapping_indices
         }
+        
+        # Add debug information from first sample if available
+        if enable_debug and 'debug_info' in samples[0]:
+            result['debug_info'] = samples[0]['debug_info']
+        
+        return result
+    
+    def print_debug_summary(self, debug_info: Dict):
+        """
+        Print a summary of debug information for easy inspection
+        
+        Args:
+            debug_info: Debug dictionary returned from generate_sample(enable_debug=True)
+        """
+        print("=== SRS Data Generation Debug Summary ===")
+        print(f"Configuration:")
+        print(f"  - Sequence length: {debug_info['seq_length']}")
+        print(f"  - Number of users: {debug_info['num_users']}")
+        print(f"  - Number of RX antennas: {debug_info['num_rx_antennas']}")
+        print(f"  - IFFT size: {debug_info['ifft_size']}")
+        print(f"  - CP length: {debug_info['cp_length']}")
+        print(f"  - Sampling rate: {debug_info['sampling_rate']:.2e} Hz")
+        print(f"  - Noise power: {debug_info['nominal_noise_power']:.2e}")
+        
+        print(f"\nBase sequence energy: {debug_info['base_sequence'].abs().pow(2).sum().item():.6f}")
+        
+        print(f"\nPer-user information:")
+        for u in range(debug_info['num_users']):
+            print(f"  User {u}:")
+            print(f"    - Target SNR: {debug_info['user_snrs'][u]:.2f} dB")
+            print(f"    - Actual SNR: {debug_info['actual_snrs'][u]:.2f} dB")
+            print(f"    - Signal power: {debug_info['user_powers'][u]:.6e}")
+            print(f"    - Scale factor: {debug_info['user_scale_factors'][u]:.6f}")
+            print(f"    - Delay offset: {debug_info['user_delay_offsets'][u]['delay_offset_samples']} samples "
+                  f"({debug_info['user_delay_offsets'][u]['delay_offset_seconds']*1e9:.2f} ns)")
+            
+            # Show channel tap energy
+            if u in debug_info['channel_debug']:
+                h_taps_energy = debug_info['channel_debug'][u]['h_taps_energy'].item()
+                print(f"    - Channel taps energy: {h_taps_energy:.6f}")
+        
+        print(f"\nSignal energies:")
+        print(f"  - Combined signal (before noise): {debug_info['combined_signal_energy_before_noise']:.6f}")
+        print(f"  - Total noise energy: {debug_info['total_noise_energy']:.6f}")
+        
+        print(f"\nReceive antenna energies:")
+        for rx_ant in range(debug_info['num_rx_antennas']):
+            ls_energy = debug_info['ls_estimates'][rx_ant].abs().pow(2).sum().item()
+            print(f"  - RX antenna {rx_ant} LS estimate energy: {ls_energy:.6f}")
+    
+    def get_debug_tensor(self, debug_info: Dict, key_path: str):
+        """
+        Extract a specific tensor from debug_info using a dot-separated path
+        
+        Args:
+            debug_info: Debug dictionary
+            key_path: Dot-separated path, e.g., "user_signals_after_channel.0.1.y_user_combined"
+            
+        Returns:
+            The requested tensor or None if not found
+        """
+        keys = key_path.split('.')
+        current = debug_info
+        
+        try:
+            for key in keys:
+                if key.isdigit():
+                    current = current[int(key)]
+                else:
+                    current = current[key]
+            return current
+        except (KeyError, IndexError, TypeError):
+            print(f"Key path '{key_path}' not found in debug_info")
+            return None
+    
+    def list_debug_keys(self, debug_info: Dict, prefix: str = "", max_depth: int = 3):
+        """
+        List all available keys in debug_info for easy navigation
+        
+        Args:
+            debug_info: Debug dictionary
+            prefix: Current prefix for recursive listing
+            max_depth: Maximum depth to recurse
+        """
+        if max_depth <= 0:
+            return
+            
+        for key, value in debug_info.items():
+            current_path = f"{prefix}.{key}" if prefix else key
+            
+            if isinstance(value, dict):
+                print(f"{current_path}/ (dict)")
+                if max_depth > 1:
+                    self.list_debug_keys(value, current_path, max_depth - 1)
+            elif isinstance(value, torch.Tensor):
+                print(f"{current_path} (tensor: {list(value.shape)}, {value.dtype})")
+            else:
+                print(f"{current_path} ({type(value).__name__})")

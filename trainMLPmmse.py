@@ -1,10 +1,13 @@
+import os
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import os
+
 import argparse
 from typing import List, Dict, Optional, Tuple
 from torch.utils.tensorboard import SummaryWriter
@@ -143,7 +146,7 @@ class SRSTrainerModified:
         for batch_idx in tqdm(range(num_batches), desc="训练中"):
             # Generate batch
             with torch.no_grad():
-                batch = self.data_gen.generate_batch(batch_size)
+                batch = self.data_gen.generate_batch(batch_size, enable_debug=True)
 
             # Get ls estimates and cyclic shifts
             ls_estimates = batch['ls_estimates']
@@ -575,4 +578,6 @@ def main():
     plt.close()
 
 if __name__ == '__main__':
+    print(f"PyTorch MKL-DNN available: {torch.backends.mkldnn.is_available()}")
+    print(f"PyTorch using MKL-DNN: {torch.backends.mkldnn.enabled}")
     main()
