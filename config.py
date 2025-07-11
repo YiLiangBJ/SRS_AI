@@ -1,10 +1,26 @@
+"""
+用户级SRS配置
+
+这个配置定义了用户相关的SRS参数：
+- 用户数量和端口配置
+- 循环移位配置
+- 序列参数
+
+系统级物理层参数 (如采样率、载波频率等) 请参考 system_config.py
+"""
+
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
 
 
 @dataclass
 class SRSConfig:
-    """SRS configuration parameters"""
+    """
+    SRS用户配置参数
+    
+    这个类只包含与用户相关的SRS参数。
+    系统级参数 (采样率、载波频率等) 在 SystemConfig 中定义。
+    """
     
     # Basic parameters
     seq_length: int  # Length of SRS sequence (L)
@@ -80,6 +96,28 @@ class SRSConfig:
         
         # All checks passed
         return True
+    
+    def get_user_config(self, user_id: int) -> Dict:
+        """
+        获取指定用户的配置信息
+        
+        Args:
+            user_id: 用户ID (0-based index)
+            
+        Returns:
+            包含用户配置的字典
+        """
+        if user_id < 0 or user_id >= self.num_users:
+            raise ValueError(f"User ID {user_id} is out of range [0, {self.num_users-1}]")
+        
+        return {
+            'user_id': user_id,
+            'num_ports': self.ports_per_user[user_id],
+            'cyclic_shifts': self.cyclic_shifts[user_id],
+            'sequence_length': self.seq_length,
+            'sequence_type': 'zadoff_chu',  # Default sequence type
+            'start_subcarrier': None,  # Will be determined by mapping logic
+        }
 
 
 def create_example_config() -> SRSConfig:

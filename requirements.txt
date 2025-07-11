@@ -2,3 +2,16 @@ torch>=1.8.0
 numpy>=1.19.0
 matplotlib>=3.3.0
 tqdm>=4.45.0
+scipy>=1.7.0
+
+# SIONNA - Professional 3GPP Channel Models (Recommended)
+# Install with proxy (for Intel network):
+# python -m pip install --proxy http://child-prc.intel.com:913 sionna
+# python -m pip install --proxy http://child-prc.intel.com:913 tensorflow>=2.13.0
+
+# Alternative installation without proxy:
+# python -m pip install sionna tensorflow>=2.13.0
+
+# Uncomment to add to requirements:
+# sionna>=0.16.0
+# tensorflow>=2.13.0

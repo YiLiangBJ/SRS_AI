@@ -8,6 +8,26 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+# Try to import professional channel libraries
+try:
+    import sionna
+    SIONNA_AVAILABLE = True
+    print("✅ SIONNA available - using professional 3GPP channel models")
+except ImportError:
+    SIONNA_AVAILABLE = False
+    print("❌ SIONNA not available - using custom TDL implementation")
+    print("   To install SIONNA (Intel网络): python -m pip install --proxy http://child-prc.intel.com:913 sionna tensorflow")
+    print("   To install SIONNA (其他网络): python -m pip install sionna tensorflow")
+
+# Import professional channel model wrapper
+try:
+    from professional_channels import SIONNAChannelModel, SIONNAChannelGenerator, print_sionna_info
+    PROFESSIONAL_CHANNELS_AVAILABLE = True
+    print("✅ Professional channel wrapper available")
+except ImportError:
+    PROFESSIONAL_CHANNELS_AVAILABLE = False
+    print("❌ Professional channel wrapper not found")
+
 import argparse
 from typing import List, Dict, Optional, Tuple
 from torch.utils.tensorboard import SummaryWriter
@@ -25,35 +45,59 @@ class SRSTrainerModified:
     """
     def __init__(
         self,
-        config: SRSConfig,
+        srs_config: SRSConfig,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         save_dir: str = "./checkpoints_modified",
         use_trainable_mmse: bool = True,
-        enable_plotting: bool = False
+        enable_plotting: bool = False,
+        use_professional_channels: bool = True,
+        use_sionna: bool = True
     ):
         """
         Initialize the trainer
         
         Args:
-            config: SRS configuration
+            srs_config: SRS configuration
             device: Computation device
             save_dir: Directory for saving checkpoints
             use_trainable_mmse: Whether to use trainable MMSE matrices
             enable_plotting: Whether to enable plotting during training
+            use_professional_channels: Whether to use professional channel libraries
+            use_sionna: Whether to use SIONNA (if available)
         """
-        self.config = config
+        self.srs_config = srs_config
         self.device = device
         self.save_dir = save_dir
         self.use_trainable_mmse = use_trainable_mmse
         self.enable_plotting = enable_plotting
+        self.use_professional_channels = use_professional_channels
         
-        # Create data generator
-        self.data_gen = SRSDataGenerator(config, device=device, channel_model="TDL-A", delay_spread=300e-9)
+        # 保存系统配置
+        from system_config import create_default_system_config
+        self.system_config = create_default_system_config()
+        
+        # 保存信号生成参数（运行时动态使用）
+        self.signal_gen_params = {
+            'srs_config': srs_config,
+            'num_rx_antennas': self.system_config.num_rx_antennas,
+            'sampling_rate': self.system_config.sampling_rate,
+            'device': device
+        }
+        
+        # 保存信道参数（运行时动态使用）
+        self.channel_params = {
+            'use_sionna': use_sionna,
+            'channel_model': "TDL-A",
+            'delay_spread': self.system_config.delay_spread,  # 🎯 使用系统配置的延迟扩展
+            'carrier_frequency': 3.5e9,
+            'device': device
+        }
+
         # Create trainable MMSE module if needed
         if use_trainable_mmse:
             self.mmse_module = TrainableMMSEModule(
-                seq_length=config.seq_length,
-                mmse_block_size=config.mmse_block_size,
+                seq_length=srs_config.seq_length,
+                mmse_block_size=srs_config.mmse_block_size,
                 use_complex_input=True
             ).to(device)
         else:
@@ -61,11 +105,11 @@ class SRSTrainerModified:
             
         # Create models
         self.srs_estimator = SRSChannelEstimator(
-            seq_length=config.seq_length,
-            ktc=config.ktc,
-            max_users=config.num_users,
-            max_ports_per_user=max(config.ports_per_user),
-            mmse_block_size=config.mmse_block_size,
+            seq_length=srs_config.seq_length,
+            ktc=srs_config.ktc,
+            max_users=srs_config.num_users,
+            max_ports_per_user=max(srs_config.ports_per_user),
+            mmse_block_size=srs_config.mmse_block_size,
             device=device,
             mmse_module=self.mmse_module if use_trainable_mmse else None  # 传入 MMSE 模块
         ).to(device)
@@ -74,6 +118,7 @@ class SRSTrainerModified:
         for name, param in self.srs_estimator.named_parameters():
             param.requires_grad = True
             print(f"Setting requires_grad=True for SRS estimator parameter: {name}, shape: {param.shape}")
+            
         if self.mmse_module:
             for name, param in self.mmse_module.named_parameters():
                 param.requires_grad = True
@@ -123,6 +168,343 @@ class SRSTrainerModified:
         # Global step counter for logging
         self.global_step = 0
         
+        # 🎯 完整实例化所有需要的组件
+        print(f"\n🚀 开始完整实例化所有组件...")
+        
+        # 1. 创建信道模型字典（按不同参数组织）
+        self.channel_models = {}
+        
+        # 2. 创建数据生成器字典（按不同SNR范围组织）
+        self.data_generators = {}
+        
+        # 3. 创建per-UE信道实例字典（如果需要）
+        self.per_ue_channels = {}
+        
+        # 4. 创建per-port信号生成器字典（如果需要）
+        self.per_port_generators = {}
+        
+        # 5. 预定义常用的参数组合
+        self.common_snr_ranges = [
+            (-10, 40),  # 默认范围
+            (-5, 30),   # 中等范围
+            (0, 20),    # 高SNR范围
+            (-15, 35),  # 扩展范围
+        ]
+        
+        self.common_channel_configs = [
+            {'model': 'TDL-A', 'delay_spread': self.system_config.delay_spread},
+            {'model': 'TDL-B', 'delay_spread': self.system_config.delay_spread},
+            {'model': 'TDL-C', 'delay_spread': self.system_config.delay_spread},
+        ]
+        
+        # 执行完整初始化
+        self._initialize_all_instances()
+            
+    def _initialize_all_instances(self):
+        """
+        完整初始化所有需要的实例
+        
+        🎯 性能优化策略：
+        1. 预创建所有常用的信道模型实例
+        2. 为每个SNR范围预创建数据生成器
+        3. 为每个UE预创建专用信道实例（如果需要）
+        4. 为每个port预创建信号生成器（如果需要）
+        
+        这样在训练时只需要查字典，不需要重复实例化
+        """
+        try:
+            print(f"🚀 开始完整实例化...")
+            
+            # ========================================
+            # 1. 初始化信道模型实例（按配置参数组织）
+            # ========================================
+            print(f"📡 初始化信道模型实例...")
+            self._initialize_channel_models()
+            
+            # ========================================
+            # 2. 初始化数据生成器实例（按SNR范围组织）
+            # ========================================
+            print(f"📊 初始化数据生成器实例...")
+            self._initialize_data_generators()
+            
+            # ========================================
+            # 3. 初始化per-UE专用实例（如果需要）
+            # ========================================
+            print(f"👥 初始化per-UE专用实例...")
+            self._initialize_per_ue_instances()
+            
+            # ========================================
+            # 4. 初始化per-port专用实例（如果需要）
+            # ========================================
+            print(f"📋 初始化per-port专用实例...")
+            self._initialize_per_port_instances()
+            
+            print(f"✅ 所有实例初始化完成!")
+            self._print_instance_summary()
+            
+        except Exception as e:
+            print(f"❌ 实例初始化失败: {e}")
+            raise RuntimeError(f"Failed to initialize instances: {e}")
+    
+    def _initialize_channel_models(self):
+        """初始化所有常用的信道模型实例"""
+        if not PROFESSIONAL_CHANNELS_AVAILABLE:
+            print("⚠️  专业信道库不可用，跳过信道模型初始化")
+            return
+            
+        for config in self.common_channel_configs:
+            config_key = f"{config['model']}_{config['delay_spread']*1e9:.0f}ns"
+            
+            try:
+                print(f"   创建信道模型: {config_key}")
+                channel_model = SIONNAChannelModel(
+                    system_config=self.system_config,
+                    model_type=config['model'],
+                    num_rx_antennas=self.system_config.num_rx_antennas,
+                    delay_spread=config['delay_spread'],
+                    device=self.channel_params['device']
+                )
+                self.channel_models[config_key] = channel_model
+                print(f"   ✅ {config_key} 创建成功")
+                
+            except Exception as e:
+                print(f"   ❌ {config_key} 创建失败: {e}")
+                self.channel_models[config_key] = None
+    
+    def _initialize_data_generators(self):
+        """为所有常用SNR范围初始化数据生成器"""
+        from data_generator_refactored import SRSDataGenerator
+        
+        # 获取默认信道模型
+        default_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
+        default_channel_model = self.channel_models.get(default_channel_key)
+        
+        print(f"   🎯 查找默认信道模型: {default_channel_key}")
+        print(f"   🎯 可用信道模型: {list(self.channel_models.keys())}")
+        print(f"   🎯 默认信道模型: {'存在' if default_channel_model is not None else '不存在'}")
+        
+        for snr_range in self.common_snr_ranges:
+            snr_key = f"snr_{snr_range[0]}_{snr_range[1]}"
+            
+            try:
+                print(f"   创建数据生成器: {snr_key}")
+                data_generator = SRSDataGenerator(
+                    config=self.signal_gen_params['srs_config'],
+                    channel_model=default_channel_model,  # 🎯 确保传入信道模型
+                    num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
+                    snr_range=snr_range,
+                    sampling_rate=self.signal_gen_params['sampling_rate'],
+                    device=self.signal_gen_params['device']
+                )
+                self.data_generators[snr_key] = data_generator
+                print(f"   ✅ {snr_key} 创建成功 (using_channel={data_generator.using_channel})")
+                
+            except Exception as e:
+                print(f"   ❌ {snr_key} 创建失败: {e}")
+                self.data_generators[snr_key] = None
+    
+    def _initialize_per_ue_instances(self):
+        """为每个UE初始化专用实例（如果需要）"""
+        # 当前设计使用统一的数据生成器，per-UE实例在信道内部处理
+        # 如果将来需要per-UE的特殊处理，可以在这里添加
+        
+        for user_id in range(self.srs_config.num_users):
+            num_ports = self.srs_config.ports_per_user[user_id]
+            print(f"   UE {user_id}: {num_ports} 端口")
+            
+            # 预留：可以为每个UE创建专用的处理实例
+            self.per_ue_channels[user_id] = {
+                'num_ports': num_ports,
+                'cyclic_shifts': self.srs_config.cyclic_shifts[user_id],
+                # 'dedicated_channel': None,  # 如果需要per-UE信道实例
+                # 'dedicated_generator': None,  # 如果需要per-UE生成器
+            }
+    
+    def _initialize_per_port_instances(self):
+        """为每个port初始化专用实例（如果需要）"""
+        # 当前设计使用统一的数据生成器，per-port实例在内部处理
+        # 如果将来需要per-port的特殊处理，可以在这里添加
+        
+        for user_id in range(self.srs_config.num_users):
+            for port_id in range(self.srs_config.ports_per_user[user_id]):
+                port_key = f"ue_{user_id}_port_{port_id}"
+                cyclic_shift = self.srs_config.cyclic_shifts[user_id][port_id]
+                
+                print(f"   Port {port_key}: 循环移位 {cyclic_shift}")
+                
+                # 预留：可以为每个port创建专用的处理实例
+                self.per_port_generators[port_key] = {
+                    'user_id': user_id,
+                    'port_id': port_id,
+                    'cyclic_shift': cyclic_shift,
+                    # 'dedicated_sequence_gen': None,  # 如果需要per-port序列生成器
+                    # 'dedicated_mapper': None,  # 如果需要per-port映射器
+                }
+    
+    def _print_instance_summary(self):
+        """打印实例化总结"""
+        print(f"\n� 实例化总结:")
+        print(f"   信道模型: {len(self.channel_models)} 个")
+        for key, model in self.channel_models.items():
+            status = "✅" if model is not None else "❌"
+            print(f"     {status} {key}")
+        
+        print(f"   数据生成器: {len(self.data_generators)} 个")
+        for key, generator in self.data_generators.items():
+            status = "✅" if generator is not None else "❌"
+            print(f"     {status} {key}")
+        
+        print(f"   UE实例: {len(self.per_ue_channels)} 个")
+        print(f"   Port实例: {len(self.per_port_generators)} 个")
+    
+    def get_data_generator(self, snr_range=(-10, 40), channel_config=None):
+        """
+        获取数据生成器实例
+        
+        🎯 智能选择：优先使用预创建的实例，必要时动态创建
+        
+        Args:
+            snr_range: SNR范围
+            channel_config: 信道配置，格式：{'model': 'TDL-A', 'delay_spread': 300e-9}
+            
+        Returns:
+            SRSDataGenerator实例
+        """
+        # 生成查找键
+        snr_key = f"snr_{snr_range[0]}_{snr_range[1]}"
+        
+        # 检查是否有预创建的生成器
+        if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
+            generator = self.data_generators[snr_key]
+            
+            # 检查信道配置是否匹配（如果指定了）
+            if channel_config is not None:
+                # 这里可以添加信道配置匹配检查
+                # 目前使用默认信道配置
+                pass
+            
+            print(f"🎯 使用预创建的数据生成器: {snr_key} (using_channel={generator.using_channel})")
+            return generator
+        
+        # 需要动态创建
+        print(f"🔄 动态创建数据生成器: {snr_key}")
+        
+        # 获取信道模型
+        if channel_config is not None:
+            channel_key = f"{channel_config['model']}_{channel_config['delay_spread']*1e9:.0f}ns"
+            channel_model = self.channel_models.get(channel_key)
+            if channel_model is None:
+                print(f"⚠️  信道模型 {channel_key} 不存在，使用默认")
+                default_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
+                channel_model = self.channel_models.get(default_key)
+        else:
+            default_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
+            channel_model = self.channel_models.get(default_key)
+        
+        try:
+            from data_generator_refactored import SRSDataGenerator
+            generator = SRSDataGenerator(
+                config=self.signal_gen_params['srs_config'],
+                channel_model=channel_model,
+                num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
+                snr_range=snr_range,
+                sampling_rate=self.signal_gen_params['sampling_rate'],
+                device=self.signal_gen_params['device']
+            )
+            
+            # 缓存新创建的生成器
+            self.data_generators[snr_key] = generator
+            print(f"✅ 动态生成器创建并缓存: {snr_key} (using_channel={generator.using_channel})")
+            
+            return generator
+            
+        except Exception as e:
+            print(f"❌ 动态生成器创建失败: {e}")
+            # 回退到任何可用的生成器
+            for key, gen in self.data_generators.items():
+                if gen is not None:
+                    print(f"⚠️  回退使用: {key}")
+                    return gen
+            
+            raise RuntimeError(f"无法获取数据生成器: {e}")
+    
+    def get_channel_model(self, model_type="TDL-A", delay_spread=None):
+        """
+        获取信道模型实例
+        
+        Args:
+            model_type: 信道模型类型
+            delay_spread: 延迟扩展（如果为None则使用系统配置）
+            
+        Returns:
+            SIONNAChannelModel实例
+        """
+        if delay_spread is None:
+            delay_spread = self.system_config.delay_spread
+        
+        channel_key = f"{model_type}_{delay_spread*1e9:.0f}ns"
+        
+        if channel_key in self.channel_models and self.channel_models[channel_key] is not None:
+            print(f"🎯 使用预创建的信道模型: {channel_key}")
+            return self.channel_models[channel_key]
+        
+        # 动态创建
+        print(f"🔄 动态创建信道模型: {channel_key}")
+        
+        if not PROFESSIONAL_CHANNELS_AVAILABLE:
+            print("❌ 专业信道库不可用")
+            return None
+        
+        try:
+            channel_model = SIONNAChannelModel(
+                system_config=self.system_config,
+                model_type=model_type,
+                num_rx_antennas=self.system_config.num_rx_antennas,
+                delay_spread=delay_spread,
+                device=self.channel_params['device']
+            )
+            
+            # 缓存新创建的信道模型
+            self.channel_models[channel_key] = channel_model
+            print(f"✅ 动态信道模型创建并缓存: {channel_key}")
+            
+            return channel_model
+            
+        except Exception as e:
+            print(f"❌ 动态信道模型创建失败: {e}")
+            return None
+            
+    def generate_batch_with_dynamic_channel(self, batch_size: int, enable_debug: bool = False, snr_range=(-10, 40), channel_config=None):
+        """
+        动态生成批次数据，包含完整的信号生成、信道应用和LS估计流程
+        
+        🎯 高效设计：使用预创建的数据生成器实例，通过字典查找避免重复创建
+        这确保我们得到训练所需的所有数据：ls_estimates, true_channels, noise_powers等
+        
+        Args:
+            batch_size: 批次大小
+            enable_debug: 是否启用调试
+            snr_range: SNR范围
+            channel_config: 信道配置，格式：{'model': 'TDL-A', 'delay_spread': 300e-9}
+        """
+        # 🎯 从预创建的实例字典中获取数据生成器
+        data_generator = self.get_data_generator(snr_range=snr_range, channel_config=channel_config)
+        
+        # 生成完整批次（包含ls_estimates, true_channels等）
+        batch = data_generator.generate_batch(batch_size, enable_debug=enable_debug)
+        
+        if enable_debug:
+            print(f"✅ 动态批次生成完成:")
+            print(f"   批次大小: {batch_size}")
+            print(f"   SNR范围: {snr_range}")
+            if channel_config:
+                print(f"   信道配置: {channel_config}")
+            else:
+                print(f"   信道模型: {self.channel_params['channel_model']}")
+            print(f"   数据键: {list(batch.keys())}")
+        
+        return batch
+    
     def train_epoch(self, num_batches: int, batch_size: int) -> Tuple[float, float]:
         """
         Train for one epoch
@@ -144,9 +526,22 @@ class SRSTrainerModified:
             self.mmse_module.train()
         
         for batch_idx in tqdm(range(num_batches), desc="训练中"):
-            # Generate batch
+            # 🎯 动态SNR策略：可以根据训练进度调整SNR范围
+            # 例如：课程学习，从高SNR开始，逐渐降低到低SNR
+            current_snr_range = (-10, 40)  # 默认范围
+            
+            # 可选：实现课程学习策略
+            # progress = (batch_idx + 1) / num_batches  # 训练进度 0-1
+            # min_snr = -10 + (1 - progress) * 10  # 从0dB开始，逐渐降到-10dB
+            # current_snr_range = (min_snr, 40)
+            
+            # Generate batch with dynamic channel and SNR
             with torch.no_grad():
-                batch = self.data_gen.generate_batch(batch_size, enable_debug=True)
+                batch = self.generate_batch_with_dynamic_channel(
+                    batch_size, 
+                    enable_debug=True, 
+                    snr_range=current_snr_range
+                )
 
             # Get ls estimates and cyclic shifts
             ls_estimates = batch['ls_estimates']
@@ -171,21 +566,21 @@ class SRSTrainerModified:
                 # 运行MLP生成的MMSE滤波器，或者正常运行MMSE估计器
                 channel_estimates = self.srs_estimator(
                     ls_estimate=ls_estimate,
-                    cyclic_shifts=self.config.cyclic_shifts,
+                    cyclic_shifts=self.srs_config.cyclic_shifts,
                     noise_power=noise_power
                 )
                 # else:
                 #     # 正常运行SRS估计器
                 #     channel_estimates = self.srs_estimator(
                 #         ls_estimate=ls_estimate,
-                #         cyclic_shifts=self.config.cyclic_shifts,
+                #         cyclic_shifts=self.srs_config.cyclic_shifts,
                 #         noise_power=noise_power
                 #     )
                 
                 # Calculate loss for each user/port
                 idx = 0
-                for u in range(self.config.num_users):
-                    for p in range(self.config.ports_per_user[u]):
+                for u in range(self.srs_config.num_users):
+                    for p in range(self.srs_config.ports_per_user[u]):
                         if (u, p) in true_channels:
                             true_channel = true_channels[(u, p)][i]
                             est_channel = channel_estimates[idx]
@@ -249,8 +644,8 @@ class SRSTrainerModified:
                 # 计算这个批次处理了多少个实际计算的样本数
                 # 跟踪实际处理了多少个信道样本（每个用户可能有不同数量的端口）
                 # 实际计算的样本数 = 批次大小 * 真实信道的总数（考虑到每个用户可能有不同的端口数）
-                actual_channel_count = sum(1 for u in range(self.config.num_users) 
-                                         for p in range(self.config.ports_per_user[u]) 
+                actual_channel_count = sum(1 for u in range(self.srs_config.num_users) 
+                                         for p in range(self.srs_config.ports_per_user[u]) 
                                          if (u, p) in true_channels)
                 num_samples_in_batch = batch_size * actual_channel_count
                 avg_batch_nmse = batch_nmse / num_samples_in_batch
@@ -268,8 +663,8 @@ class SRSTrainerModified:
         # # 我们需要计算整个epoch处理的总样本数
         # # 每个批次处理的样本数 = 批次大小 * 实际信道数量
         # # 整个epoch处理的总样本数 = 批次数 * 每个批次处理的样本数
-        # actual_channel_count = sum(1 for u in range(self.config.num_users) 
-        #                          for p in range(self.config.ports_per_user[u]) 
+        # actual_channel_count = sum(1 for u in range(self.srs_config.num_users) 
+        #                          for p in range(self.srs_config.ports_per_user[u]) 
         #                          if (u, p) in true_channels)  # 使用最后一个批次的数据
         num_channels = batch_size * actual_channel_count * num_batches
         avg_loss = total_loss / num_channels
@@ -298,8 +693,12 @@ class SRSTrainerModified:
         
         with torch.no_grad():
             for _ in tqdm(range(num_batches), desc="验证中"):
-                # Generate batch
-                batch = self.data_gen.generate_batch(batch_size)
+                # Generate batch with dynamic channel (验证时使用固定SNR范围)
+                validation_snr_range = (-10, 40)  # 验证时使用标准SNR范围
+                batch = self.generate_batch_with_dynamic_channel(
+                    batch_size, 
+                    snr_range=validation_snr_range
+                )
                 
                 # Get ls estimates and cyclic shifts
                 ls_estimates = batch['ls_estimates']
@@ -317,14 +716,14 @@ class SRSTrainerModified:
                     # 不需要重新生成MMSE矩阵
                     channel_estimates = self.srs_estimator(
                         ls_estimate=ls_estimate,
-                        cyclic_shifts=self.config.cyclic_shifts,
+                        cyclic_shifts=self.srs_config.cyclic_shifts,
                         noise_power=noise_power
                     )
                     
                     # Calculate loss for each user/port
                     idx = 0
-                    for u in range(self.config.num_users):
-                        for p in range(self.config.ports_per_user[u]):
+                    for u in range(self.srs_config.num_users):
+                        for p in range(self.srs_config.ports_per_user[u]):
                             if (u, p) in true_channels:
                                 true_channel = true_channels[(u, p)][i]
                                 est_channel = channel_estimates[idx]
@@ -347,8 +746,8 @@ class SRSTrainerModified:
                 total_nmse += batch_nmse
                 
                 # 计算这个批次处理了多少个实际计算的样本数
-                actual_channel_count = sum(1 for u in range(self.config.num_users) 
-                                        for p in range(self.config.ports_per_user[u]) 
+                actual_channel_count = sum(1 for u in range(self.srs_config.num_users) 
+                                        for p in range(self.srs_config.ports_per_user[u]) 
                                         if (u, p) in true_channels)
                 
         # Calculate averages for the entire validation set
@@ -498,11 +897,153 @@ class SRSTrainerModified:
         
         return epoch
 
+    def set_dynamic_training_params(self, snr_range=None, channel_model=None, delay_spread=None):
+        """
+        动态调整训练参数
+        
+        允许在训练过程中调整SNR范围、信道模型等参数，
+        实现课程学习 (Curriculum Learning) 等高级训练策略。
+        
+        🎯 高效更新：利用预创建的实例，只在需要时动态创建新实例
+        
+        Args:
+            snr_range: 新的SNR范围，例如 (-5, 30)
+            channel_model: 新的信道模型，例如 "TDL-B"
+            delay_spread: 新的延迟扩展，例如 500e-9
+        """
+        params_changed = False
+        
+        if snr_range is not None:
+            print(f"🔧 更新SNR范围: {snr_range[0]}~{snr_range[1]} dB")
+            # SNR范围变化时，检查是否有对应的预创建生成器
+            snr_key = f"snr_{snr_range[0]}_{snr_range[1]}"
+            if snr_key not in self.data_generators:
+                print(f"   新SNR范围，将在下次使用时动态创建")
+                
+        if channel_model is not None:
+            old_model = self.channel_params['channel_model']
+            self.channel_params['channel_model'] = channel_model
+            print(f"🔧 更新信道模型: {old_model} -> {channel_model}")
+            params_changed = True
+            
+        if delay_spread is not None:
+            old_delay = self.channel_params['delay_spread']
+            self.channel_params['delay_spread'] = delay_spread
+            print(f"🔧 更新延迟扩展: {old_delay*1e9:.1f} ns -> {delay_spread*1e9:.1f} ns")
+            params_changed = True
+        
+        # 如果信道参数变化，检查是否需要创建新的信道模型
+        if params_changed:
+            new_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
+            if new_channel_key not in self.channel_models:
+                print(f"   新信道配置，将在下次使用时动态创建: {new_channel_key}")
+    
+    def add_custom_snr_range(self, snr_range):
+        """
+        添加新的SNR范围并预创建对应的数据生成器
+        
+        Args:
+            snr_range: 新的SNR范围，例如 (-20, 50)
+        """
+        snr_key = f"snr_{snr_range[0]}_{snr_range[1]}"
+        
+        if snr_key in self.data_generators:
+            print(f"⚠️  SNR范围 {snr_key} 已存在")
+            return
+        
+        print(f"🔄 添加新的SNR范围: {snr_key}")
+        
+        try:
+            # 获取默认信道模型
+            default_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
+            default_channel_model = self.channel_models.get(default_channel_key)
+            
+            from data_generator_refactored import SRSDataGenerator
+            data_generator = SRSDataGenerator(
+                config=self.signal_gen_params['srs_config'],
+                channel_model=default_channel_model,
+                num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
+                snr_range=snr_range,
+                sampling_rate=self.signal_gen_params['sampling_rate'],
+                device=self.signal_gen_params['device']
+            )
+            
+            self.data_generators[snr_key] = data_generator
+            print(f"✅ 新SNR范围数据生成器创建成功: {snr_key}")
+            
+        except Exception as e:
+            print(f"❌ 新SNR范围数据生成器创建失败: {e}")
+            self.data_generators[snr_key] = None
+    
+    def add_custom_channel_config(self, model_type, delay_spread=None):
+        """
+        添加新的信道配置并预创建对应的信道模型
+        
+        Args:
+            model_type: 信道模型类型，例如 "TDL-D"
+            delay_spread: 延迟扩展，例如 500e-9（如果为None则使用系统配置）
+        """
+        if delay_spread is None:
+            delay_spread = self.system_config.delay_spread
+        
+        channel_key = f"{model_type}_{delay_spread*1e9:.0f}ns"
+        
+        if channel_key in self.channel_models:
+            print(f"⚠️  信道配置 {channel_key} 已存在")
+            return
+        
+        print(f"🔄 添加新的信道配置: {channel_key}")
+        
+        if not PROFESSIONAL_CHANNELS_AVAILABLE:
+            print("❌ 专业信道库不可用")
+            return
+        
+        try:
+            channel_model = SIONNAChannelModel(
+                system_config=self.system_config,
+                model_type=model_type,
+                num_rx_antennas=self.system_config.num_rx_antennas,
+                delay_spread=delay_spread,
+                device=self.channel_params['device']
+            )
+            
+            self.channel_models[channel_key] = channel_model
+            print(f"✅ 新信道模型创建成功: {channel_key}")
+            
+        except Exception as e:
+            print(f"❌ 新信道模型创建失败: {e}")
+            self.channel_models[channel_key] = None
+    
+    def get_current_params(self):
+        """
+        获取当前的动态参数设置和实例状态
+        
+        Returns:
+            dict: 当前参数字典和实例状态
+        """
+        return {
+            'signal_params': self.signal_gen_params,
+            'channel_params': self.channel_params,
+            'system_config': self.system_config,
+            'instance_status': {
+                'channel_models': list(self.channel_models.keys()),
+                'data_generators': list(self.data_generators.keys()),
+                'per_ue_channels': len(self.per_ue_channels),
+                'per_port_generators': len(self.per_port_generators),
+            },
+            'instance_health': {
+                'healthy_channel_models': sum(1 for m in self.channel_models.values() if m is not None),
+                'healthy_data_generators': sum(1 for g in self.data_generators.values() if g is not None),
+                'total_channel_models': len(self.channel_models),
+                'total_data_generators': len(self.data_generators),
+            }
+        }
+    
 
 def main():
     """Main function"""
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Train SRS Channel Estimator with h_with_residual/phasor as input")
+    parser = argparse.ArgumentParser(description="Train SRS Channel Estimator with professional channel models")
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--train_batches', type=int, default=50, help='Number of training batches per epoch')
     parser.add_argument('--val_batches', type=int, default=10, help='Number of validation batches')
@@ -514,18 +1055,56 @@ def main():
     parser.add_argument('--save_dir', type=str, default='./checkpoints_modified', help='Save directory')
     parser.add_argument('--load_checkpoint', type=str, default='', help='Load checkpoint file')
     
+    # Channel model arguments
+    parser.add_argument('--channel_model', type=str, default='TDL-A', 
+                       choices=['TDL-A', 'TDL-B', 'TDL-C', 'TDL-D', 'TDL-E'],
+                       help='Channel model type')
+    parser.add_argument('--use_sionna', action='store_true', default=True,
+                       help='Use SIONNA professional channel models (default: True)')
+    parser.add_argument('--use_custom_channels', action='store_true',
+                       help='Force use of custom channel implementation')
+    parser.add_argument('--delay_spread', type=float, default=None,
+                       help='Channel delay spread in seconds (default: use system config)')
+    parser.add_argument('--carrier_frequency', type=float, default=3.5e9,
+                       help='Carrier frequency in Hz')
+    
     args = parser.parse_args()
     
+    # Override settings if custom is explicitly requested
+    if args.use_custom_channels:
+        args.use_sionna = False
+    
     # Create configuration
-    config = create_example_config()
+    srs_config = create_example_config()
+    
+    # 如果delay_spread为None，使用系统配置的默认值
+    if args.delay_spread is None:
+        from system_config import create_default_system_config
+        system_config = create_default_system_config()
+        args.delay_spread = system_config.delay_spread
+    
+    # Print configuration summary
+    print("\n" + "="*60)
+    print("🔧 TRAINING CONFIGURATION")
+    print("="*60)
+    print(f"Channel Model: {args.channel_model}")
+    print(f"Use SIONNA: {args.use_sionna and SIONNA_AVAILABLE}")
+    print(f"Delay Spread: {args.delay_spread*1e9:.1f} ns (from {'system config' if args.delay_spread else 'command line'})")
+    print(f"Carrier Frequency: {args.carrier_frequency/1e9:.1f} GHz")
+    print(f"Trainable MMSE: {not args.no_mmse}")
+    print(f"Epochs: {args.epochs}")
+    print(f"Batch Size: {args.batch_size}")
+    print("="*60 + "\n")
     
     # Create trainer
     trainer = SRSTrainerModified(
-        config=config,
+        srs_config=srs_config,
         device="cuda" if torch.cuda.is_available() else "cpu",
         save_dir=args.save_dir,
         use_trainable_mmse=not args.no_mmse,
-        enable_plotting=args.enable_plotting
+        enable_plotting=args.enable_plotting,
+        use_professional_channels=True,
+        use_sionna=args.use_sionna
     )
     
     # Load checkpoint if specified
