@@ -1,3 +1,12 @@
+"""
+⚠️  已弃用：此文件为旧版数据生成器，保留用于兼容性
+✅ 新版本：请使用 data_generator_refactored.py 中的模块化设计
+📝 新版本特点：
+   - 统一使用config.py中的SNR和timing_offset配置
+   - 模块化架构，支持动态信道切换
+   - 更好的PyTorch/TensorFlow边界管理
+"""
+
 import torch
 import numpy as np
 from typing import List, Tuple, Dict, Optional, Union, Literal
@@ -129,7 +138,7 @@ class SRSDataGenerator:
         self,
         config: SRSConfig,
         num_rx_antennas: int = 4,       # Number of receive antennas at BS
-        snr_range: Tuple[float, float] = (-10, 40),
+        snr_range: Tuple[float, float] = (-10, 40),  # DEPRECATED: 应使用config.snr_range
         channel_model: Literal["TDL-A", "TDL-B", "TDL-C", "TDL-D", "TDL-E"] = "TDL-A",
         delay_spread: float = 100e-9,  # in seconds
         sampling_rate: float = 122.88e6, # in Hz (default 122.88 MHz for 5G)

@@ -18,7 +18,7 @@ Alternative installation (without proxy):
 - python -m pip install sionna
 - python -m pip install tensorflow>=2.13.0
 """
-
+import math
 import torch
 import numpy as np
 from typing import Optional, Literal, Tuple, Dict, Union, List
@@ -128,6 +128,7 @@ class SIONNAChannelModel:
         delay_offset_samples: Optional[int] = None,  # 如果为None则随机生成
         mapping_indices: Optional[torch.Tensor] = None,
         ifft_size: Optional[int] = None,
+        snr_db: Optional[float] = None,  # 🔧 新增：SNR参数
         debug_dict: Optional[Dict] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -144,14 +145,15 @@ class SIONNAChannelModel:
             delay_offset_samples: Timing offset in samples (如果为None则根据系统配置随机生成)
             mapping_indices: Subcarrier mapping indices
             ifft_size: IFFT size
+            snr_db: 信噪比 (dB)，如果为None则使用系统配置的默认值
             debug_dict: Debug information storage
             
         Returns:
             Tuple of (output_signals, frequency_domain_channels)
         """
-        # 如果没有指定时间偏移，则随机生成
+        # 如果没有指定时间偏移，则从用户配置随机生成
         if delay_offset_samples is None:
-            delay_offset_samples = self.system_config.get_random_timing_offset_samples()
+            delay_offset_samples = user_config.get_timing_offset_samples(self.sampling_rate)
             if debug_dict is not None:
                 # 记录生成的时间偏移信息
                 timing_offset_seconds = delay_offset_samples / self.sampling_rate
@@ -159,7 +161,11 @@ class SIONNAChannelModel:
                 debug_dict['random_timing_offset_seconds'] = timing_offset_seconds
                 debug_dict['random_timing_offset_ns'] = timing_offset_seconds * 1e9
         
-        return self._apply_sionna_channel(signals, user_config, delay_offset_samples, mapping_indices, ifft_size, debug_dict)
+        # 如果没有指定SNR，则从用户配置获取
+        if snr_db is None:
+            snr_db = user_config.get_snr_db()
+        
+        return self._apply_sionna_channel(signals, user_config, delay_offset_samples, mapping_indices, ifft_size, snr_db, debug_dict)
     
     def validate_tdl_parameters(self):
         """验证 TDL 初始化参数的合理性"""
@@ -321,202 +327,176 @@ class SIONNAChannelModel:
         delay_offset_samples: int,  # 现在保证不为None
         mapping_indices: Optional[torch.Tensor] = None,
         ifft_size: Optional[int] = None,
+        snr_db: float = 30.0,  # 🔧 新增：SNR参数，现在从上层传入
         debug_dict: Optional[Dict] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Apply SIONNA channel model with per-UE TDL instantiation based on user config
+        Apply SIONNA channel model with physically correct signal processing
         
-        🔧 新的设计理念：基于用户配置的per-UE TDL实例化
-        1. 从user_config获取每个UE的port数量
-        2. 为每个UE创建专用TDL实例，num_tx_ant = 该UE的port数量
-        3. 物理合理：每个UE有独立的信道环境和准确的天线配置
-        4. UE-specific延迟：同一UE的所有port共享相同的传播延迟
-        5. 架构清晰：避免维度不匹配和手动调整
+        🔧 物理正确的信号过信道流程：
+        1. 时域信号过信道（卷积）
+        2. 应用timing offset（循环移位）
+        3. 功率归一化和信噪比调整
+        4. 接收机累加
+        5. 加噪声
+        6. 去CP并转频域
         
-        框架使用策略：
-        1. 输入：PyTorch张量 + 用户配置
-        2. 信道建模：按UE分别调用SIONNA → 转换回PyTorch
-        3. 信号处理：全部使用PyTorch
-        4. 输出：PyTorch张量
+        Args:
+            signals: Input signals (time domain)
+            user_config: User configuration with port assignments
+            delay_offset_samples: Timing offset in samples
+            mapping_indices: Subcarrier mapping indices
+            ifft_size: IFFT size for frequency domain
+            snr_db: 信噪比 (dB)
+            debug_dict: Debug information storage
+            
+        Returns:
+            Tuple of (received_freq_signals, frequency_domain_channels)
         """
-        
-        # 记录时间偏移信息
-        timing_offset_seconds = delay_offset_samples / self.sampling_rate
-        print(f"🕐 应用时间偏移: {delay_offset_samples} 采样点 ({timing_offset_seconds*1e9:.1f} ns)")
-        
-        # 从用户配置获取UE信息
-        print(f"📋 用户配置信息:")
-        print(f"   用户数量: {user_config.num_users}")
-        print(f"   每用户端口数: {user_config.ports_per_user}")
+        print(f"\n🔥 物理正确的SIONNA信道处理开始:")
+        print(f"   Timing offset: {delay_offset_samples} 采样点")
+        print(f"   用户数: {user_config.num_users}")
         print(f"   总端口数: {user_config.total_ports}")
         
-        # ========================================================================
-        # 第一部分：PyTorch信号预处理和按用户分组
-        # ========================================================================
-        print("📦 第一阶段：PyTorch信号预处理和按用户分组...")
+        # 设置默认参数
+        if ifft_size is None:
+            ifft_size = 128
+        if mapping_indices is None:
+            mapping_indices = torch.arange(ifft_size, device=self.device)
         
-        # 处理不同的输入格式，按用户分组信号
-        signals_by_user = {}  # {user_id: {port_id: signal}}
-        signal_port_mapping = {}  # {global_port_index: (user_id, port_id)}
+        # ========================================================================
+        # 第一步：信号预处理和分组
+        # ========================================================================
+        print("📦 信号预处理和按用户分组...")
         
+        signals_dict = {}  # {user_id: signal_tensor}
+        user_port_mapping = {}  # {user_id: [port_indices]}
+        
+        # 处理不同输入格式并按用户分组
         if isinstance(signals, dict):
-            # 保持输入顺序，按用户分组
-            global_port_index = 0
+            # 从(user_id, port_id) -> signal 字典构建
             for (user_id, port_id), signal in signals.items():
-                if user_id not in signals_by_user:
-                    signals_by_user[user_id] = {}
-                signals_by_user[user_id][port_id] = signal
-                signal_port_mapping[global_port_index] = (user_id, port_id)
-                global_port_index += 1
-            
-            print(f"   输入：字典格式，{len(signals)}个端口信号")
-            print(f"   用户分组：{len(signals_by_user)}个用户")
-            for user_id, user_signals in signals_by_user.items():
-                expected_ports = user_config.ports_per_user[user_id] if user_id < len(user_config.ports_per_user) else 1
-                actual_ports = len(user_signals)
-                print(f"     用户{user_id}: {actual_ports}个端口 (配置期望: {expected_ports})")
-                if actual_ports != expected_ports:
-                    print(f"     ⚠️  用户{user_id}端口数不匹配配置！")
+                if user_id not in signals_dict:
+                    signals_dict[user_id] = []
+                    user_port_mapping[user_id] = []
+                
+                signals_dict[user_id].append(signal)
+                user_port_mapping[user_id].append(port_id)
         
         elif isinstance(signals, list):
-            # 对于列表输入，根据用户配置分配给各用户
-            signals_by_user = {}
-            signal_port_mapping = {}
-            global_port_index = 0
-            
-            for user_id, num_ports in enumerate(user_config.ports_per_user):
-                signals_by_user[user_id] = {}
+            # 按用户配置分配信号
+            signal_idx = 0
+            for user_id in range(user_config.num_users):
+                num_ports = user_config.ports_per_user[user_id]
+                user_signals = []
+                user_ports = []
+                
                 for port_id in range(num_ports):
-                    if global_port_index < len(signals):
-                        signals_by_user[user_id][port_id] = signals[global_port_index]
-                        signal_port_mapping[global_port_index] = (user_id, port_id)
-                        global_port_index += 1
+                    if signal_idx < len(signals):
+                        user_signals.append(signals[signal_idx])
+                        user_ports.append(port_id)
+                        signal_idx += 1
                     else:
-                        print(f"⚠️  警告：信号数量不足，用户{user_id}端口{port_id}没有对应信号")
-            
-            print(f"   输入：列表格式，{len(signals)}个信号，按用户配置分配")
+                        # 用零信号填充
+                        zero_signal = torch.zeros_like(signals[0])
+                        user_signals.append(zero_signal)
+                        user_ports.append(port_id)
+                
+                signals_dict[user_id] = user_signals
+                user_port_mapping[user_id] = user_ports
         
         else:
-            # 单张量，归属用户0端口0
-            signals_by_user[0] = {0: signals}
-            signal_port_mapping = {0: (0, 0)}
-            print(f"   输入：单张量格式，归属用户0端口0")
+            # 单张量，分配给用户0
+            signals_dict[0] = [signals]
+            user_port_mapping[0] = [0]
         
-        print(f"   全局端口映射：{signal_port_mapping}")
+        # 将每个用户的信号列表转换为张量
+        for user_id in signals_dict:
+            signal_list = signals_dict[user_id]
+            if len(signal_list) == 1:
+                signals_dict[user_id] = signal_list[0].unsqueeze(0)  # [1, signal_length]
+            else:
+                signals_dict[user_id] = torch.stack(signal_list, dim=0)  # [num_ports, signal_length]
+        
+        print(f"   处理后用户信号: {len(signals_dict)} 个用户")
+        for user_id, signal in signals_dict.items():
+            print(f"     用户{user_id}: {signal.shape}")
         
         # ========================================================================
-        # 第二部分：按用户分别生成SIONNA信道（基于用户配置）
+        # 第二步：为每个用户生成SIONNA信道
         # ========================================================================
-        print("🔄 第二阶段：按用户配置分别生成SIONNA信道...")
+        print("🔄 为每个用户生成SIONNA信道...")
         
         batch_size = 1
         num_time_steps = 1
-        sampling_frequency = self.sampling_rate
+        user_channels = {}  # {user_id: (h_time, delays)}
         
-        channels_by_user = {}  # {user_id: {'h_time': ..., 'delays': ..., 'signals': ...}}
-        
-        for user_id, user_signals in signals_by_user.items():
-            # 🔧 从用户配置获取该用户的准确端口数
-            if user_id < len(user_config.ports_per_user):
-                expected_num_ports = user_config.ports_per_user[user_id]
-            else:
-                expected_num_ports = len(user_signals)  # 回退到实际信号数
-                print(f"⚠️  用户{user_id}超出配置范围，使用实际端口数{expected_num_ports}")
-            
-            actual_num_ports = len(user_signals)
-            print(f"   📡 处理用户{user_id}: 配置{expected_num_ports}端口, 实际{actual_num_ports}端口")
-            
-            # 使用配置的端口数来创建TDL（这是物理真实的端口数）
-            num_ports_for_tdl = expected_num_ports
-            
-            # 🔧 为该用户创建专用的TDL实例（基于配置的端口数）
-            print(f"     为用户{user_id}创建专用TDL实例 (num_tx_ant={num_ports_for_tdl})...")
-            model_letter = self.model_type.split("-")[1]  # "A", "B", "C", etc.
+        for user_id in signals_dict:
+            num_ports = len(user_port_mapping[user_id])
+            print(f"   用户{user_id}: {num_ports}个端口")
             
             try:
-                with tf.device('/GPU:0' if self.device == 'cuda' and tf.config.list_physical_devices('GPU') else '/CPU:0'):
+                with tf.device('/CPU:0'):  # 使用CPU避免GPU内存问题
+                    # 创建用户专用TDL
+                    model_letter = self.model_type.split("-")[1]
                     user_channel = TDL(
                         model=model_letter,
                         delay_spread=self.delay_spread,
                         carrier_frequency=self.carrier_frequency,
                         num_rx_ant=self.num_rx_antennas,
-                        num_tx_ant=num_ports_for_tdl,  # 🎯 关键：使用配置的端口数
+                        num_tx_ant=num_ports,  # 用户端口数
                         precision='single'
                     )
-                    print(f"     ✅ 用户{user_id}专用TDL创建成功 (TX_ant={num_ports_for_tdl}, RX_ant={self.num_rx_antennas})")
                     
-                    # 使用该用户专用的TDL实例生成信道
-                    print(f"     📡 使用专用TDL生成用户{user_id}信道...")
-                    h_time_tf, delays_time_tf = user_channel(batch_size, num_time_steps, sampling_frequency)
+                    # 生成信道
+                    h_time_tf, delays_tf = user_channel(batch_size, num_time_steps, self.sampling_rate)
                     
-                    # 验证输出维度
-                    # SIONNA TDL输出形状：
-                    # h_time: [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, num_time_steps]
-                    # delays: [batch_size, num_rx=1, num_tx=1, num_paths]
-                    print(f"     📊 用户{user_id}信道维度: h_time={h_time_tf.shape}, delays={delays_time_tf.shape}")
-                    actual_tx_ant_dim = h_time_tf.shape[4]  # num_tx_ant 维度，对应我们的端口数
-                    if actual_tx_ant_dim != num_ports_for_tdl:
-                        print(f"     ⚠️  TDL输出TX天线维度不匹配: 期望{num_ports_for_tdl}, 实际{actual_tx_ant_dim}")
-                    else:
-                        print(f"     ✅ TDL输出TX天线维度匹配: {actual_tx_ant_dim}")
-                    
-                    # 🔗 确保同一UE的所有port共享相同的delay (UE-specific延迟)
-                    # 物理原理：同一UE的多个port在相同物理位置，传播延迟应该相同
-                    # SIONNA输出：delays形状为[batch_size, num_rx=1, num_tx=1, num_paths]
-                    # 注意：delays中的num_tx=1维度是固定的，延迟已经在所有天线间共享
-                    if num_ports_for_tdl > 1:
-                        print(f"     🔗 验证UE-specific延迟：同一UE的{num_ports_for_tdl}个port共享延迟")
-                        # SIONNA TDL默认所有天线共享相同延迟，验证这一点
-                        print(f"     ✅ UE{user_id}的所有port自动共享延迟（SIONNA TDL特性）")
                     # 转换为PyTorch
-                    h_time_torch = torch.tensor(h_time_tf.numpy(), dtype=torch.complex64, device=self.device)
-                    delays_time_torch = torch.tensor(delays_time_tf.numpy(), dtype=torch.float32, device=self.device)
+                    h_time = torch.from_numpy(h_time_tf.numpy()).to(self.device)
+                    delays = torch.from_numpy(delays_tf.numpy()).to(self.device)
                     
-                    # 清理用户专用TDL实例
-                    del user_channel
-                    print(f"     🧹 用户{user_id}专用TDL实例已清理")
+                    user_channels[user_id] = (h_time, delays)
                     
+                    del user_channel, h_time_tf, delays_tf  # 清理TensorFlow对象
+                    
+                    print(f"     ✅ 用户{user_id}信道生成: CIR{h_time.shape}, delays{delays.shape}")
+            
             except Exception as e:
-                print(f"     ❌ 用户{user_id}专用TDL创建/使用失败: {e}")
-                raise RuntimeError(f"Failed to create/use dedicated TDL for user {user_id}: {e}")
-            
-            print(f"     ✅ 用户{user_id}信道CIR: {h_time_torch.shape}")
-            print(f"     ✅ 用户{user_id}延迟: {delays_time_torch.shape}")
-            
-            # 准备该用户的信号（处理实际信号数量与配置不匹配的情况）
-            user_signals_list = []
-            for port_idx in range(num_ports_for_tdl):
-                if port_idx in user_signals:
-                    sig = user_signals[port_idx]
-                else:
-                    # 如果配置的端口数多于实际信号数，用零信号填充
-                    sig = torch.zeros_like(next(iter(user_signals.values())))
-                    print(f"     ⚠️  用户{user_id}端口{port_idx}无信号，使用零信号")
-                
-                if sig.is_cuda:
-                    sig_cpu = sig.cpu()
-                else:
-                    sig_cpu = sig
-                sig_torch = torch.tensor(sig_cpu.numpy(), dtype=torch.complex64, device=self.device)
-                user_signals_list.append(sig_torch)
-            
-            user_signals_stack = torch.stack(user_signals_list)  # [num_ports_for_tdl, time_samples]
-            print(f"     用户{user_id}信号: {user_signals_stack.shape}")
-            
-            # 存储该用户的信道和信号
-            channels_by_user[user_id] = {
-                'h_time': h_time_torch,
-                'delays': delays_time_torch,
-                'signals': user_signals_stack,
-                'configured_ports': num_ports_for_tdl,
-                'actual_ports': actual_num_ports,
-                'port_mapping': {i: i for i in range(num_ports_for_tdl)}  # 简化映射
-            }
+                print(f"     ❌ 用户{user_id}信道生成失败: {e}")
+                raise
         
         # ========================================================================
-        # 第三部分：按用户处理频域转换和信道应用
+        # 第三步：物理正确的信号过信道处理
         # ========================================================================
-        print("🔧 第三阶段：按用户处理频域转换...")
+        print("⚡ 物理正确的信号过信道处理...")
+        
+        # 使用新的物理正确处理函数
+        received_freq, channel_info = self.apply_channel_to_signals(
+            signals_dict=signals_dict,
+            user_port_mapping=user_port_mapping,
+            ifft_size=ifft_size,
+            snr_db=snr_db,  # 使用从配置获取的SNR
+            timing_offset_samples=delay_offset_samples
+        )
+        
+        # ========================================================================
+        # 第四步：准备输出
+        # ========================================================================
+        h_freq_total = channel_info['h_freq']
+        
+        if debug_dict is not None:
+            debug_dict.update({
+                'timing_offset_samples': delay_offset_samples,
+                'timing_offset_seconds': delay_offset_samples / self.sampling_rate,
+                'user_channels': user_channels,
+                'channel_info': channel_info
+            })
+        
+        print(f"✅ SIONNA信道处理完成:")
+        print(f"   接收信号: {received_freq.shape}")
+        print(f"   信道矩阵: {h_freq_total.shape}")
+        
+        return received_freq, h_freq_total
         
         # 存储所有用户的频域信道
         all_h_freq_by_user = {}  # {user_id: h_freq_tensor}
@@ -655,117 +635,393 @@ class SIONNAChannelModel:
         print("✅ SIONNA分用户信道应用完成（全PyTorch输出）")
         return output_signals, h_freq_final_torch
     
-    def _cir_to_ofdm_channel_pytorch(
+    def _construct_time_domain_channel_pytorch(
         self, 
-        frequencies: torch.Tensor, 
         h_time: torch.Tensor, 
         delays: torch.Tensor, 
+        signal_length: int
+    ) -> torch.Tensor:
+        """
+        使用PyTorch构建时域信道冲激响应（用于卷积）
+        
+        Args:
+            h_time: 时域信道系数 [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, num_time_steps]
+            delays: 路径延迟 [batch_size, num_rx=1, num_tx=1, num_paths] (秒)
+            signal_length: 信号长度（采样点数）
+            
+        Returns:
+            torch.Tensor: 时域信道冲激响应 [num_rx_ant, num_tx_ant, signal_length]
+        """
+        print(f"   🔧 构建时域信道冲激响应:")
+        print(f"      输入CIR形状: {h_time.shape}")
+        print(f"      延迟形状: {delays.shape}")
+        print(f"      信号长度: {signal_length}")
+        
+        # 获取维度信息
+        batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time = h_time.shape
+        batch_size_d, num_rx_d, num_tx_d, num_paths_d = delays.shape
+        
+        print(f"      🔍 SIONNA TDL输出分析:")
+        print(f"         CIR: [batch={batch_size}, rx_cluster={num_rx}, rx_ant={num_rx_ant}, tx_cluster={num_tx}, tx_ant={num_tx_ant}, paths={num_paths}, time={num_time}]")
+        print(f"         Delays: [batch={batch_size_d}, rx_cluster={num_rx_d}, tx_cluster={num_tx_d}, paths={num_paths_d}]")
+        
+        # 验证维度一致性
+        assert num_paths == num_paths_d, f"CIR和delays的路径数不匹配: {num_paths} vs {num_paths_d}"
+        
+        # 正确提取延迟信息：delays的形状是 [batch, rx_cluster=1, tx_cluster=1, num_paths]
+        # 延迟对所有天线都相同，所以我们只需要取一个副本
+        delay_samples = (delays[0, 0, 0, :] * self.sampling_rate).round().long()  # [num_paths]
+        
+        # 确保延迟在有效范围内
+        delay_samples = torch.clamp(delay_samples, 0, signal_length - 1)
+        
+        print(f"      延迟采样点: {delay_samples}")
+        print(f"      延迟范围: {delay_samples.min().item()} - {delay_samples.max().item()} 采样点")
+        
+        # 初始化时域信道响应
+        h_impulse = torch.zeros(
+            (num_rx_ant, num_tx_ant, signal_length),
+            dtype=torch.complex64,
+            device=self.device
+        )
+        
+        # 正确提取信道系数：h_time的形状是 [batch, rx_cluster=1, rx_ant, tx_cluster=1, tx_ant, paths, time=1]
+        # 我们需要: [rx_ant, tx_ant, paths]
+        h_coeff = h_time[0, 0, :, 0, :, :, 0]  # [num_rx_ant, num_tx_ant, num_paths]
+        
+        print(f"      提取的信道系数形状: {h_coeff.shape}")
+        print(f"      期望形状: [{num_rx_ant}, {num_tx_ant}, {num_paths}]")
+        
+        # 将每个路径的响应放置在对应的延迟位置
+        for path_idx in range(num_paths):
+            delay_idx = delay_samples[path_idx].item()
+            # 将该路径的所有天线对的系数加到对应的延迟位置
+            h_impulse[:, :, delay_idx] += h_coeff[:, :, path_idx]
+        
+        print(f"      ✅ 时域冲激响应形状: {h_impulse.shape}")
+        
+        return h_impulse
+    
+    def _cir_to_ofdm_channel_pytorch_fft(
+        self, 
+        h_impulse: torch.Tensor,
+        mapping_indices: torch.Tensor,
         ifft_size: int
     ) -> torch.Tensor:
         """
-        使用PyTorch将SIONNA TDL时域信道冲激响应转换为频域OFDM信道响应
-        
-        🔧 Per-UE TDL设计说明：
-        - 此函数为每个用户独立调用
-        - 每次调用时，num_tx_ant数量 = 该用户的port数量 (通过per-UE TDL实例保证)
-        - 不同用户的信道完全独立（不同的TDL实例）
-        - 每个用户内部：不同port有独立的tap系数，但共享相同的延迟profile
-        - UE-specific延迟：同一用户的所有port延迟相同（物理合理性）
-        
-        🔧 SIONNA TDL输出格式：
-        - h_time: [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, num_time_steps]
-        - delays: [batch_size, num_rx=1, num_tx=1, num_paths] (所有天线共享延迟)
-        - num_tx_ant对应我们的port数量
+        使用PyTorch FFT直接计算频域信道响应
         
         Args:
-            frequencies: 子载波频率 [ifft_size] (Hz)
-            h_time: 时域信道系数 [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, num_time_steps]
-                   🎯 num_tx_ant = 当前用户的port数量 (per-UE TDL保证正确维度)
-            delays: 路径延迟 [batch_size, num_rx=1, num_tx=1, num_paths] (秒)
-                   🎯 所有port共享相同延迟（SIONNA TDL自然特性）
+            h_impulse: 时域信道冲激响应 [num_rx_ant, num_tx_ant, signal_length]
+            mapping_indices: 子载波映射索引
             ifft_size: IFFT大小
             
         Returns:
-            torch.Tensor: 频域信道响应 [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, ifft_size, num_time_steps]
+            torch.Tensor: 频域信道响应 [num_rx_ant, num_tx_ant, num_subcarriers]
         """
-        print(f"   🔧 PyTorch CIR→频域转换:")
-        print(f"      输入CIR形状: {h_time.shape}")
-        print(f"      延迟形状: {delays.shape}")
-        print(f"      频率点数: {len(frequencies)}")
+        print(f"   � 使用PyTorch FFT计算频域信道:")
+        print(f"      时域信道形状: {h_impulse.shape}")
+        print(f"      IFFT大小: {ifft_size}")
+        print(f"      映射子载波数: {len(mapping_indices)}")
         
-        # 获取维度信息
-        # SIONNA TDL实际输出维度：
-        # h_time: [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, num_time_steps]
-        # delays: [batch_size, num_rx=1, num_tx=1, num_paths] (所有天线共享延迟)
-        batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time = h_time.shape
-        batch_size_delays, num_rx_delays, num_tx_delays, num_paths_delays = delays.shape
+        # 对时域信道进行FFT
+        # 先进行零填充到IFFT大小
+        num_rx_ant, num_tx_ant, signal_length = h_impulse.shape
         
-        # 验证SIONNA TDL输出格式
-        assert num_rx == 1, f"SIONNA TDL的num_rx应该为1，实际为{num_rx}"
-        assert num_tx == 1, f"SIONNA TDL的num_tx应该为1，实际为{num_tx}"
-        assert num_rx_delays == 1, f"delays的num_rx应该为1，实际为{num_rx_delays}"
-        assert num_tx_delays == 1, f"delays的num_tx应该为1，实际为{num_tx_delays}"
+        if signal_length < ifft_size:
+            # 零填充
+            h_padded = torch.zeros(
+                (num_rx_ant, num_tx_ant, ifft_size),
+                dtype=h_impulse.dtype,
+                device=h_impulse.device
+            )
+            h_padded[:, :, :signal_length] = h_impulse
+        else:
+            # 截断
+            h_padded = h_impulse[:, :, :ifft_size]
         
-        # 确保其他维度一致
-        assert batch_size == batch_size_delays, f"批次大小不匹配: CIR={batch_size}, delays={batch_size_delays}"
-        assert num_paths == num_paths_delays, f"路径数不匹配: CIR={num_paths}, delays={num_paths_delays}"
+        # 使用PyTorch FFT计算频域响应
+        h_freq_full = torch.fft.fft(h_padded, dim=-1)  # [num_rx_ant, num_tx_ant, ifft_size]
         
-        print(f"      SIONNA TDL维度分析（按用户调用）:")
-        print(f"        batch_size: {batch_size} (批处理大小)")
-        print(f"        num_rx: {num_rx} (接收器数量, 固定=1)")
-        print(f"        num_rx_ant: {num_rx_ant} (接收天线数)")
-        print(f"        num_tx: {num_tx} (发送器数量, 固定=1)")
-        print(f"        num_tx_ant: {num_tx_ant} (当前用户的port数量)")
-        print(f"        num_paths: {num_paths} (多径数量)")
-        print(f"        num_time: {num_time} (时间快照, 通常=1)")
+        # 提取映射的子载波
+        h_freq_mapped = h_freq_full[:, :, mapping_indices]  # [num_rx_ant, num_tx_ant, num_subcarriers]
         
-        print(f"      📊 当前用户链路分析: 当前用户有{num_tx_ant}个port")
-        print(f"         每个port有独立的信道抽头系数")
-        print(f"         每个port有{num_paths}个taps (多径分量)")
-        print(f"         ★ UE-specific延迟：同一用户所有port的延迟相同")
+        print(f"      ✅ 频域信道形状: {h_freq_mapped.shape}")
         
-        if num_time != 1:
-            print(f"      ⚠️  警告: 静态信道的时间快照应该为1，当前为{num_time}")
+        return h_freq_mapped
+    
+    def _apply_timing_offset_to_freq_channel(
+        self,
+        h_freq: torch.Tensor,
+        timing_offset_samples: int,
+        mapping_indices: torch.Tensor,
+        ifft_size: int
+    ) -> torch.Tensor:
+        """
+        在频域信道上应用timing offset（用于NMSE比较的真实信道）
+        
+        Args:
+            h_freq: 频域信道 [num_rx_ant, num_tx_ant, num_subcarriers]
+            timing_offset_samples: timing offset（采样点）
+            mapping_indices: 子载波映射索引
+            ifft_size: IFFT大小
             
-        # 扩展频率维度以匹配所需的广播形状
-        # frequencies: [ifft_size] -> [1, 1, 1, 1, 1, 1, ifft_size, 1]
-        freq_expanded = frequencies.view(1, 1, 1, 1, 1, 1, ifft_size, 1)
+        Returns:
+            torch.Tensor: 带timing offset的频域信道
+        """
+        if timing_offset_samples == 0:
+            return h_freq
         
-        # 扩展延迟维度以匹配频率
-        # delays: [batch_size, num_rx=1, num_tx=1, num_paths] -> [batch_size, 1, 1, 1, 1, num_paths, 1, 1]
-        delays_expanded = delays.view(batch_size, 1, 1, 1, 1, num_paths, 1, 1)
+        print(f"   🕐 在频域信道应用timing offset: {timing_offset_samples} 采样点")
         
-        # 扩展CIR维度以匹配频率
-        # h_time: [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, num_time_steps] 
-        # -> [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, 1, num_time_steps]
-        h_time_expanded = h_time.unsqueeze(-2)  # 在倒数第二个位置插入频率维度
+        # 计算相位旋转
+        phase_arg = -2.0 * np.pi * mapping_indices.float() * timing_offset_samples / ifft_size
+        phase_rotation = torch.exp(1j * phase_arg)  # [num_subcarriers]
         
-        # 计算频域响应：H(f) = sum_over_paths(h_path * exp(-j*2*pi*f*delay_path))
-        # 相位项：-2π * f * τ
-        phase_arg = -2.0 * np.pi * freq_expanded * delays_expanded  # [batch, 1, 1, 1, 1, path, ifft_size, 1]
-        phase_term = torch.exp(1j * phase_arg)  # [batch, 1, 1, 1, 1, path, ifft_size, 1]
+        # 应用相位旋转
+        h_freq_with_offset = h_freq * phase_rotation.unsqueeze(0).unsqueeze(0)  # broadcast to [rx_ant, tx_ant, subcarriers]
         
-        # 应用相位并在路径维度上求和
-        # h_time_expanded: [batch, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, 1, num_time_steps]
-        # phase_term: [batch, 1, 1, 1, 1, num_paths, ifft_size, 1]
-        # 结果: [batch, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, ifft_size, num_time_steps]
-        h_freq_per_path = h_time_expanded * phase_term
+        return h_freq_with_offset
+    
+    def apply_channel_to_signals(
+        self, 
+        signals_dict: Dict[int, torch.Tensor], 
+        user_port_mapping: Dict[int, List[int]],
+        ifft_size: int = 128,
+        snr_db: float = 30.0,
+        timing_offset_samples: int = 0
+    ) -> Tuple[torch.Tensor, Dict[str, any]]:
+        """
+        应用信道到信号 - 物理正确的实现
         
-        # 在路径维度上求和得到最终频域响应
-        h_freq = torch.sum(h_freq_per_path, dim=5)  # 在path维度求和
-        # 结果形状: [batch, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, ifft_size, num_time_steps]
+        实现完整的物理过程：
+        1. 时域信号过信道（卷积）
+        2. 应用timing offset（循环移位）
+        3. 功率归一化和信噪比调整
+        4. 接收机累加
+        5. 加噪声
+        6. 去CP并转频域
         
-        print(f"      ✅ 输出频域信道形状: {h_freq.shape}")
+        Args:
+            signals_dict: {user_id: signal} 时域信号字典，signal形状 [num_ports, signal_length]
+            user_port_mapping: {user_id: [port_indices]} 用户端口映射
+            ifft_size: IFFT大小
+            snr_db: 信噪比 (dB)
+            timing_offset_samples: timing offset（采样点）
+            
+        Returns:
+            Tuple[torch.Tensor, Dict]: (接收频域信号, 信道信息字典)
+            - 接收信号: [num_rx_ant, num_total_ports, num_subcarriers] (频域)
+            - 信道信息: {'h_freq': 总频域信道, 'timing_offsets': timing偏移, 'noise_var': 噪声方差}
+        """
+        print(f"\n🔥 物理正确的信号过信道流程开始:")
+        print(f"   输入用户数: {len(signals_dict)}")
+        print(f"   IFFT大小: {ifft_size}, SNR: {snr_db} dB")
+        print(f"   Timing offset: {timing_offset_samples} 采样点")
         
-        # 简单的功率归一化（可选）
-        # 计算每个链路的平均功率并归一化
-        power = torch.mean(torch.abs(h_freq) ** 2, dim=-2, keepdim=True)  # 在频率维度上平均
-        power_mean = torch.mean(power)
-        if power_mean > 0:
-            h_freq = h_freq / torch.sqrt(power_mean)
-            print(f"      归一化后平均功率: {torch.mean(torch.abs(h_freq) ** 2):.6f}")
+        # 1. 初始化参数
+        device = self.device
+        batch_size = 1
+        cp_length = self.system_config.cp_length_samples  # 使用系统配置的CP长度
+        num_subcarriers = ifft_size
         
-        return h_freq
+        # 计算总端口数（用于最终输出维度）
+        total_ports = sum(len(ports) for ports in user_port_mapping.values())
+        
+        # 2. 为每个用户生成信道和应用信道
+        all_received_signals = []  # 存储所有接收信号
+        all_h_freq = []  # 存储所有频域信道
+        timing_offsets = {}  # 存储timing offset
+        
+        for user_id, signal in signals_dict.items():
+            user_ports = user_port_mapping[user_id]
+            num_ports = len(user_ports)
+            
+            print(f"\n   👤 处理用户 {user_id}:")
+            print(f"      端口: {user_ports}")
+            print(f"      信号形状: {signal.shape}")
+            
+            # 2.1 确保信号是正确的形状 [num_ports, signal_length]
+            if signal.dim() == 1:
+                signal = signal.unsqueeze(0)  # [1, signal_length]
+            
+            signal_length = signal.shape[1]
+            print(f"      处理后信号形状: {signal.shape}")
+            
+            # 2.2 生成该用户的信道
+            try:
+                with tf.device('/CPU:0'):
+                    # 创建用户专用TDL
+                    model_letter = self.model_type.split("-")[1]
+                    user_channel = TDL(
+                        model=model_letter,
+                        delay_spread=self.delay_spread,
+                        carrier_frequency=self.carrier_frequency,
+                        num_rx_ant=self.num_rx_antennas,
+                        num_tx_ant=num_ports,
+                        precision='single'
+                    )
+                    
+                    # 单个时间快照的信道实现
+                    cir = user_channel(batch_size=batch_size, num_time_steps=1, sampling_frequency=self.sampling_rate)
+                    h_time_tf, delays_tf = cir  # h_time和delays
+                    
+                    # 转换为PyTorch
+                    h_time = torch.from_numpy(h_time_tf.numpy()).to(device)
+                    delays = torch.from_numpy(delays_tf.numpy()).to(device)
+                    
+                    del user_channel, cir, h_time_tf, delays_tf  # TensorFlow内存管理
+                    
+            except Exception as e:
+                print(f"❌ 用户{user_id}信道生成失败: {e}")
+                continue
+            
+            print(f"      生成的CIR形状: {h_time.shape}")
+            print(f"      延迟形状: {delays.shape}")
+            
+            # 2.3 构建时域冲激响应（用于卷积）
+            h_impulse = self._construct_time_domain_channel_pytorch(h_time, delays, signal_length)
+            # h_impulse: [num_rx_ant, num_tx_ant, signal_length]
+            
+            # 2.4 时域卷积：信号过信道
+            received_signal_user = self._time_domain_convolution(signal, h_impulse)
+            # received_signal_user: [num_rx_ant, num_ports, signal_length]
+            
+            # 2.5 应用timing offset
+            timing_offsets[user_id] = timing_offset_samples
+            
+            received_signal_user_to = torch.roll(received_signal_user, shifts=timing_offset_samples, dims=2)
+            
+            print(f"      时域卷积后形状: {received_signal_user_to.shape}")
+            print(f"      Timing offset: {timing_offset_samples} 采样点")
+            
+            # 2.6 计算频域信道（用于NMSE比较）
+            # 创建子载波映射（这里简化为连续映射）
+            mapping_indices = torch.arange(num_subcarriers, device=device)
+            
+            # 使用PyTorch FFT计算频域信道
+            h_freq_user = self._cir_to_ofdm_channel_pytorch_fft(h_impulse, mapping_indices, ifft_size)
+            # h_freq_user: [num_rx_ant, num_tx_ant, num_subcarriers]
+            
+            # 在频域信道上应用timing offset（用于真实信道比较）
+            h_freq_user_with_offset = self._apply_timing_offset_to_freq_channel(
+                h_freq_user, timing_offset_samples, mapping_indices, ifft_size
+            )
+            
+            all_received_signals.append(received_signal_user_to)
+            all_h_freq.append(h_freq_user_with_offset)
+        
+        if not all_received_signals:
+            raise ValueError("没有成功处理任何用户信号")
+        
+        # 3. 功率归一化
+        print(f"\n   ⚡ 功率归一化和SNR调整:")
+        
+        # 3.1 计算每个用户信号的功率并归一化
+        noise_var = 1
+        snr_linear = 10 ** (snr_db / 10.0)
+        signal_power_user = snr_linear * noise_var
+
+        for i, received_signal in enumerate(all_received_signals):
+            all_received_signals[i] = received_signal / math.sqrt(signal_power_user) /math.sqrt(received_signal.shape[1])
+        
+        total_received = sum(all_received_signals)  # [num_rx_ant, total_ports, signal_length]
+        
+        # 计算总信号功率
+        signal_power_after_sum = torch.mean(torch.abs(total_received) ** 2)
+        
+        # 5. 加噪声
+        
+        noise = math.sqrt(noise_var / 2) / math.sqrt(ifft_size) * (
+            torch.randn_like(total_received) + 1j * torch.randn_like(total_received)
+        )
+        
+        noisy_received = total_received + noise
+        data_part = noisy_received[:, :, cp_length:cp_length + ifft_size]
+        received_freq = torch.fft.fft(data_part, dim=-1)  # [num_rx_ant, total_ports, num_subcarriers]
+        print(f"      接收频域信号形状: {received_freq.shape}")
+        
+        # 7. 组装频域信道矩阵
+        h_freq_total = torch.cat(all_h_freq, dim=1)  # 在发送天线维度连接
+        print(f"      总频域信道形状: {h_freq_total.shape}")
+        
+        # 8. 返回结果
+        channel_info = {
+            'h_freq': h_freq_total,
+            'timing_offsets': timing_offsets,
+            'noise_var': noise_var.item(),
+            'snr_db': snr_db,
+            'signal_power': signal_power_after_sum.item()
+        }
+        
+        print(f"\n✅ 物理信道处理完成:")
+        print(f"   接收信号: {received_freq.shape}")
+        print(f"   信道矩阵: {h_freq_total.shape}")
+        print(f"   SNR: {snr_db} dB, 噪声方差: {noise_var:.6f}")
+        
+        return received_freq, channel_info
+    
+    def _time_domain_convolution(self, signal: torch.Tensor, h_impulse: torch.Tensor) -> torch.Tensor:
+        """
+        时域卷积：信号通过信道
+        
+        Args:
+            signal: 输入信号 [num_ports, signal_length]
+            h_impulse: 时域信道冲激响应 [num_rx_ant, num_tx_ant, signal_length]
+            
+        Returns:
+            torch.Tensor: 接收信号 [num_rx_ant, num_ports, signal_length]
+        """
+        num_ports, signal_length = signal.shape
+        num_rx_ant, num_tx_ant, h_length = h_impulse.shape
+        
+        assert num_tx_ant == num_ports, f"发送天线数({num_tx_ant})与端口数({num_ports})不匹配"
+        
+        print(f"      🔀 时域卷积: 信号{signal.shape} * 信道{h_impulse.shape}")
+        
+        # 执行循环卷积（使用FFT优化）
+        # 为了避免线性卷积的长度扩展，使用循环卷积
+        received = torch.zeros((num_rx_ant, num_ports, signal_length), dtype=signal.dtype, device=signal.device)
+        
+        for rx_ant in range(num_rx_ant):
+            for tx_ant in range(num_ports):
+                # 时域循环卷积
+                h = h_impulse[rx_ant, tx_ant, :]  # [signal_length]
+                x = signal[tx_ant, :]  # [signal_length]
+                
+                # 使用FFT实现循环卷积
+                X = torch.fft.fft(x)
+                H = torch.fft.fft(h)
+                Y = X * H
+                y = torch.fft.ifft(Y)
+                
+                received[rx_ant, tx_ant, :] = y
+        
+        return received
+    
+    def _apply_timing_offset_time_domain(self, signal: torch.Tensor, offset_samples: int) -> torch.Tensor:
+        """
+        在时域应用timing offset（循环移位）
+        
+        Args:
+            signal: 输入信号 [num_rx_ant, num_ports, signal_length]
+            offset_samples: timing offset（采样点数）
+            
+        Returns:
+            torch.Tensor: 移位后的信号
+        """
+        if offset_samples == 0:
+            return signal
+        
+        print(f"      🕐 时域timing offset: 循环左移 {offset_samples} 采样点")
+        
+        # 循环移位：signal[..., offset:] + signal[..., :offset]
+        shifted = torch.cat([
+            signal[..., offset_samples:],
+            signal[..., :offset_samples]
+        ], dim=-1)
+        
+        return shifted
 
 
 class SIONNAChannelGenerator:
@@ -791,7 +1047,7 @@ class SIONNAChannelGenerator:
         carrier_frequency: Optional[float] = None,
         sampling_rate: Optional[float] = None,
         # 其他参数
-        snr_range: Tuple[float, float] = (-10, 40),
+        snr_range: Optional[Tuple[float, float]] = None,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         **kwargs
     ):
@@ -834,6 +1090,7 @@ class SIONNAChannelGenerator:
         final_delay_spread = delay_spread if delay_spread is not None else system_config.delay_spread
         final_carrier_frequency = carrier_frequency if carrier_frequency is not None else system_config.carrier_frequency
         final_sampling_rate = sampling_rate if sampling_rate is not None else system_config.sampling_rate
+        final_snr_range = snr_range if snr_range is not None else srs_config.snr_range
         
         if use_channel:
             if use_sionna and SIONNA_AVAILABLE:
@@ -865,7 +1122,7 @@ class SIONNAChannelGenerator:
                 config=srs_config,  # 使用用户SRS配置
                 channel_model=channel_model_instance,
                 num_rx_antennas=final_num_rx_antennas,
-                snr_range=snr_range,
+                snr_range=final_snr_range,
                 sampling_rate=final_sampling_rate,
                 device=device,
                 **kwargs
@@ -876,7 +1133,7 @@ class SIONNAChannelGenerator:
             base_gen = BaseSRSDataGenerator(
                 config=srs_config,  # 使用用户SRS配置
                 num_rx_antennas=final_num_rx_antennas,
-                snr_range=snr_range,
+                snr_range=final_snr_range,
                 sampling_rate=final_sampling_rate,
                 device=device,
                 **kwargs
@@ -887,7 +1144,7 @@ class SIONNAChannelGenerator:
                 config=srs_config,  # 使用用户SRS配置
                 channel_model=None,  # 无信道
                 num_rx_antennas=final_num_rx_antennas,
-                snr_range=snr_range,
+                snr_range=final_snr_range,
                 sampling_rate=final_sampling_rate,
                 device=device,
                 **kwargs
@@ -977,3 +1234,4 @@ def print_sionna_info():
 if __name__ == "__main__":
     # Print SIONNA information
     print_sionna_info()
+

@@ -113,7 +113,6 @@ class BaseSRSDataGenerator:
         num_rx_antennas: Optional[int] = None,
         sampling_rate: Optional[float] = None,
         # 其他参数
-        snr_range: Tuple[float, float] = (-10, 40),
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         **kwargs
     ):
@@ -121,11 +120,10 @@ class BaseSRSDataGenerator:
         初始化基础数据生成器
         
         Args:
-            config: 用户SRS配置
+            config: 用户SRS配置 (包含SNR配置)
             system_config: 系统配置 (如果为None则使用默认配置)
             num_rx_antennas: 接收天线数量 (如果为None则从system_config获取)
             sampling_rate: 采样率 (如果为None则从system_config获取)
-            snr_range: 信噪比范围 (dB)
             device: 计算设备
         """
         # 使用系统配置或创建默认配置
@@ -143,7 +141,6 @@ class BaseSRSDataGenerator:
         self.cp_length_samples = system_config.cp_length_samples
         
         # 其他参数
-        self.snr_range = snr_range
         self.device = device
         
         # 调试信息存储
@@ -157,7 +154,7 @@ class BaseSRSDataGenerator:
         print(f"   - IFFT大小: {self.ifft_size}")
         print(f"   - 子载波间隔: {self.subcarrier_spacing/1e3:.0f} kHz")
         print(f"   - 接收天线: {self.num_rx_antennas}")
-        print(f"   - SNR范围: {snr_range} dB")
+        print(f"   - SNR范围: {self.config.snr_range} dB")
         print(f"   - 设备: {device}")
     
     def generate_srs_sequences(
@@ -274,7 +271,7 @@ class BaseSRSDataGenerator:
         
         for (user_id, port_id), freq_signal in freq_signals_dict.items():
             # IFFT
-            time_signal = torch.fft.ifft(freq_signal) * torch.sqrt(torch.tensor(len(freq_signal), dtype=torch.float32))
+            time_signal = torch.fft.ifft(freq_signal)
             
             # 添加循环前缀（使用系统配置的CP长度）
             cp_length = self.cp_length_samples
@@ -343,24 +340,18 @@ class BaseSRSDataGenerator:
     def generate_pure_data_sample(
         self, 
         user_indices: List[int], 
-        snr_db: Optional[float] = None,
         ifft_size: Optional[int] = None
     ) -> Dict[str, torch.Tensor]:
         """
-        生成纯数据样本（不包含信道）
+        生成纯数据样本（不包含信道和噪声）
         
         Args:
             user_indices: 用户索引列表
-            snr_db: 信噪比，如果为None则从范围中随机选择
             ifft_size: IFFT大小 (如果为None则使用系统配置)
-            ifft_size: IFFT大小
             
         Returns:
-            包含所有数据的字典
+            包含所有数据的字典（不包含SNR信息）
         """
-        if snr_db is None:
-            snr_db = np.random.uniform(self.snr_range[0], self.snr_range[1])
-        
         # 1. 生成SRS序列（每个用户每个端口）
         sequences = self.generate_srs_sequences(user_indices)
         
@@ -370,13 +361,12 @@ class BaseSRSDataGenerator:
         # 3. OFDM调制（每个端口独立的时域信号）
         time_signals_dict = self.ofdm_modulate(freq_grids_dict)
         
-        # 存储调试信息
+        # 存储调试信息（不包含SNR）
         self.debug_data.update({
             'pure_sequences': sequences,
             'freq_grids_dict': freq_grids_dict,
             'time_signals_dict': time_signals_dict,
             'mapping_indices': mapping_indices,
-            'snr_db': snr_db,
             'user_indices': user_indices
         })
         
@@ -385,7 +375,6 @@ class BaseSRSDataGenerator:
             'sequences': sequences,
             'freq_grids': freq_grids_dict,
             'mapping_indices': mapping_indices,
-            'snr_db': snr_db,
             'ifft_size': ifft_size,
             'user_indices': user_indices
         }
@@ -394,6 +383,7 @@ class BaseSRSDataGenerator:
         self, 
         rx_signals: torch.Tensor, 
         data_sample: Dict[str, torch.Tensor],
+        snr_db: Optional[float] = None,
         add_noise: bool = True
     ) -> Dict[str, torch.Tensor]:
         """
@@ -402,14 +392,19 @@ class BaseSRSDataGenerator:
         Args:
             rx_signals: 经过信道的接收信号 [num_rx_antennas, time_samples]
             data_sample: 原始数据样本
+            snr_db: 信噪比，如果为None则从配置中获取
             add_noise: 是否添加噪声
             
         Returns:
             完整的数据样本
         """
+        # 获取SNR值
+        if snr_db is None:
+            snr_db = self.config.get_snr_db()
+        
         # 添加噪声
         if add_noise:
-            rx_signals = self.add_noise(rx_signals, data_sample['snr_db'])
+            rx_signals = self.add_noise(rx_signals, snr_db)
         
         # OFDM解调 - 处理每个接收天线
         rx_freq_list = []
@@ -429,7 +424,8 @@ class BaseSRSDataGenerator:
         self.debug_data.update({
             'rx_time_signals': rx_signals,
             'rx_freq_signals': rx_freq,
-            'rx_mapped_signals': rx_mapped
+            'rx_mapped_signals': rx_mapped,
+            'snr_db': snr_db  # 添加SNR信息到调试数据
         })
         
         # 返回完整数据
@@ -439,7 +435,8 @@ class BaseSRSDataGenerator:
             'rx_freq': rx_freq,
             'rx_mapped': rx_mapped,
             'tx_signals': data_sample['tx_signals'],  # 保持字典格式
-            'mapping_indices': mapping_indices
+            'mapping_indices': mapping_indices,
+            'snr_db': snr_db  # 添加SNR信息到结果
         })
         
         return result
@@ -485,7 +482,7 @@ class BaseSRSDataGenerator:
         batch_data = {}
         
         # 处理需要堆叠的张量数据
-        tensor_keys = ['mapping_indices', 'snr_db']
+        tensor_keys = ['mapping_indices']  # snr_db现在在finalize_received_data中处理
         scalar_keys = ['ifft_size']  # 这些可能为None或标量
         dict_keys = ['tx_signals', 'sequences', 'freq_grids']  # 这些保持为列表
         list_keys = ['user_indices']
@@ -560,7 +557,6 @@ class SRSDataGenerator:
         config: SRSConfig,
         channel_model: Optional[ChannelModelInterface] = None,
         num_rx_antennas: int = 4,
-        snr_range: Tuple[float, float] = (-10, 40),
         sampling_rate: float = 122.88e6,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         **kwargs
@@ -569,7 +565,7 @@ class SRSDataGenerator:
         初始化完整数据生成器
         
         Args:
-            config: SRS配置
+            config: SRS配置 (包含SNR配置)
             channel_model: 信道模型（如果为None则不应用信道）
             其他参数同BaseSRSDataGenerator
         """
@@ -577,7 +573,6 @@ class SRSDataGenerator:
         self.base_generator = BaseSRSDataGenerator(
             config=config,
             num_rx_antennas=num_rx_antennas,
-            snr_range=snr_range,
             sampling_rate=sampling_rate,
             device=device,
             **kwargs
@@ -625,7 +620,7 @@ class SRSDataGenerator:
         
         # 1. 生成纯数据（不含信道）
         data_sample = self.base_generator.generate_pure_data_sample(
-            user_indices, snr_db, ifft_size
+            user_indices, ifft_size
         )
         
         # 2. 应用信道模型（如果有）

@@ -28,7 +28,7 @@ class SystemConfig:
     # =============================================================================
     subcarrier_spacing: float = 30e3  # 子载波间隔 (Hz) - 30 kHz for 5G NR
     ifft_size: int = 4096  # IFFT/FFT 大小 - 4096 points
-    cp_length_ratio: float = 0.25  # 循环前缀长度比例 (相对于符号长度)
+    cp_length_ratio: float = 1.0  # 循环前缀长度比例 (相对于IFFT大小) - 1.0表示CP长度=IFFT大小
     
     # =============================================================================
     # 射频参数
@@ -48,9 +48,6 @@ class SystemConfig:
     delay_spread: float = 30e-9  # RMS延迟扩展 (秒) - 30 ns
     k_factor: float = 0.0  # Ricean K因子 (线性尺度，0表示NLOS)
     
-    # 时间偏移范围 (用于模拟实际系统中的时钟偏差和传播延迟)
-    timing_offset_range: Tuple[float, float] = (-130e-9, 130e-9)  # 时间偏移范围 (秒) -130ns to 130ns
-
     # =============================================================================
     # 计算属性
     # =============================================================================
@@ -159,8 +156,8 @@ class SystemConfig:
             raise ValueError(f"IFFT大小 {self.ifft_size} 超出合理范围 [128, 8192]")
         
         # 检查CP长度比例
-        if self.cp_length_ratio <= 0 or self.cp_length_ratio >= 1:
-            raise ValueError(f"CP长度比例 {self.cp_length_ratio} 必须在 (0, 1) 范围内")
+        if self.cp_length_ratio <= 0:
+            raise ValueError(f"CP长度比例 {self.cp_length_ratio} 必须为正数")
         
         # 检查载波频率
         if self.carrier_frequency <= 0:
@@ -211,7 +208,6 @@ class SystemConfig:
         print(f"   信道模型: {self.channel_model_type}")
         print(f"   延迟扩展: {self.delay_spread*1e9:.1f} ns")
         print(f"   K因子: {self.k_factor:.1f} (线性)")
-        print(f"   时间偏移范围: {self.timing_offset_range[0]*1e9:.0f} ~ {self.timing_offset_range[1]*1e9:.0f} ns")
         
         print(f"\n✅ 配置验证: ", end="")
         try:
@@ -220,38 +216,6 @@ class SystemConfig:
         except ValueError as e:
             print(f"失败 - {e}")
     
-    def get_random_timing_offset_samples(self) -> int:
-        """
-        生成随机时间偏移对应的采样点数
-        
-        Returns:
-            时间偏移对应的采样点数 (整数)
-        """
-        import random
-        
-        # 随机选择时间偏移 (秒)
-        timing_offset_seconds = random.uniform(
-            self.timing_offset_range[0], 
-            self.timing_offset_range[1]
-        )
-        
-        # 转换为采样点偏移
-        timing_offset_samples = int(timing_offset_seconds * self.sampling_rate)
-        
-        return timing_offset_samples
-    
-    def timing_offset_seconds_to_samples(self, timing_offset_seconds: float) -> int:
-        """
-        将时间偏移(秒)转换为采样点偏移
-        
-        Args:
-            timing_offset_seconds: 时间偏移 (秒)
-            
-        Returns:
-            对应的采样点偏移 (整数)
-        """
-        return int(timing_offset_seconds * self.sampling_rate)
-
 
 def create_default_system_config() -> SystemConfig:
     """

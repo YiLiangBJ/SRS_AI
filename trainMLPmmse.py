@@ -183,14 +183,7 @@ class SRSTrainerModified:
         # 4. 创建per-port信号生成器字典（如果需要）
         self.per_port_generators = {}
         
-        # 5. 预定义常用的参数组合
-        self.common_snr_ranges = [
-            (-10, 40),  # 默认范围
-            (-5, 30),   # 中等范围
-            (0, 20),    # 高SNR范围
-            (-15, 35),  # 扩展范围
-        ]
-        
+        # 5. 预定义常用的信道配置（只维护信道配置，SNR统一使用config中的配置）
         self.common_channel_configs = [
             {'model': 'TDL-A', 'delay_spread': self.system_config.delay_spread},
             {'model': 'TDL-B', 'delay_spread': self.system_config.delay_spread},
@@ -272,7 +265,7 @@ class SRSTrainerModified:
                 self.channel_models[config_key] = None
     
     def _initialize_data_generators(self):
-        """为所有常用SNR范围初始化数据生成器"""
+        """初始化唯一的数据生成器（使用配置文件中的SNR范围）"""
         from data_generator_refactored import SRSDataGenerator
         
         # 获取默认信道模型
@@ -283,32 +276,44 @@ class SRSTrainerModified:
         print(f"   🎯 可用信道模型: {list(self.channel_models.keys())}")
         print(f"   🎯 默认信道模型: {'存在' if default_channel_model is not None else '不存在'}")
         
-        for snr_range in self.common_snr_ranges:
-            snr_key = f"snr_{snr_range[0]}_{snr_range[1]}"
+        # 只创建一个使用配置SNR范围的数据生成器
+        config_snr_range = self.srs_config.snr_range
+        snr_key = "config_snr"  # 使用固定的键名
+        
+        try:
+            print(f"   创建数据生成器: {snr_key} (SNR范围: {config_snr_range})")
+            data_generator = SRSDataGenerator(
+                config=self.signal_gen_params['srs_config'],
+                channel_model=default_channel_model,
+                num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
+                sampling_rate=self.signal_gen_params['sampling_rate'],
+                device=self.signal_gen_params['device']
+            )
+            self.data_generators[snr_key] = data_generator
+            print(f"   ✅ {snr_key} 创建成功 (using_channel={data_generator.using_channel})")
             
-            try:
-                print(f"   创建数据生成器: {snr_key}")
-                data_generator = SRSDataGenerator(
-                    config=self.signal_gen_params['srs_config'],
-                    channel_model=default_channel_model,  # 🎯 确保传入信道模型
-                    num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
-                    snr_range=snr_range,
-                    sampling_rate=self.signal_gen_params['sampling_rate'],
-                    device=self.signal_gen_params['device']
-                )
-                self.data_generators[snr_key] = data_generator
-                print(f"   ✅ {snr_key} 创建成功 (using_channel={data_generator.using_channel})")
-                
-            except Exception as e:
-                print(f"   ❌ {snr_key} 创建失败: {e}")
-                self.data_generators[snr_key] = None
+        except Exception as e:
+            print(f"   ❌ {snr_key} 创建失败: {e}")
+            self.data_generators[snr_key] = None
     
     def _initialize_per_ue_instances(self):
         """为每个UE初始化专用实例（如果需要）"""
         # 当前设计使用统一的数据生成器，per-UE实例在信道内部处理
         # 如果将来需要per-UE的特殊处理，可以在这里添加
         
+        # 🔧 添加配置验证，防止索引越界
+        try:
+            self.srs_config.validate_config()
+        except Exception as e:
+            raise RuntimeError(f"SRS配置验证失败: {e}")
+        
         for user_id in range(self.srs_config.num_users):
+            # 🔧 添加边界检查
+            if user_id >= len(self.srs_config.ports_per_user):
+                raise RuntimeError(f"用户{user_id}超出ports_per_user范围 (长度={len(self.srs_config.ports_per_user)})")
+            if user_id >= len(self.srs_config.cyclic_shifts):
+                raise RuntimeError(f"用户{user_id}超出cyclic_shifts范围 (长度={len(self.srs_config.cyclic_shifts)})")
+                
             num_ports = self.srs_config.ports_per_user[user_id]
             print(f"   UE {user_id}: {num_ports} 端口")
             
@@ -326,7 +331,17 @@ class SRSTrainerModified:
         # 如果将来需要per-port的特殊处理，可以在这里添加
         
         for user_id in range(self.srs_config.num_users):
+            # 🔧 再次边界检查，确保安全
+            if user_id >= len(self.srs_config.ports_per_user):
+                continue  # 跳过无效用户
+                
             for port_id in range(self.srs_config.ports_per_user[user_id]):
+                # 🔧 检查cyclic_shifts边界
+                if (user_id >= len(self.srs_config.cyclic_shifts) or 
+                    port_id >= len(self.srs_config.cyclic_shifts[user_id])):
+                    print(f"   ⚠️  Port {user_id}:{port_id} 循环移位配置缺失，跳过")
+                    continue
+                    
                 port_key = f"ue_{user_id}_port_{port_id}"
                 cyclic_shift = self.srs_config.cyclic_shifts[user_id][port_id]
                 
@@ -357,21 +372,20 @@ class SRSTrainerModified:
         print(f"   UE实例: {len(self.per_ue_channels)} 个")
         print(f"   Port实例: {len(self.per_port_generators)} 个")
     
-    def get_data_generator(self, snr_range=(-10, 40), channel_config=None):
+    def get_data_generator(self, channel_config=None):
         """
         获取数据生成器实例
         
-        🎯 智能选择：优先使用预创建的实例，必要时动态创建
+        🎯 简化设计：直接返回使用配置SNR范围的数据生成器
         
         Args:
-            snr_range: SNR范围
             channel_config: 信道配置，格式：{'model': 'TDL-A', 'delay_spread': 300e-9}
             
         Returns:
             SRSDataGenerator实例
         """
-        # 生成查找键
-        snr_key = f"snr_{snr_range[0]}_{snr_range[1]}"
+        # 使用唯一的数据生成器
+        snr_key = "config_snr"
         
         # 检查是否有预创建的生成器
         if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
@@ -383,7 +397,7 @@ class SRSTrainerModified:
                 # 目前使用默认信道配置
                 pass
             
-            print(f"🎯 使用预创建的数据生成器: {snr_key} (using_channel={generator.using_channel})")
+            print(f"🎯 使用数据生成器: {snr_key} (SNR范围: {self.srs_config.snr_range}) (using_channel={generator.using_channel})")
             return generator
         
         # 需要动态创建
@@ -407,25 +421,18 @@ class SRSTrainerModified:
                 config=self.signal_gen_params['srs_config'],
                 channel_model=channel_model,
                 num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
-                snr_range=snr_range,
                 sampling_rate=self.signal_gen_params['sampling_rate'],
                 device=self.signal_gen_params['device']
             )
             
             # 缓存新创建的生成器
             self.data_generators[snr_key] = generator
-            print(f"✅ 动态生成器创建并缓存: {snr_key} (using_channel={generator.using_channel})")
+            print(f"✅ 动态生成器创建并缓存: {snr_key} (SNR范围: {self.srs_config.snr_range}) (using_channel={generator.using_channel})")
             
             return generator
             
         except Exception as e:
             print(f"❌ 动态生成器创建失败: {e}")
-            # 回退到任何可用的生成器
-            for key, gen in self.data_generators.items():
-                if gen is not None:
-                    print(f"⚠️  回退使用: {key}")
-                    return gen
-            
             raise RuntimeError(f"无法获取数据生成器: {e}")
     
     def get_channel_model(self, model_type="TDL-A", delay_spread=None):
@@ -474,21 +481,19 @@ class SRSTrainerModified:
             print(f"❌ 动态信道模型创建失败: {e}")
             return None
             
-    def generate_batch_with_dynamic_channel(self, batch_size: int, enable_debug: bool = False, snr_range=(-10, 40), channel_config=None):
+    def generate_batch_with_dynamic_channel(self, batch_size: int, enable_debug: bool = False, channel_config=None):
         """
         动态生成批次数据，包含完整的信号生成、信道应用和LS估计流程
         
-        🎯 高效设计：使用预创建的数据生成器实例，通过字典查找避免重复创建
-        这确保我们得到训练所需的所有数据：ls_estimates, true_channels, noise_powers等
+        🎯 简化设计：使用配置文件中的SNR范围，SNR会在数据生成器内部从配置中获取
         
         Args:
             batch_size: 批次大小
             enable_debug: 是否启用调试
-            snr_range: SNR范围
             channel_config: 信道配置，格式：{'model': 'TDL-A', 'delay_spread': 300e-9}
         """
-        # 🎯 从预创建的实例字典中获取数据生成器
-        data_generator = self.get_data_generator(snr_range=snr_range, channel_config=channel_config)
+        # 🎯 直接获取数据生成器（使用配置的SNR范围）
+        data_generator = self.get_data_generator(channel_config=channel_config)
         
         # 生成完整批次（包含ls_estimates, true_channels等）
         batch = data_generator.generate_batch(batch_size, enable_debug=enable_debug)
@@ -496,7 +501,7 @@ class SRSTrainerModified:
         if enable_debug:
             print(f"✅ 动态批次生成完成:")
             print(f"   批次大小: {batch_size}")
-            print(f"   SNR范围: {snr_range}")
+            print(f"   SNR范围: {self.srs_config.snr_range}")
             if channel_config:
                 print(f"   信道配置: {channel_config}")
             else:
@@ -526,21 +531,17 @@ class SRSTrainerModified:
             self.mmse_module.train()
         
         for batch_idx in tqdm(range(num_batches), desc="训练中"):
-            # 🎯 动态SNR策略：可以根据训练进度调整SNR范围
-            # 例如：课程学习，从高SNR开始，逐渐降低到低SNR
-            current_snr_range = (-10, 40)  # 默认范围
+            # 🎯 使用配置文件中的SNR范围
+            # SNR会在数据生成器内部从配置中获取（可以是固定SNR或随机SNR）
             
-            # 可选：实现课程学习策略
-            # progress = (batch_idx + 1) / num_batches  # 训练进度 0-1
-            # min_snr = -10 + (1 - progress) * 10  # 从0dB开始，逐渐降到-10dB
-            # current_snr_range = (min_snr, 40)
+            # 可选：实现课程学习策略等高级训练策略
+            # 这些策略可以通过动态修改配置或信道参数来实现
             
-            # Generate batch with dynamic channel and SNR
+            # Generate batch with dynamic channel
             with torch.no_grad():
                 batch = self.generate_batch_with_dynamic_channel(
                     batch_size, 
-                    enable_debug=True, 
-                    snr_range=current_snr_range
+                    enable_debug=True
                 )
 
             # Get ls estimates and cyclic shifts
@@ -693,12 +694,8 @@ class SRSTrainerModified:
         
         with torch.no_grad():
             for _ in tqdm(range(num_batches), desc="验证中"):
-                # Generate batch with dynamic channel (验证时使用固定SNR范围)
-                validation_snr_range = (-10, 40)  # 验证时使用标准SNR范围
-                batch = self.generate_batch_with_dynamic_channel(
-                    batch_size, 
-                    snr_range=validation_snr_range
-                )
+                # Generate batch with dynamic channel (使用配置文件中的SNR范围)
+                batch = self.generate_batch_with_dynamic_channel(batch_size)
                 
                 # Get ls estimates and cyclic shifts
                 ls_estimates = batch['ls_estimates']
@@ -897,28 +894,20 @@ class SRSTrainerModified:
         
         return epoch
 
-    def set_dynamic_training_params(self, snr_range=None, channel_model=None, delay_spread=None):
+    def set_dynamic_training_params(self, channel_model=None, delay_spread=None):
         """
         动态调整训练参数
         
-        允许在训练过程中调整SNR范围、信道模型等参数，
+        允许在训练过程中调整信道模型等参数，
         实现课程学习 (Curriculum Learning) 等高级训练策略。
         
-        🎯 高效更新：利用预创建的实例，只在需要时动态创建新实例
+        注意：SNR范围统一从配置文件获取，不支持动态修改以避免不一致
         
         Args:
-            snr_range: 新的SNR范围，例如 (-5, 30)
             channel_model: 新的信道模型，例如 "TDL-B"
             delay_spread: 新的延迟扩展，例如 500e-9
         """
         params_changed = False
-        
-        if snr_range is not None:
-            print(f"🔧 更新SNR范围: {snr_range[0]}~{snr_range[1]} dB")
-            # SNR范围变化时，检查是否有对应的预创建生成器
-            snr_key = f"snr_{snr_range[0]}_{snr_range[1]}"
-            if snr_key not in self.data_generators:
-                print(f"   新SNR范围，将在下次使用时动态创建")
                 
         if channel_model is not None:
             old_model = self.channel_params['channel_model']
@@ -937,43 +926,11 @@ class SRSTrainerModified:
             new_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
             if new_channel_key not in self.channel_models:
                 print(f"   新信道配置，将在下次使用时动态创建: {new_channel_key}")
-    
-    def add_custom_snr_range(self, snr_range):
-        """
-        添加新的SNR范围并预创建对应的数据生成器
-        
-        Args:
-            snr_range: 新的SNR范围，例如 (-20, 50)
-        """
-        snr_key = f"snr_{snr_range[0]}_{snr_range[1]}"
-        
-        if snr_key in self.data_generators:
-            print(f"⚠️  SNR范围 {snr_key} 已存在")
-            return
-        
-        print(f"🔄 添加新的SNR范围: {snr_key}")
-        
-        try:
-            # 获取默认信道模型
-            default_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
-            default_channel_model = self.channel_models.get(default_channel_key)
             
-            from data_generator_refactored import SRSDataGenerator
-            data_generator = SRSDataGenerator(
-                config=self.signal_gen_params['srs_config'],
-                channel_model=default_channel_model,
-                num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
-                snr_range=snr_range,
-                sampling_rate=self.signal_gen_params['sampling_rate'],
-                device=self.signal_gen_params['device']
-            )
-            
-            self.data_generators[snr_key] = data_generator
-            print(f"✅ 新SNR范围数据生成器创建成功: {snr_key}")
-            
-        except Exception as e:
-            print(f"❌ 新SNR范围数据生成器创建失败: {e}")
-            self.data_generators[snr_key] = None
+            # 重新创建数据生成器以使用新的信道配置
+            print(f"   将重新创建数据生成器以使用新信道配置")
+            if "config_snr" in self.data_generators:
+                del self.data_generators["config_snr"]
     
     def add_custom_channel_config(self, model_type, delay_spread=None):
         """
