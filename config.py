@@ -253,7 +253,7 @@ def create_example_config() -> SRSConfig:
         cyclic_shifts=[
             [0]  # User 0: 1个端口，循环移位为0
         ],
-        snr_range=(30.0, 30.0),  # SNR range: 20-30 dB (random)
+        snr_range=(0.0, 0.0),  # SNR range: 20-30 dB (random)
         timing_offset_range=(-130e-9, 130e-9),  # Timing offset: -130ns to 130ns (random)
         mmse_block_size=12  # Default block size for MMSE filtering
     )

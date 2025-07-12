@@ -923,7 +923,7 @@ class SIONNAChannelModel:
         signal_power_user = snr_linear * noise_var
 
         for i, received_signal in enumerate(all_received_signals):
-            all_received_signals[i] = received_signal / math.sqrt(signal_power_user) /math.sqrt(received_signal.shape[1])
+            all_received_signals[i] = received_signal * math.sqrt(signal_power_user) /math.sqrt(received_signal.shape[1])
         
         total_received = sum(all_received_signals)  # [num_rx_ant, total_ports, signal_length]
         
