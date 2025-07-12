@@ -497,143 +497,6 @@ class SIONNAChannelModel:
         print(f"   信道矩阵: {h_freq_total.shape}")
         
         return received_freq, h_freq_total
-        
-        # 存储所有用户的频域信道
-        all_h_freq_by_user = {}  # {user_id: h_freq_tensor}
-        global_h_freq_list = []  # 全局频域信道列表（按原始顺序）
-        
-        for user_id, user_data in channels_by_user.items():
-            h_time = user_data['h_time']
-            delays = user_data['delays']
-            signals = user_data['signals']
-            port_mapping = user_data['port_mapping']
-            
-            print(f"   处理用户{user_id}的频域转换...")
-            
-            # 转换为频域信道响应（如果需要）- 全部使用PyTorch
-            h_freq_user = None
-            if mapping_indices is not None and ifft_size is not None:
-                print(f"     使用PyTorch转换为频域信道响应...")
-                
-                # 使用PyTorch生成子载波频率
-                freq_indices = torch.arange(ifft_size, dtype=torch.float32, device=self.device)
-                frequencies = freq_indices * self.subcarrier_spacing
-                
-                # 使用PyTorch进行时域信道→频域信道转换
-                h_freq_full = self._cir_to_ofdm_channel_pytorch(
-                    frequencies, h_time, delays, ifft_size
-                )
-                print(f"     用户{user_id}完整频域信道: {h_freq_full.shape}")
-                
-                # 使用PyTorch提取映射的子载波
-                mapping_indices_torch = mapping_indices.to(self.device)
-                h_freq_mapped = h_freq_full[..., mapping_indices_torch]
-                print(f"     用户{user_id}映射后频域信道: {h_freq_mapped.shape}")
-                
-                # 使用PyTorch应用时间偏移（频域相位旋转）
-                if delay_offset_samples != 0:
-                    print(f"     用户{user_id}应用时间偏移相位旋转...")
-                    phase_arg = -2.0 * np.pi * mapping_indices_torch.float() * delay_offset_samples / ifft_size
-                    phase_rotation = torch.exp(1j * phase_arg)  # PyTorch复数指数
-                    # 扩展维度以匹配信道矩阵形状
-                    phase_rotation_expanded = phase_rotation.view(1, 1, 1, 1, 1, -1)
-                    h_freq_mapped = h_freq_mapped * phase_rotation_expanded
-                
-                # 移除batch和cluster维度，保留link维度
-                # h_freq_mapped: [batch, cluster, rx_ant, link, tx_ant, subcarriers, time]
-                h_freq_user = h_freq_mapped.squeeze(0).squeeze(0).squeeze(-1)  # [rx_ant, link, tx_ant, subcarriers]
-                # 调整维度顺序：[rx_ant, link, subcarriers] (假设tx_ant=1)
-                h_freq_user = h_freq_user.squeeze(2)  # 移除tx_ant维度（假设=1）
-                print(f"     ✅ 用户{user_id}最终频域信道: {h_freq_user.shape}")
-                
-                all_h_freq_by_user[user_id] = h_freq_user
-                
-                # 按原始端口顺序添加到全局列表
-                for port_idx in range(h_freq_user.shape[1]):  # link维度
-                    global_h_freq_list.append(h_freq_user[:, port_idx, :])  # [rx_ant, subcarriers]
-        
-        # 合并所有用户的频域信道
-        if global_h_freq_list:
-            # 重新组织为全局频域信道矩阵
-            h_freq_final_torch = torch.stack(global_h_freq_list, dim=1)  # [rx_ant, total_ports, subcarriers]
-            print(f"   ✅ 全局频域信道矩阵: {h_freq_final_torch.shape}")
-        else:
-            h_freq_final_torch = None
-        
-        # ========================================================================
-        # 第四部分：构建最终输出信号（PyTorch）
-        # ========================================================================
-        print("⚡ 第四阶段：构建最终输出信号...")
-        
-        # 计算输出信号长度（从第一个用户的第一个信号获取）
-        signal_length = 1024  # 默认长度
-        if channels_by_user:
-            first_user_data = next(iter(channels_by_user.values()))
-            if first_user_data['signals'].numel() > 0:
-                signal_length = first_user_data['signals'].shape[-1]
-        
-        output_signals = torch.zeros(
-            (self.num_rx_antennas, signal_length), 
-            dtype=torch.complex64, 
-            device=self.device
-        )
-        print(f"   输出信号形状: {output_signals.shape}")
-        
-        # ========================================================================
-        # 第五部分：存储调试信息（全部PyTorch格式）
-        # ========================================================================
-        if debug_dict is not None:
-            print("💾 存储调试信息...")
-            
-            # 合并所有用户的时域信道信息（用于调试）
-            all_h_time_list = []
-            all_delays_list = []
-            for user_id in sorted(channels_by_user.keys()):
-                user_data = channels_by_user[user_id]
-                # h_time形状: [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, num_time_steps]
-                # 第5维(num_tx_ant)对应端口数，我们需要为每个端口分离信道
-                for port_idx in range(user_data['h_time'].shape[4]):  # num_tx_ant维度
-                    all_h_time_list.append(user_data['h_time'][:, :, :, :, port_idx:port_idx+1, :, :])
-                    # delays形状: [batch_size, num_rx=1, num_tx=1, num_paths] - 所有端口共享延迟
-                    all_delays_list.append(user_data['delays'])  # 延迟对所有端口相同
-            
-            # 合并时域信道
-            if all_h_time_list:
-                combined_h_time = torch.cat(all_h_time_list, dim=4)  # 在num_tx_ant维度合并
-                # 延迟：由于所有端口共享相同延迟，只需使用一个副本
-                combined_delays = all_delays_list[0] if all_delays_list else None
-            else:
-                combined_h_time = None
-                combined_delays = None
-            
-            debug_dict.update({
-                'sionna_h_time': combined_h_time,
-                'sionna_delays': combined_delays,
-                'sionna_h_freq': h_freq_final_torch,
-                'sionna_model_type': self.model_type,
-                'sionna_backend': 'sionna',
-                'applied_timing_offset_samples': delay_offset_samples,
-                'applied_timing_offset_seconds': timing_offset_seconds,
-                'applied_timing_offset_ns': timing_offset_seconds * 1e9,
-                'signal_port_mapping': signal_port_mapping,  # 端口映射关系
-                'channels_by_user': {  # 按用户保存的信道信息
-                    user_id: {
-                        'h_time': user_data['h_time'],
-                        'delays': user_data['delays'],
-                        'h_freq': all_h_freq_by_user.get(user_id),
-                        'port_mapping': user_data['port_mapping']
-                    } for user_id, user_data in channels_by_user.items()
-                },
-                'framework_usage': {
-                    'input': 'pytorch',
-                    'channel_cir_generation': 'tensorflow_sionna_per_user',  # 按用户调用SIONNA
-                    'signal_processing': 'pytorch',  # 所有信号处理都是PyTorch
-                    'output': 'pytorch'
-                }
-            })
-        
-        print("✅ SIONNA分用户信道应用完成（全PyTorch输出）")
-        return output_signals, h_freq_final_torch
     
     def _construct_time_domain_channel_pytorch(
         self, 
@@ -927,8 +790,6 @@ class SIONNAChannelModel:
         
         total_received = sum(all_received_signals)  # [num_rx_ant, total_ports, signal_length]
         
-        # 计算总信号功率
-        signal_power_after_sum = torch.mean(torch.abs(total_received) ** 2)
         
         # 5. 加噪声
         
@@ -949,9 +810,7 @@ class SIONNAChannelModel:
         channel_info = {
             'h_freq': h_freq_total,
             'timing_offsets': timing_offsets,
-            'noise_var': noise_var.item(),
             'snr_db': snr_db,
-            'signal_power': signal_power_after_sum.item()
         }
         
         print(f"\n✅ 物理信道处理完成:")

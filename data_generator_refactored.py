@@ -623,45 +623,22 @@ class SRSDataGenerator:
             user_indices, ifft_size
         )
         
-        # 2. 应用信道模型（如果有）
-        if self.using_channel:
-            debug_dict = {}
-            
-            # 应用信道
-            rx_signals, freq_channels = self.channel_model.apply_channel(
-                signals=data_sample['tx_signals'],
-                user_config=self.base_generator.config,  # 🎯 传入用户配置
-                mapping_indices=data_sample['mapping_indices'],
-                ifft_size=ifft_size,
-                debug_dict=debug_dict
-            )
-            
-            # 存储信道调试信息
-            data_sample['channel_debug'] = debug_dict
-            data_sample['freq_channels'] = freq_channels
-        else:
-            # 不使用信道，简单模拟多用户接收
-            tx_signals_dict = data_sample['tx_signals']  # Dict[(user_id, port_id), time_signal]
-            
-            # 将所有发送信号相加作为接收信号
-            time_samples = None
-            combined_signal = None
-            
-            for (user_id, port_id), tx_signal in tx_signals_dict.items():
-                if time_samples is None:
-                    time_samples = len(tx_signal)
-                    combined_signal = torch.zeros(time_samples, dtype=torch.complex64, device=tx_signal.device)
-                combined_signal += tx_signal
-            
-            # 复制到多个接收天线
-            if combined_signal is not None:
-                rx_signals = combined_signal.unsqueeze(0).repeat(self.base_generator.num_rx_antennas, 1)
-            else:
-                # 如果没有信号，创建零信号
-                rx_signals = torch.zeros(
-                    self.base_generator.num_rx_antennas, 2048,  # 默认长度
-                    dtype=torch.complex64, device=self.base_generator.device
-                )
+
+        debug_dict = {}
+        
+        # 应用信道
+        rx_signals, freq_channels = self.channel_model.apply_channel(
+            signals=data_sample['tx_signals'],
+            user_config=self.base_generator.config,  # 🎯 传入用户配置
+            mapping_indices=data_sample['mapping_indices'],
+            ifft_size=ifft_size,
+            debug_dict=debug_dict
+        )
+        
+        # 存储信道调试信息
+        data_sample['channel_debug'] = debug_dict
+        data_sample['freq_channels'] = freq_channels
+
         
         # 3. 完成接收端处理
         final_sample = self.base_generator.finalize_received_data(
