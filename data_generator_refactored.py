@@ -379,68 +379,6 @@ class BaseSRSDataGenerator:
             'user_indices': user_indices
         }
     
-    def finalize_received_data(
-        self, 
-        rx_signals: torch.Tensor, 
-        data_sample: Dict[str, torch.Tensor],
-        snr_db: Optional[float] = None,
-        add_noise: bool = True
-    ) -> Dict[str, torch.Tensor]:
-        """
-        完成接收数据处理（添加噪声、解调等）
-        
-        Args:
-            rx_signals: 经过信道的接收信号 [num_rx_antennas, time_samples]
-            data_sample: 原始数据样本
-            snr_db: 信噪比，如果为None则从配置中获取
-            add_noise: 是否添加噪声
-            
-        Returns:
-            完整的数据样本
-        """
-        # 获取SNR值
-        if snr_db is None:
-            snr_db = self.config.get_snr_db()
-        
-        # 添加噪声
-        if add_noise:
-            rx_signals = self.add_noise(rx_signals, snr_db)
-        
-        # OFDM解调 - 处理每个接收天线
-        rx_freq_list = []
-        cp_length = self.cp_length_samples  # 使用系统配置的CP长度
-        
-        for rx_ant in range(rx_signals.shape[0]):
-            rx_freq_ant = self.ofdm_demodulate(rx_signals[rx_ant], cp_length)
-            rx_freq_list.append(rx_freq_ant)
-        
-        rx_freq = torch.stack(rx_freq_list, dim=0)  # [num_rx_antennas, ifft_size]
-        
-        # 提取映射的子载波
-        mapping_indices = data_sample['mapping_indices']
-        rx_mapped = rx_freq[..., mapping_indices]  # [num_rx_antennas, num_mapped_subcarriers]
-        
-        # 更新调试信息
-        self.debug_data.update({
-            'rx_time_signals': rx_signals,
-            'rx_freq_signals': rx_freq,
-            'rx_mapped_signals': rx_mapped,
-            'snr_db': snr_db  # 添加SNR信息到调试数据
-        })
-        
-        # 返回完整数据
-        result = data_sample.copy()
-        result.update({
-            'rx_signals': rx_signals,
-            'rx_freq': rx_freq,
-            'rx_mapped': rx_mapped,
-            'tx_signals': data_sample['tx_signals'],  # 保持字典格式
-            'mapping_indices': mapping_indices,
-            'snr_db': snr_db  # 添加SNR信息到结果
-        })
-        
-        return result
-    
     def get_debug_info(self) -> Dict[str, torch.Tensor]:
         """获取调试信息"""
         return self.debug_data.copy()
@@ -638,14 +576,43 @@ class SRSDataGenerator:
         # 存储信道调试信息
         data_sample['channel_debug'] = debug_dict
         data_sample['freq_channels'] = freq_channels
+        
+        # LS信道估计 - 按用户端口组织为字典
+        ls_estimates_dict = {}
+        true_channels_dict = {}
+        
+        # 直接从用户配置和序列键构建端口映射
+        sequences = data_sample['sequences']
+        
+        # 创建端口映射：保持字典键的原始顺序
+        port_mapping = {}
+        port_idx = 0
+        for (user_id, port_id) in sequences.keys():
+            port_mapping[port_idx] = (user_id, port_id)
+            port_idx += 1
+        
+        # 为每个用户端口计算LS估计
+        for port_idx, (user_id, port_id) in port_mapping.items():
+            # 获取该端口对应的接收信号（所有接收天线）
+            rx_port_signal = rx_signals[:, port_idx, data_sample['mapping_indices']]  # [num_rx_ant, num_subcarriers]
+            
+            # 获取该端口的发送序列
+            tx_sequence = sequences[(user_id, port_id)]  # [seq_length]
+            
+            # LS估计：接收信号除以发送序列
+            ls_estimate = rx_port_signal / tx_sequence.unsqueeze(0)  # [num_rx_ant, num_subcarriers]
+            ls_estimates_dict[(user_id, port_id)] = ls_estimate
+            
+            # 同时存储真实信道（用于训练/验证）
+            true_channel = freq_channels[:, port_idx, data_sample['mapping_indices']]  # [num_rx_ant, num_subcarriers]
+            true_channels_dict[(user_id, port_id)] = true_channel
 
-        
-        # 3. 完成接收端处理
-        final_sample = self.base_generator.finalize_received_data(
-            rx_signals, data_sample, add_noise=True
-        )
-        
-        return final_sample
+        batch = {}
+        batch['ls_estimates'] = ls_estimates_dict  # Dict[(user_id, port_id), tensor]
+        batch['true_channels'] = true_channels_dict  # Dict[(user_id, port_id), tensor]
+        batch['noise_powers'] = 1
+
+        return batch
     
     def generate_batch(self, batch_size: int, **kwargs) -> Dict[str, torch.Tensor]:
         """生成一批训练样本"""
@@ -655,10 +622,19 @@ class SRSDataGenerator:
             sample = self.generate_sample(**kwargs)
             batch_samples.append(sample)
         
-        # 合并批次
+        # 合并批次 - 特殊处理字典类型的数据
         batch_data = {}
         for key in batch_samples[0].keys():
-            if isinstance(batch_samples[0][key], torch.Tensor):
+            if key in ['ls_estimates', 'true_channels']:
+                # 对于字典类型的数据，保持字典结构，但在第一个维度上stack
+                first_sample_dict = batch_samples[0][key]
+                batch_dict = {}
+                for user_port_key in first_sample_dict.keys():
+                    # 收集所有样本中该用户端口的数据
+                    tensors = [sample[key][user_port_key] for sample in batch_samples]
+                    batch_dict[user_port_key] = torch.stack(tensors, dim=0)  # [batch_size, num_rx_ant, num_subcarriers]
+                batch_data[key] = batch_dict
+            elif isinstance(batch_samples[0][key], torch.Tensor):
                 batch_data[key] = torch.stack([s[key] for s in batch_samples])
             else:
                 batch_data[key] = [s[key] for s in batch_samples]

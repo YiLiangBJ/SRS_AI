@@ -422,6 +422,16 @@ class SIONNAChannelModel:
         for user_id, signal in signals_dict.items():
             print(f"     用户{user_id}: {signal.shape}")
         
+        # 创建全局端口映射 {port_index: (user_id, port_id)}
+        signal_port_mapping = {}
+        global_port_idx = 0
+        for user_id in sorted(signals_dict.keys()):  # 保持确定的顺序
+            for port_idx, port_id in enumerate(user_port_mapping[user_id]):
+                signal_port_mapping[global_port_idx] = (user_id, port_id)
+                global_port_idx += 1
+        
+        print(f"   全局端口映射: {signal_port_mapping}")
+        
         # ========================================================================
         # 第二步：为每个用户生成SIONNA信道
         # ========================================================================
@@ -489,7 +499,8 @@ class SIONNAChannelModel:
                 'timing_offset_samples': delay_offset_samples,
                 'timing_offset_seconds': delay_offset_samples / self.sampling_rate,
                 'user_channels': user_channels,
-                'channel_info': channel_info
+                'channel_info': channel_info,
+                'signal_port_mapping': signal_port_mapping  # 添加端口映射信息
             })
         
         print(f"✅ SIONNA信道处理完成:")
@@ -500,17 +511,17 @@ class SIONNAChannelModel:
     
     def _construct_time_domain_channel_pytorch(
         self, 
-        h_time: torch.Tensor, 
-        delays: torch.Tensor, 
+        h_time: torch.Tensor,
+        delays: torch.Tensor,
         signal_length: int
     ) -> torch.Tensor:
         """
-        使用PyTorch构建时域信道冲激响应（用于卷积）
+        构建时域信道冲激响应
         
         Args:
-            h_time: 时域信道系数 [batch_size, num_rx=1, num_rx_ant, num_tx=1, num_tx_ant, num_paths, num_time_steps]
-            delays: 路径延迟 [batch_size, num_rx=1, num_tx=1, num_paths] (秒)
-            signal_length: 信号长度（采样点数）
+            h_time: SIONNA TDL输出的时域信道响应
+            delays: SIONNA TDL输出的延迟信息
+            signal_length: 信号长度
             
         Returns:
             torch.Tensor: 时域信道冲激响应 [num_rx_ant, num_tx_ant, signal_length]
