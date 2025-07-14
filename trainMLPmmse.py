@@ -502,7 +502,7 @@ class SRSTrainerModified:
     
     def train_epoch(self, num_batches: int, batch_size: int) -> Tuple[float, float]:
         """
-        Train for one epoch
+        Train for one epoch - 完全批处理化版本
         
         Args:
             num_batches: Number of batches
@@ -511,22 +511,16 @@ class SRSTrainerModified:
         Returns:
             Average loss and NMSE for the epoch
         """
-        print("\n====== 开始训练epoch ======")
+        print("\n====== 开始训练epoch (批处理模式) ======")
         total_loss = 0
         total_nmse = 0
+        total_sample_count = 0
         
         # Set models to training mode
-        # self.srs_estimator.train()
         if self.mmse_module:
             self.mmse_module.train()
         
         for batch_idx in tqdm(range(num_batches), desc="训练中"):
-            # 🎯 使用配置文件中的SNR范围
-            # SNR会在数据生成器内部从配置中获取（可以是固定SNR或随机SNR）
-            
-            # 可选：实现课程学习策略等高级训练策略
-            # 这些策略可以通过动态修改配置或信道参数来实现
-            
             # Generate batch with dynamic channel
             with torch.no_grad():
                 batch = self.generate_batch_with_dynamic_channel(
@@ -534,80 +528,32 @@ class SRSTrainerModified:
                     enable_debug=True
                 )
 
-            # Get ls estimates and cyclic shifts - 现在是字典形式
-            ls_estimates_dict = batch['ls_estimates']  # Dict[(user_id, port_id), tensor[batch_size, num_rx_ant, seq_length]]
-            noise_powers = batch['noise_powers']
-            true_channels_dict = batch['true_channels']  # Dict[(user_id, port_id), tensor[batch_size, num_rx_ant, seq_length]]
+            # Get batch data - 现在是字典形式，每个值的形状 [batch_size, num_rx_ant, seq_length]
+            ls_estimates_dict = batch['ls_estimates']
+            noise_powers = batch['noise_powers']  # [batch_size]
+            true_channels_dict = batch['true_channels']
             
             # Clear gradients
             self.optimizer.zero_grad()
-              
-            # Forward pass - 整个批次的累计损失
-            batch_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
-            batch_nmse = 0.0
             
-            for i in range(batch_size):                
-                noise_power = noise_powers[i]
-                  
-                # 创建一个新的损失累积器 (requires_grad=True)
-                sample_total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
-                
-                # 为每个用户端口单独处理LS估计和信道估计
-                for u in range(self.srs_config.num_users):
-                    for p in range(self.srs_config.ports_per_user[u]):
-                        user_port_key = (u, p)
-                        
-                        if user_port_key in ls_estimates_dict and user_port_key in true_channels_dict:
-                            # 获取该用户端口的LS估计 [num_rx_ant, seq_length]
-                            ls_estimate_multi_ant = ls_estimates_dict[user_port_key][i]
-                            
-                            # 对于单端口处理，使用第一个接收天线的LS估计
-                            # TODO: 未来可能需要支持多天线联合估计
-                            ls_estimate = ls_estimate_multi_ant[0, :]  # [seq_length]
-                            
-                            # 运行SRS估计器 (单用户单端口)
-                            channel_estimates = self.srs_estimator(
-                                ls_estimate=ls_estimate,
-                                cyclic_shifts=[[self.srs_config.cyclic_shifts[u][p]]],  # 单端口的循环移位
-                                noise_power=noise_power
-                            )
-                            
-                            # 获取估计结果 (只有一个端口)
-                            est_channel = channel_estimates[0]  # [seq_length]
-                            
-                            # 获取真实信道 (使用第一个接收天线)
-                            true_channel = true_channels_dict[user_port_key][i][0, :]  # [seq_length]
-                            
-                            # 确保估计信道需要梯度
-                            if not est_channel.requires_grad:
-                                print(f"警告：估计的信道在批次 {batch_idx}，样本 {i}，用户 {u}，端口 {p} 不需要梯度")
-                                continue
-                            
-                            # 计算实部和虚部的损失
-                            real_loss = torch.mean((torch.real(est_channel) - torch.real(true_channel))**2)
-                            imag_loss = torch.mean((torch.imag(est_channel) - torch.imag(true_channel))**2)
-                              
-                            # 此样本的损失
-                            sample_loss = real_loss + imag_loss
-                              
-                            # 使用加法赋值更新样本总损失
-                            sample_total_loss = sample_total_loss + sample_loss
-                            
-                            # Calculate NMSE
-                            with torch.no_grad():  # NMSE只用于监控，不需要梯度
-                                nmse = calculate_nmse(true_channel, est_channel)
-                                batch_nmse += nmse  # 累加NMSE值，稍后在打印时将除以样本数
-                  
-                # 将这个样本的总损失加到批次损失中
-                batch_loss = batch_loss + sample_total_loss
+            # 一次性处理整个批次的所有用户端口
+            estimated_channels_dict = self.srs_estimator(
+                ls_estimates_dict=ls_estimates_dict,
+                user_config=self.srs_config,
+                noise_powers=noise_powers
+            )
             
-            # 确保损失是一个需要梯度的标量 - 移到了样本循环外部
+            # 批处理化计算损失和NMSE
+            batch_loss, batch_nmse, batch_sample_count = self.compute_batch_loss_and_nmse(
+                estimated_channels_dict, 
+                true_channels_dict
+            )
+            
+            # 反向传播和优化
             if batch_loss.requires_grad:
-                # Backward pass and optimize
                 batch_loss.backward()
-            
-                # 打印所有参数的梯度信息，用于调试
-                print("")  # 确保梯度信息打印在新行
+                
+                # 梯度信息调试
                 for name, param in self.srs_estimator.named_parameters():
                     if param.requires_grad:
                         if param.grad is None:
@@ -616,56 +562,41 @@ class SRSTrainerModified:
                             print(f"SRS参数 {name} 的梯度全为零")
                         else:
                             grad_norm = param.grad.abs().mean().item()
-                            print(f"SRS参数 {name} 的梯度范数: {grad_norm:.6f}")
                             self.writer.add_scalar(f'Gradients/SRS_{name}', grad_norm, self.global_step)
                 
                 # 执行梯度更新
-                self.optimizer.step()            
+                self.optimizer.step()
             else:
                 print(f"警告：批次 {batch_idx} 的损失不需要梯度。跳过反向传播。")
-                print(f"批次损失的类型：{type(batch_loss)}")
-                print(f"批次损失的requires_grad：{batch_loss.requires_grad}")            
             
             # Update totals
             with torch.no_grad():
                 batch_loss_value = batch_loss.item()
                 total_loss += batch_loss_value
                 total_nmse += batch_nmse
+                total_sample_count += batch_sample_count
                 
-                # 计算这个批次处理了多少个实际计算的样本数
-                # 跟踪实际处理了多少个信道样本（每个用户可能有不同数量的端口）
-                # 实际计算的样本数 = 批次大小 * 真实信道的总数（考虑到每个用户可能有不同的端口数）
-                actual_channel_count = sum(1 for u in range(self.srs_config.num_users) 
-                                         for p in range(self.srs_config.ports_per_user[u]) 
-                                         if (u, p) in true_channels_dict)
-                num_samples_in_batch = batch_size * actual_channel_count
-                avg_batch_nmse = batch_nmse / num_samples_in_batch
+                # 计算平均NMSE
+                avg_batch_nmse = batch_nmse / batch_sample_count if batch_sample_count > 0 else 0
                   
                 # Log batch-level metrics to TensorBoard
                 self.writer.add_scalar('Loss/batch', batch_loss_value, self.global_step)
                 self.writer.add_scalar('NMSE/batch', avg_batch_nmse, self.global_step)
                   
                 # Print loss information to console for immediate feedback
-                print(f"\n批次 [{batch_idx+1:03d}/{num_batches:03d}] - 损失: {batch_loss_value:.6f}, NMSE: {avg_batch_nmse:.2f} dB")
+                print(f"\n批次 [{batch_idx+1:03d}/{num_batches:03d}] - 损失: {batch_loss_value:.6f}, NMSE: {avg_batch_nmse:.2f} dB, 样本数: {batch_sample_count}")
                 
                 self.global_step += 1
-          
-        # # Calculate averages
-        # # 我们需要计算整个epoch处理的总样本数
-        # # 每个批次处理的样本数 = 批次大小 * 实际信道数量
-        # # 整个epoch处理的总样本数 = 批次数 * 每个批次处理的样本数
-        # actual_channel_count = sum(1 for u in range(self.srs_config.num_users) 
-        #                          for p in range(self.srs_config.ports_per_user[u]) 
-        #                          if (u, p) in true_channels)  # 使用最后一个批次的数据
-        num_channels = batch_size * actual_channel_count * num_batches
-        avg_loss = total_loss / num_channels
-        avg_nmse = total_nmse / num_channels
+        
+        # Calculate averages
+        avg_loss = total_loss / total_sample_count if total_sample_count > 0 else 0
+        avg_nmse = total_nmse / total_sample_count if total_sample_count > 0 else 0
         
         return avg_loss, avg_nmse
         
     def validate(self, num_batches: int, batch_size: int) -> Tuple[float, float]:
         """
-        Validate the model
+        Validate the model - 完全批处理化版本
         
         Args:
             num_batches: Number of batches
@@ -674,9 +605,10 @@ class SRSTrainerModified:
         Returns:
             Average loss and NMSE for validation
         """
-        print("\n====== 开始验证 ======")
+        print("\n====== 开始验证 (批处理模式) ======")
         total_loss = 0
         total_nmse = 0
+        total_sample_count = 0
         
         self.srs_estimator.eval()
         if self.mmse_module:
@@ -687,64 +619,32 @@ class SRSTrainerModified:
                 # Generate batch with dynamic channel (使用配置文件中的SNR范围)
                 batch = self.generate_batch_with_dynamic_channel(batch_size)
                 
-                # Get ls estimates and cyclic shifts - 现在是字典形式
-                ls_estimates_dict = batch['ls_estimates']  # Dict[(user_id, port_id), tensor[batch_size, num_rx_ant, seq_length]]
-                noise_powers = batch['noise_powers']
-                true_channels_dict = batch['true_channels']  # Dict[(user_id, port_id), tensor[batch_size, num_rx_ant, seq_length]]
+                # Get batch data - 现在是字典形式，每个值的形状 [batch_size, num_rx_ant, seq_length]
+                ls_estimates_dict = batch['ls_estimates']
+                noise_powers = batch['noise_powers']  # [batch_size]
+                true_channels_dict = batch['true_channels']
                 
-                # Forward pass
-                batch_loss = 0
-                batch_nmse = 0
-                for i in range(batch_size):
-                    noise_power = noise_powers[i].item()
-                    
-                    # 为每个用户端口单独处理验证
-                    for u in range(self.srs_config.num_users):
-                        for p in range(self.srs_config.ports_per_user[u]):
-                            user_port_key = (u, p)
-                            
-                            if user_port_key in ls_estimates_dict and user_port_key in true_channels_dict:
-                                # 获取该用户端口的LS估计 [num_rx_ant, seq_length]
-                                ls_estimate_multi_ant = ls_estimates_dict[user_port_key][i]
-                                
-                                # 对于单端口处理，使用第一个接收天线的LS估计
-                                ls_estimate = ls_estimate_multi_ant[0, :]  # [seq_length]
-                                
-                                # 验证阶段直接使用当前模型参数进行前向传播
-                                channel_estimates = self.srs_estimator(
-                                    ls_estimate=ls_estimate,
-                                    cyclic_shifts=[[self.srs_config.cyclic_shifts[u][p]]],  # 单端口的循环移位
-                                    noise_power=noise_power
-                                )
-                                
-                                # 获取估计结果和真实信道
-                                est_channel = channel_estimates[0]  # [seq_length]
-                                true_channel = true_channels_dict[user_port_key][i][0, :]  # [seq_length]
-                                
-                                # Calculate loss
-                                real_loss = torch.mean((torch.real(est_channel) - torch.real(true_channel))**2).item()
-                                imag_loss = torch.mean((torch.imag(est_channel) - torch.imag(true_channel))**2).item()
-                                sample_loss = real_loss + imag_loss
-                                
-                                batch_loss += sample_loss
-                                
-                                # Calculate NMSE
-                                nmse = calculate_nmse(true_channel, est_channel)
-                                batch_nmse += nmse
+                # 一次性处理整个批次的所有用户端口
+                estimated_channels_dict = self.srs_estimator(
+                    ls_estimates_dict=ls_estimates_dict,
+                    user_config=self.srs_config,
+                    noise_powers=noise_powers
+                )
+                
+                # 批处理化计算损失和NMSE
+                batch_loss, batch_nmse, batch_sample_count = self.compute_batch_loss_and_nmse(
+                    estimated_channels_dict, 
+                    true_channels_dict
+                )
                 
                 # Update totals
-                total_loss += batch_loss
+                total_loss += batch_loss.item()
                 total_nmse += batch_nmse
-                
-                # 计算这个批次处理了多少个实际计算的样本数
-                actual_channel_count = sum(1 for u in range(self.srs_config.num_users) 
-                                        for p in range(self.srs_config.ports_per_user[u]) 
-                                        if (u, p) in true_channels_dict)
+                total_sample_count += batch_sample_count
                 
         # Calculate averages for the entire validation set
-        num_channels = batch_size * actual_channel_count * num_batches
-        avg_loss = total_loss / num_channels
-        avg_nmse = total_nmse / num_channels
+        avg_loss = total_loss / total_sample_count if total_sample_count > 0 else 0
+        avg_nmse = total_nmse / total_sample_count if total_sample_count > 0 else 0
         
         return avg_loss, avg_nmse
 
@@ -989,6 +889,58 @@ class SRSTrainerModified:
                 'total_data_generators': len(self.data_generators),
             }
         }
+    
+    def compute_batch_loss_and_nmse(self, 
+                                    estimated_channels_dict: Dict[Tuple[int, int], torch.Tensor],
+                                    true_channels_dict: Dict[Tuple[int, int], torch.Tensor]
+                                    ) -> Tuple[torch.Tensor, float, int]:
+        """
+        批处理化的损失和NMSE计算
+        
+        Args:
+            estimated_channels_dict: 估计信道，每个值的形状 [batch_size, num_rx_ant, seq_length]
+            true_channels_dict: 真实信道，每个值的形状 [batch_size, num_rx_ant, seq_length]
+        
+        Returns:
+            Tuple[总损失标量, 总NMSE, 样本数量]
+        """
+        total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        total_nmse = 0.0
+        sample_count = 0
+        
+        for user_port_key in estimated_channels_dict.keys():
+            if user_port_key not in true_channels_dict:
+                continue
+                
+            est_channels = estimated_channels_dict[user_port_key]  # [batch_size, num_rx_ant, seq_length]
+            true_channels = true_channels_dict[user_port_key]     # [batch_size, num_rx_ant, seq_length]
+            
+            # 验证估计信道需要梯度
+            if not est_channels.requires_grad:
+                print(f"警告：估计的信道在用户端口 {user_port_key} 不需要梯度")
+                continue
+            
+            # 计算实部和虚部的MSE损失（对所有维度求平均）
+            real_loss = torch.mean((torch.real(est_channels) - torch.real(true_channels))**2)
+            imag_loss = torch.mean((torch.imag(est_channels) - torch.imag(true_channels))**2)
+            
+            # 累积损失
+            channel_loss = real_loss + imag_loss
+            total_loss = total_loss + channel_loss
+            
+            # 计算NMSE（仅用于监控，不需要梯度）
+            with torch.no_grad():
+                batch_size, num_rx_ant, seq_length = est_channels.shape
+                for batch_idx in range(batch_size):
+                    for ant_idx in range(num_rx_ant):
+                        est_channel = est_channels[batch_idx, ant_idx, :]  # [seq_length]
+                        true_channel = true_channels[batch_idx, ant_idx, :]  # [seq_length]
+                        
+                        nmse = calculate_nmse(true_channel, est_channel)
+                        total_nmse += nmse
+                        sample_count += 1
+        
+        return total_loss, total_nmse, sample_count
     
 
 def main():
