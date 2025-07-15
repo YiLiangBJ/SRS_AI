@@ -487,9 +487,8 @@ class SRSTrainerModified:
                     enable_debug=True
                 )
 
-            # Get batch data - 现在是字典形式，每个值的形状 [batch_size, num_rx_ant, seq_length]
+            # Get batch data - 现在是列表形式
             ls_estimates_dict = batch['ls_estimates']
-            noise_powers = batch['noise_powers']  # [batch_size]
             true_channels_dict = batch['true_channels']
             
             # Clear gradients
@@ -499,7 +498,6 @@ class SRSTrainerModified:
             estimated_channels_dict = self.srs_estimator(
                 ls_estimates_dict=ls_estimates_dict,
                 user_config=self.srs_config,
-                noise_powers=noise_powers
             )
             
             # 批处理化计算损失和NMSE
@@ -578,16 +576,14 @@ class SRSTrainerModified:
                 # Generate batch with dynamic channel (使用配置文件中的SNR范围)
                 batch = self.generate_batch_with_dynamic_channel(batch_size)
                 
-                # Get batch data - 现在是字典形式，每个值的形状 [batch_size, num_rx_ant, seq_length]
+                # Get batch data - 现在是列表形式
                 ls_estimates_dict = batch['ls_estimates']
-                noise_powers = batch['noise_powers']  # [batch_size]
                 true_channels_dict = batch['true_channels']
                 
                 # 一次性处理整个批次的所有用户端口
                 estimated_channels_dict = self.srs_estimator(
                     ls_estimates_dict=ls_estimates_dict,
-                    user_config=self.srs_config,
-                    noise_powers=noise_powers
+                    user_config=self.srs_config
                 )
                 
                 # 批处理化计算损失和NMSE
@@ -850,15 +846,17 @@ class SRSTrainerModified:
         }
     
     def compute_batch_loss_and_nmse(self, 
-                                    estimated_channels_dict: Dict[Tuple[int, int], torch.Tensor],
-                                    true_channels_dict: Dict[Tuple[int, int], torch.Tensor]
+                                    estimated_channels_list: List[Dict[Tuple[int, int], torch.Tensor]],
+                                    true_channels_list: List[Dict[Tuple[int, int], torch.Tensor]]
                                     ) -> Tuple[torch.Tensor, float, int]:
         """
-        批处理化的损失和NMSE计算
+        批处理化的损失和NMSE计算 - 适配列表格式
         
         Args:
-            estimated_channels_dict: 估计信道，每个值的形状 [batch_size, num_rx_ant, seq_length]
-            true_channels_dict: 真实信道，每个值的形状 [batch_size, num_rx_ant, seq_length]
+            estimated_channels_list: 估计信道列表，长度为batch_size，每个元素是Dict[(user_id, port_id), tensor]
+                                   每个tensor形状: [num_rx_ant, seq_length]
+            true_channels_list: 真实信道列表，长度为batch_size，每个元素是Dict[(user_id, port_id), tensor]
+                               每个tensor形状: [num_rx_ant, seq_length]
         
         Returns:
             Tuple[总损失标量, 总NMSE, 样本数量]
@@ -867,33 +865,40 @@ class SRSTrainerModified:
         total_nmse = 0.0
         sample_count = 0
         
-        for user_port_key in estimated_channels_dict.keys():
-            if user_port_key not in true_channels_dict:
-                continue
+        batch_size = len(estimated_channels_list)
+        
+        # 遍历每个batch样本
+        for batch_idx in range(batch_size):
+            est_dict = estimated_channels_list[batch_idx]    # Dict[(user_id, port_id), tensor]
+            true_dict = true_channels_list[batch_idx]        # Dict[(user_id, port_id), tensor]
+            
+            # 遍历该样本的每个用户端口
+            for user_port_key in est_dict.keys():
+                if user_port_key not in true_dict:
+                    continue
+                    
+                est_channels = est_dict[user_port_key]      # [num_rx_ant, seq_length]
+                true_channels = true_dict[user_port_key]    # [num_rx_ant, seq_length]
                 
-            est_channels = estimated_channels_dict[user_port_key]  # [batch_size, num_rx_ant, seq_length]
-            true_channels = true_channels_dict[user_port_key]     # [batch_size, num_rx_ant, seq_length]
-            
-            # 验证估计信道需要梯度
-            if not est_channels.requires_grad:
-                print(f"警告：估计的信道在用户端口 {user_port_key} 不需要梯度")
-                continue
-            
-            # 计算实部和虚部的MSE损失（对所有维度求平均）
-            real_loss = torch.mean((torch.real(est_channels) - torch.real(true_channels))**2)
-            imag_loss = torch.mean((torch.imag(est_channels) - torch.imag(true_channels))**2)
-            
-            # 累积损失
-            channel_loss = real_loss + imag_loss
-            total_loss = total_loss + channel_loss
-            
-            # 计算NMSE（仅用于监控，不需要梯度）
-            with torch.no_grad():
-                batch_size, num_rx_ant, seq_length = est_channels.shape
-                for batch_idx in range(batch_size):
+                # 验证估计信道需要梯度
+                if not est_channels.requires_grad:
+                    print(f"警告：估计的信道在batch {batch_idx} 用户端口 {user_port_key} 不需要梯度")
+                    continue
+                
+                # 计算实部和虚部的MSE损失（对所有维度求平均）
+                real_loss = torch.mean((torch.real(est_channels) - torch.real(true_channels))**2)
+                imag_loss = torch.mean((torch.imag(est_channels) - torch.imag(true_channels))**2)
+                
+                # 累积损失
+                channel_loss = real_loss + imag_loss
+                total_loss = total_loss + channel_loss
+                
+                # 计算NMSE（仅用于监控，不需要梯度）
+                with torch.no_grad():
+                    num_rx_ant, seq_length = est_channels.shape
                     for ant_idx in range(num_rx_ant):
-                        est_channel = est_channels[batch_idx, ant_idx, :]  # [seq_length]
-                        true_channel = true_channels[batch_idx, ant_idx, :]  # [seq_length]
+                        est_channel = est_channels[ant_idx, :]     # [seq_length]
+                        true_channel = true_channels[ant_idx, :]   # [seq_length]
                         
                         nmse = calculate_nmse(true_channel, est_channel)
                         total_nmse += nmse

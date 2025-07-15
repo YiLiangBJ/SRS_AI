@@ -248,10 +248,11 @@ def create_example_config() -> SRSConfig:
     """
     # Example configuration: 1 user with 1 port
     return SRSConfig(
-        seq_length=1200,  # Example value, can be changed
+        seq_length=816,  # Example value, can be changed
         ktc=4,  # K=12
         cyclic_shifts=[
-            [0]  # User 0: 1个端口，循环移位为0
+            [0, 6],
+            [3]  # User 0: 1个端口，循环移位为0
         ],
         snr_range=(30.0, 30.0),  # SNR range: 20-30 dB (random)
         timing_offset_range=(-130e-9, 130e-9),  # Timing offset: -130ns to 130ns (random)

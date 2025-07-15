@@ -146,16 +146,8 @@ class BaseSRSDataGenerator:
         # 调试信息存储
         self.debug_data = {}
         
-        print(f"✅ 基础SRS数据生成器初始化完成 (100% PyTorch)")
-        print(f"   框架策略: 纯PyTorch实现，无TensorFlow依赖")
-        print(f"   用户SRS配置: {config}")
-        print(f"   系统配置:")
-        print(f"   - 采样率: {self.sampling_rate/1e6:.2f} MHz")
-        print(f"   - IFFT大小: {self.ifft_size}")
-        print(f"   - 子载波间隔: {self.subcarrier_spacing/1e3:.0f} kHz")
-        print(f"   - 接收天线: {self.num_rx_antennas}")
-        print(f"   - SNR范围: {self.config.snr_range} dB")
-        print(f"   - 设备: {device}")
+        # 预生成基础序列，避免每次重复计算
+        self.base_seq = generate_base_sequence(length=self.config.seq_length)
     
     def generate_srs_sequences(
         self, 
@@ -174,10 +166,8 @@ class BaseSRSDataGenerator:
         """
         sequences = {}
         
-        # 首先生成基础序列
-        base_seq = generate_base_sequence(
-            length=self.config.seq_length
-        )
+        # 使用预生成的基础序列
+        base_seq = self.base_seq
         
         for user_id in user_indices:
             # 确保用户ID有效
@@ -232,15 +222,13 @@ class BaseSRSDataGenerator:
         """
         if ifft_size is None:
             ifft_size = self.ifft_size
-        # 生成映射索引 (假设所有端口使用相同的子载波映射)
-        seq_length = self.config.seq_length
-        start_subcarrier = (ifft_size - seq_length) // 2  # 居中映射
-        end_subcarrier = start_subcarrier + seq_length
         
-        mapping_indices = torch.arange(
-            start_subcarrier, end_subcarrier, 
-            dtype=torch.long, device=self.device
-        )
+        # 生成梳状(comb)映射索引 - 每ktc个子载波放置一个序列元素
+        seq_length = self.config.seq_length
+        ktc = self.config.ktc  # 梳状间隔
+        
+        # 简化映射：从索引0开始，步长为ktc
+        mapping_indices = torch.arange(seq_length, dtype=torch.long, device=self.device) * ktc
         
         # 为每个端口创建独立的频域网格
         mapped_signals = {}
@@ -506,16 +494,6 @@ class SRSDataGenerator:
         # 设置信道模型
         self.channel_model = channel_model
         self.using_channel = channel_model is not None
-        
-        print(f"✅ SRS数据生成器初始化完成")
-        print(f"   框架策略: PyTorch主导 + 信道部分可选TensorFlow")
-        print(f"   数据生成: 100% PyTorch (BaseSRSDataGenerator)")
-        print(f"   使用信道模型: {'是' if self.using_channel else '否'}")
-        if self.using_channel:
-            print(f"   信道模型类型: {type(channel_model).__name__}")
-            print(f"   信道内部实现: 对外透明 (输入输出都是PyTorch)")
-        else:
-            print(f"   信道建模: 跳过，纯数据生成模式")
     
     def generate_sample(
         self, 
@@ -568,36 +546,30 @@ class SRSDataGenerator:
         ls_estimates_dict = {}
         true_channels_dict = {}
         
-        # 直接从用户配置和序列键构建端口映射
+        # 直接从配置获取用户端口信息
         sequences = data_sample['sequences']
         
-        # 创建端口映射：保持字典键的原始顺序
-        port_mapping = {}
-        port_idx = 0
-        for (user_id, port_id) in sequences.keys():
-            port_mapping[port_idx] = (user_id, port_id)
-            port_idx += 1
-        
-        # 为每个用户端口计算LS估计
-        for port_idx, (user_id, port_id) in port_mapping.items():
-            # 获取该端口对应的接收信号（所有接收天线）
-            rx_port_signal = rx_signals[:, port_idx, data_sample['mapping_indices']]  # [num_rx_ant, num_subcarriers]
+        # 按配置顺序遍历所有用户和端口
+        for user_id in range(self.base_generator.config.num_users):
+            num_ports = self.base_generator.config.ports_per_user[user_id]
             
-            # 获取该端口的发送序列
-            tx_sequence = sequences[(user_id, port_id)]  # [seq_length]
-            
-            # LS估计：接收信号除以发送序列
-            ls_estimate = rx_port_signal / tx_sequence.unsqueeze(0)  # [num_rx_ant, num_subcarriers]
-            ls_estimates_dict[(user_id, port_id)] = ls_estimate
-            
-            # 同时存储真实信道（用于训练/验证）
-            true_channel = freq_channels[:, port_idx, data_sample['mapping_indices']]  # [num_rx_ant, num_subcarriers]
-            true_channels_dict[(user_id, port_id)] = true_channel
+            for port_id in range(num_ports):
+                # 获取该端口的发送序列
+                tx_sequence = sequences[(user_id, port_id)]  # [seq_length]
+                
+                # LS估计：接收信号除以发送序列
+                ls_estimate = rx_signals[:, data_sample['mapping_indices']] / tx_sequence.unsqueeze(0)  # [num_rx_ant, num_subcarriers]
+                ls_estimates_dict[(user_id, port_id)] = ls_estimate
+                
+                # 从对应用户的频域信道中提取该端口的真实信道
+                user_freq_channels = freq_channels[user_id]  # [num_rx_ant, user_ports, num_subcarriers]
+                true_channel = user_freq_channels[:, port_id, data_sample['mapping_indices']]  # [num_rx_ant, num_subcarriers]
+                true_channels_dict[(user_id, port_id)] = true_channel
+                
 
         batch = {}
         batch['ls_estimates'] = ls_estimates_dict  # Dict[(user_id, port_id), tensor]
         batch['true_channels'] = true_channels_dict  # Dict[(user_id, port_id), tensor]
-        batch['noise_powers'] = 1
 
         return batch
     
@@ -612,19 +584,7 @@ class SRSDataGenerator:
         # 合并批次 - 特殊处理字典类型的数据
         batch_data = {}
         for key in batch_samples[0].keys():
-            if key in ['ls_estimates', 'true_channels']:
-                # 对于字典类型的数据，保持字典结构，但在第一个维度上stack
-                first_sample_dict = batch_samples[0][key]
-                batch_dict = {}
-                for user_port_key in first_sample_dict.keys():
-                    # 收集所有样本中该用户端口的数据
-                    tensors = [sample[key][user_port_key] for sample in batch_samples]
-                    batch_dict[user_port_key] = torch.stack(tensors, dim=0)  # [batch_size, num_rx_ant, num_subcarriers]
-                batch_data[key] = batch_dict
-            elif isinstance(batch_samples[0][key], torch.Tensor):
-                batch_data[key] = torch.stack([s[key] for s in batch_samples])
-            else:
-                batch_data[key] = [s[key] for s in batch_samples]
+            batch_data[key] = [sample[key] for sample in batch_samples]
         
         return batch_data
     

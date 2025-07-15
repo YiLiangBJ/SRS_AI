@@ -362,43 +362,16 @@ class SIONNAChannelModel:
         signals_dict = {}  # {user_id: signal_tensor}
         user_port_mapping = {}  # {user_id: [port_indices]}
         
-        # 处理不同输入格式并按用户分组
-        if isinstance(signals, dict):
-            # 从(user_id, port_id) -> signal 字典构建
-            for (user_id, port_id), signal in signals.items():
-                if user_id not in signals_dict:
-                    signals_dict[user_id] = []
-                    user_port_mapping[user_id] = []
-                
-                signals_dict[user_id].append(signal)
-                user_port_mapping[user_id].append(port_id)
+
+        # 从(user_id, port_id) -> signal 字典构建
+        for (user_id, port_id), signal in signals.items():
+            if user_id not in signals_dict:
+                signals_dict[user_id] = []
+                user_port_mapping[user_id] = []
+            
+            signals_dict[user_id].append(signal)
+            user_port_mapping[user_id].append(port_id)
         
-        elif isinstance(signals, list):
-            # 按用户配置分配信号
-            signal_idx = 0
-            for user_id in range(user_config.num_users):
-                num_ports = user_config.ports_per_user[user_id]
-                user_signals = []
-                user_ports = []
-                
-                for port_id in range(num_ports):
-                    if signal_idx < len(signals):
-                        user_signals.append(signals[signal_idx])
-                        user_ports.append(port_id)
-                        signal_idx += 1
-                    else:
-                        # 用零信号填充
-                        zero_signal = torch.zeros_like(signals[0])
-                        user_signals.append(zero_signal)
-                        user_ports.append(port_id)
-                
-                signals_dict[user_id] = user_signals
-                user_port_mapping[user_id] = user_ports
-        
-        else:
-            # 单张量，分配给用户0
-            signals_dict[0] = [signals]
-            user_port_mapping[0] = [0]
         
         # 将每个用户的信号列表转换为张量
         for user_id in signals_dict:
@@ -407,59 +380,6 @@ class SIONNAChannelModel:
                 signals_dict[user_id] = signal_list[0].unsqueeze(0)  # [1, signal_length]
             else:
                 signals_dict[user_id] = torch.stack(signal_list, dim=0)  # [num_ports, signal_length]
-        
-        # 创建全局端口映射 {port_index: (user_id, port_id)}
-        signal_port_mapping = {}
-        global_port_idx = 0
-        for user_id in sorted(signals_dict.keys()):  # 保持确定的顺序
-            for port_idx, port_id in enumerate(user_port_mapping[user_id]):
-                signal_port_mapping[global_port_idx] = (user_id, port_id)
-                global_port_idx += 1
-        
-        
-        # ========================================================================
-        # 第二步：为每个用户生成SIONNA信道
-        # ========================================================================
-        
-        batch_size = 1
-        num_time_steps = 1
-        user_channels = {}  # {user_id: (h_time, delays)}
-        
-        for user_id in signals_dict:
-            num_ports = len(user_port_mapping[user_id])
-            
-            try:
-                with tf.device('/CPU:0'):  # 使用CPU避免GPU内存问题
-                    # 创建用户专用TDL
-                    model_letter = self.model_type.split("-")[1]
-                    user_channel = TDL(
-                        model=model_letter,
-                        delay_spread=self.delay_spread,
-                        carrier_frequency=self.carrier_frequency,
-                        num_rx_ant=self.num_rx_antennas,
-                        num_tx_ant=num_ports,  # 用户端口数
-                        precision='single'
-                    )
-                    
-                    # 生成信道
-                    h_time_tf, delays_tf = user_channel(batch_size, num_time_steps, self.sampling_rate)
-                    
-                    # 转换为PyTorch
-                    h_time = torch.from_numpy(h_time_tf.numpy()).to(self.device)
-                    delays = torch.from_numpy(delays_tf.numpy()).to(self.device)
-                    
-                    user_channels[user_id] = (h_time, delays)
-                    
-                    del user_channel, h_time_tf, delays_tf  # 清理TensorFlow对象
-                    
-            
-            except Exception as e:
-                print(f"     ❌ 用户{user_id}信道生成失败: {e}")
-                raise
-        
-        # ========================================================================
-        # 第三步：物理正确的信号过信道处理
-        # ========================================================================
 
         
         # 使用新的物理正确处理函数
@@ -474,20 +394,18 @@ class SIONNAChannelModel:
         # ========================================================================
         # 第四步：准备输出
         # ========================================================================
-        h_freq_total = channel_info['h_freq']
+        h_freq_dict = channel_info['h_freq']  # 现在是字典 {user_id: h_freq_tensor}
         
         if debug_dict is not None:
             debug_dict.update({
                 'timing_offset_samples': delay_offset_samples,
                 'timing_offset_seconds': delay_offset_samples / self.sampling_rate,
-                'user_channels': user_channels,
                 'channel_info': channel_info,
-                'signal_port_mapping': signal_port_mapping  # 添加端口映射信息
             })
         
 
         
-        return received_freq, h_freq_total
+        return received_freq, h_freq_dict
     
     def _construct_time_domain_channel_pytorch(
         self, 
@@ -666,9 +584,11 @@ class SIONNAChannelModel:
         
         # 2. 为每个用户生成信道和应用信道
         all_received_signals = []  # 存储所有接收信号
-        all_h_freq = []  # 存储所有频域信道
+        all_h_freq = {}  # 存储所有频域信道 {user_id: h_freq_tensor}
         timing_offsets = {}  # 存储timing offset
         
+        noise_var = 1
+
         for user_id, signal in signals_dict.items():
             user_ports = user_port_mapping[user_id]
             num_ports = len(user_ports)
@@ -738,17 +658,16 @@ class SIONNAChannelModel:
                 h_freq_user, timing_offset_samples, mapping_indices, ifft_size
             )
             
-            all_received_signals.append(received_signal_user_to)
-            all_h_freq.append(h_freq_user_with_offset)
-        
-        
-        # 3.1 计算每个用户信号的功率并归一化
-        noise_var = 1
-        snr_linear = 10 ** (snr_db / 10.0)
-        signal_power_user = snr_linear * noise_var
+            snr_linear = 10 ** (snr_db / 10.0)
+            signal_power_user = snr_linear * noise_var
 
-        for i, received_signal in enumerate(all_received_signals):
-            all_received_signals[i] = received_signal * math.sqrt(signal_power_user) /math.sqrt(received_signal.shape[1])
+            received_signal_user_to_adjPower = received_signal_user_to * math.sqrt(signal_power_user) /math.sqrt(num_ports)
+            h_freq_user_with_offset_adjPower = h_freq_user_with_offset * math.sqrt(signal_power_user) /math.sqrt(num_ports)
+
+            received_signal_user_rx = torch.sum(received_signal_user_to_adjPower, dim=1)
+
+            all_received_signals.append(received_signal_user_rx)
+            all_h_freq[user_id] = h_freq_user_with_offset_adjPower  # 用字典存储，键为user_id
         
         total_received = sum(all_received_signals)  # [num_rx_ant, total_ports, signal_length]
         
@@ -760,17 +679,18 @@ class SIONNAChannelModel:
         )
         
         noisy_received = total_received + noise
-        data_part = noisy_received[:, :, cp_length:cp_length + ifft_size]
+        data_part = noisy_received[:, cp_length:cp_length + ifft_size]
         received_freq = torch.fft.fft(data_part, dim=-1)  # [num_rx_ant, total_ports, num_subcarriers]
 
         
-        # 7. 组装频域信道矩阵
-        h_freq_total = torch.cat(all_h_freq, dim=1)  # 在发送天线维度连接
+        # 7. 组装频域信道矩阵 - 保持字典结构，方便用户级访问
+        # all_h_freq现在是字典: {user_id: h_freq_tensor}
+        # 每个h_freq_tensor的形状: [num_rx_ant, num_ports_for_user, num_subcarriers]
 
         
         # 8. 返回结果
         channel_info = {
-            'h_freq': h_freq_total,
+            'h_freq': all_h_freq,
             'timing_offsets': timing_offsets,
             'snr_db': snr_db,
         }
