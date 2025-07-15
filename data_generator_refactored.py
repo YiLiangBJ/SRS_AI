@@ -457,19 +457,6 @@ class BaseSRSDataGenerator:
                 except:
                     batch_data[key] = [s[key] for s in batch_samples]
         
-        if enable_debug:
-            print(f"✅ BaseSRSDataGenerator批次生成完成:")
-            print(f"   批次大小: {batch_size}")
-            print(f"   用户索引: {user_indices}")
-            print(f"   数据键: {list(batch_data.keys())}")
-            for key, value in batch_data.items():
-                if isinstance(value, torch.Tensor):
-                    print(f"   {key}: {value.shape}")
-                elif isinstance(value, list):
-                    print(f"   {key}: list of {len(value)} items")
-                else:
-                    print(f"   {key}: {type(value)}")
-        
         return batch_data
 
 

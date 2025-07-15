@@ -64,7 +64,6 @@ def generate_base_sequence(length: int, root_index: int = 25) -> torch.Tensor:
     # Find the largest prime p less than or equal to length
     prime_length = find_largest_prime_less_than_or_equal_to(length)
     
-    print(f"Generating ZC sequence with prime length {prime_length}, then extending to {length}")
     
     # Ensure root index is coprime with the prime length
     while math.gcd(root_index, prime_length) != 1:

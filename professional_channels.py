@@ -27,19 +27,14 @@ import warnings
 # Import system configuration
 from system_config import SystemConfig, create_default_system_config
 
-# Import SIONNA - the only professional channel library we support
-try:
-    import sionna
-    from sionna.phy.channel.tr38901 import TDL
-    from sionna.phy.channel import cir_to_ofdm_channel, subcarrier_frequencies
-    import tensorflow as tf
-    SIONNA_AVAILABLE = True
-    print("✅ SIONNA professional channel library loaded successfully")
-except ImportError as e:
-    SIONNA_AVAILABLE = False
-    print("❌ SIONNA not found. Install with proxy: python -m pip install --proxy http://child-prc.intel.com:913 sionna tensorflow")
-    print("   或者不用代理: python -m pip install sionna tensorflow")
-    print("   Falling back to custom TDL implementation")
+
+import sionna
+from sionna.phy.channel.tr38901 import TDL
+from sionna.phy.channel import cir_to_ofdm_channel, subcarrier_frequencies
+import tensorflow as tf
+SIONNA_AVAILABLE = True
+print("✅ SIONNA professional channel library loaded successfully")
+
 
 
 class SIONNAChannelModel:
@@ -353,10 +348,6 @@ class SIONNAChannelModel:
         Returns:
             Tuple of (received_freq_signals, frequency_domain_channels)
         """
-        print(f"\n🔥 物理正确的SIONNA信道处理开始:")
-        print(f"   Timing offset: {delay_offset_samples} 采样点")
-        print(f"   用户数: {user_config.num_users}")
-        print(f"   总端口数: {user_config.total_ports}")
         
         # 设置默认参数
         if ifft_size is None:
@@ -367,7 +358,6 @@ class SIONNAChannelModel:
         # ========================================================================
         # 第一步：信号预处理和分组
         # ========================================================================
-        print("📦 信号预处理和按用户分组...")
         
         signals_dict = {}  # {user_id: signal_tensor}
         user_port_mapping = {}  # {user_id: [port_indices]}
@@ -418,10 +408,6 @@ class SIONNAChannelModel:
             else:
                 signals_dict[user_id] = torch.stack(signal_list, dim=0)  # [num_ports, signal_length]
         
-        print(f"   处理后用户信号: {len(signals_dict)} 个用户")
-        for user_id, signal in signals_dict.items():
-            print(f"     用户{user_id}: {signal.shape}")
-        
         # 创建全局端口映射 {port_index: (user_id, port_id)}
         signal_port_mapping = {}
         global_port_idx = 0
@@ -430,12 +416,10 @@ class SIONNAChannelModel:
                 signal_port_mapping[global_port_idx] = (user_id, port_id)
                 global_port_idx += 1
         
-        print(f"   全局端口映射: {signal_port_mapping}")
         
         # ========================================================================
         # 第二步：为每个用户生成SIONNA信道
         # ========================================================================
-        print("🔄 为每个用户生成SIONNA信道...")
         
         batch_size = 1
         num_time_steps = 1
@@ -443,7 +427,6 @@ class SIONNAChannelModel:
         
         for user_id in signals_dict:
             num_ports = len(user_port_mapping[user_id])
-            print(f"   用户{user_id}: {num_ports}个端口")
             
             try:
                 with tf.device('/CPU:0'):  # 使用CPU避免GPU内存问题
@@ -469,7 +452,6 @@ class SIONNAChannelModel:
                     
                     del user_channel, h_time_tf, delays_tf  # 清理TensorFlow对象
                     
-                    print(f"     ✅ 用户{user_id}信道生成: CIR{h_time.shape}, delays{delays.shape}")
             
             except Exception as e:
                 print(f"     ❌ 用户{user_id}信道生成失败: {e}")
@@ -478,7 +460,7 @@ class SIONNAChannelModel:
         # ========================================================================
         # 第三步：物理正确的信号过信道处理
         # ========================================================================
-        print("⚡ 物理正确的信号过信道处理...")
+
         
         # 使用新的物理正确处理函数
         received_freq, channel_info = self.apply_channel_to_signals(
@@ -503,9 +485,7 @@ class SIONNAChannelModel:
                 'signal_port_mapping': signal_port_mapping  # 添加端口映射信息
             })
         
-        print(f"✅ SIONNA信道处理完成:")
-        print(f"   接收信号: {received_freq.shape}")
-        print(f"   信道矩阵: {h_freq_total.shape}")
+
         
         return received_freq, h_freq_total
     
@@ -526,19 +506,13 @@ class SIONNAChannelModel:
         Returns:
             torch.Tensor: 时域信道冲激响应 [num_rx_ant, num_tx_ant, signal_length]
         """
-        print(f"   🔧 构建时域信道冲激响应:")
-        print(f"      输入CIR形状: {h_time.shape}")
-        print(f"      延迟形状: {delays.shape}")
-        print(f"      信号长度: {signal_length}")
+
         
         # 获取维度信息
         batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time = h_time.shape
         batch_size_d, num_rx_d, num_tx_d, num_paths_d = delays.shape
         
-        print(f"      🔍 SIONNA TDL输出分析:")
-        print(f"         CIR: [batch={batch_size}, rx_cluster={num_rx}, rx_ant={num_rx_ant}, tx_cluster={num_tx}, tx_ant={num_tx_ant}, paths={num_paths}, time={num_time}]")
-        print(f"         Delays: [batch={batch_size_d}, rx_cluster={num_rx_d}, tx_cluster={num_tx_d}, paths={num_paths_d}]")
-        
+
         # 验证维度一致性
         assert num_paths == num_paths_d, f"CIR和delays的路径数不匹配: {num_paths} vs {num_paths_d}"
         
@@ -549,8 +523,7 @@ class SIONNAChannelModel:
         # 确保延迟在有效范围内
         delay_samples = torch.clamp(delay_samples, 0, signal_length - 1)
         
-        print(f"      延迟采样点: {delay_samples}")
-        print(f"      延迟范围: {delay_samples.min().item()} - {delay_samples.max().item()} 采样点")
+
         
         # 初始化时域信道响应
         h_impulse = torch.zeros(
@@ -563,8 +536,7 @@ class SIONNAChannelModel:
         # 我们需要: [rx_ant, tx_ant, paths]
         h_coeff = h_time[0, 0, :, 0, :, :, 0]  # [num_rx_ant, num_tx_ant, num_paths]
         
-        print(f"      提取的信道系数形状: {h_coeff.shape}")
-        print(f"      期望形状: [{num_rx_ant}, {num_tx_ant}, {num_paths}]")
+
         
         # 将每个路径的响应放置在对应的延迟位置
         for path_idx in range(num_paths):
@@ -572,7 +544,7 @@ class SIONNAChannelModel:
             # 将该路径的所有天线对的系数加到对应的延迟位置
             h_impulse[:, :, delay_idx] += h_coeff[:, :, path_idx]
         
-        print(f"      ✅ 时域冲激响应形状: {h_impulse.shape}")
+
         
         return h_impulse
     
@@ -593,10 +565,6 @@ class SIONNAChannelModel:
         Returns:
             torch.Tensor: 频域信道响应 [num_rx_ant, num_tx_ant, num_subcarriers]
         """
-        print(f"   � 使用PyTorch FFT计算频域信道:")
-        print(f"      时域信道形状: {h_impulse.shape}")
-        print(f"      IFFT大小: {ifft_size}")
-        print(f"      映射子载波数: {len(mapping_indices)}")
         
         # 对时域信道进行FFT
         # 先进行零填充到IFFT大小
@@ -620,7 +588,6 @@ class SIONNAChannelModel:
         # 提取映射的子载波
         h_freq_mapped = h_freq_full[:, :, mapping_indices]  # [num_rx_ant, num_tx_ant, num_subcarriers]
         
-        print(f"      ✅ 频域信道形状: {h_freq_mapped.shape}")
         
         return h_freq_mapped
     
@@ -646,7 +613,6 @@ class SIONNAChannelModel:
         if timing_offset_samples == 0:
             return h_freq
         
-        print(f"   🕐 在频域信道应用timing offset: {timing_offset_samples} 采样点")
         
         # 计算相位旋转
         phase_arg = -2.0 * np.pi * mapping_indices.float() * timing_offset_samples / ifft_size
@@ -688,10 +654,6 @@ class SIONNAChannelModel:
             - 接收信号: [num_rx_ant, num_total_ports, num_subcarriers] (频域)
             - 信道信息: {'h_freq': 总频域信道, 'timing_offsets': timing偏移, 'noise_var': 噪声方差}
         """
-        print(f"\n🔥 物理正确的信号过信道流程开始:")
-        print(f"   输入用户数: {len(signals_dict)}")
-        print(f"   IFFT大小: {ifft_size}, SNR: {snr_db} dB")
-        print(f"   Timing offset: {timing_offset_samples} 采样点")
         
         # 1. 初始化参数
         device = self.device
@@ -711,16 +673,12 @@ class SIONNAChannelModel:
             user_ports = user_port_mapping[user_id]
             num_ports = len(user_ports)
             
-            print(f"\n   👤 处理用户 {user_id}:")
-            print(f"      端口: {user_ports}")
-            print(f"      信号形状: {signal.shape}")
             
             # 2.1 确保信号是正确的形状 [num_ports, signal_length]
             if signal.dim() == 1:
                 signal = signal.unsqueeze(0)  # [1, signal_length]
             
             signal_length = signal.shape[1]
-            print(f"      处理后信号形状: {signal.shape}")
             
             # 2.2 生成该用户的信道
             try:
@@ -750,8 +708,7 @@ class SIONNAChannelModel:
                 print(f"❌ 用户{user_id}信道生成失败: {e}")
                 continue
             
-            print(f"      生成的CIR形状: {h_time.shape}")
-            print(f"      延迟形状: {delays.shape}")
+
             
             # 2.3 构建时域冲激响应（用于卷积）
             h_impulse = self._construct_time_domain_channel_pytorch(h_time, delays, signal_length)
@@ -766,8 +723,7 @@ class SIONNAChannelModel:
             
             received_signal_user_to = torch.roll(received_signal_user, shifts=timing_offset_samples, dims=2)
             
-            print(f"      时域卷积后形状: {received_signal_user_to.shape}")
-            print(f"      Timing offset: {timing_offset_samples} 采样点")
+
             
             # 2.6 计算频域信道（用于NMSE比较）
             # 创建子载波映射（这里简化为连续映射）
@@ -785,11 +741,6 @@ class SIONNAChannelModel:
             all_received_signals.append(received_signal_user_to)
             all_h_freq.append(h_freq_user_with_offset)
         
-        if not all_received_signals:
-            raise ValueError("没有成功处理任何用户信号")
-        
-        # 3. 功率归一化
-        print(f"\n   ⚡ 功率归一化和SNR调整:")
         
         # 3.1 计算每个用户信号的功率并归一化
         noise_var = 1
@@ -811,11 +762,11 @@ class SIONNAChannelModel:
         noisy_received = total_received + noise
         data_part = noisy_received[:, :, cp_length:cp_length + ifft_size]
         received_freq = torch.fft.fft(data_part, dim=-1)  # [num_rx_ant, total_ports, num_subcarriers]
-        print(f"      接收频域信号形状: {received_freq.shape}")
+
         
         # 7. 组装频域信道矩阵
         h_freq_total = torch.cat(all_h_freq, dim=1)  # 在发送天线维度连接
-        print(f"      总频域信道形状: {h_freq_total.shape}")
+
         
         # 8. 返回结果
         channel_info = {
@@ -824,10 +775,6 @@ class SIONNAChannelModel:
             'snr_db': snr_db,
         }
         
-        print(f"\n✅ 物理信道处理完成:")
-        print(f"   接收信号: {received_freq.shape}")
-        print(f"   信道矩阵: {h_freq_total.shape}")
-        print(f"   SNR: {snr_db} dB, 噪声方差: {noise_var:.6f}")
         
         return received_freq, channel_info
     
@@ -847,7 +794,7 @@ class SIONNAChannelModel:
         
         assert num_tx_ant == num_ports, f"发送天线数({num_tx_ant})与端口数({num_ports})不匹配"
         
-        print(f"      🔀 时域卷积: 信号{signal.shape} * 信道{h_impulse.shape}")
+
         
         # 执行循环卷积（使用FFT优化）
         # 为了避免线性卷积的长度扩展，使用循环卷积
@@ -883,7 +830,7 @@ class SIONNAChannelModel:
         if offset_samples == 0:
             return signal
         
-        print(f"      🕐 时域timing offset: 循环左移 {offset_samples} 采样点")
+
         
         # 循环移位：signal[..., offset:] + signal[..., :offset]
         shifted = torch.cat([
@@ -943,11 +890,7 @@ class SIONNAChannelGenerator:
         if system_config is None:
             system_config = create_default_system_config()
         
-        print(f"🔧 使用系统配置:")
-        print(f"   采样率: {system_config.sampling_rate/1e6:.2f} MHz")
-        print(f"   载波频率: {system_config.carrier_frequency/1e9:.1f} GHz")
-        print(f"   IFFT大小: {system_config.ifft_size}")
-        print(f"   子载波间隔: {system_config.subcarrier_spacing/1e3:.0f} kHz")
+
         # 导入重构后的数据生成器
         from data_generator_refactored import SRSDataGenerator, BaseSRSDataGenerator
         
@@ -963,62 +906,27 @@ class SIONNAChannelGenerator:
         final_snr_range = snr_range if snr_range is not None else srs_config.snr_range
         
         if use_channel:
-            if use_sionna and SIONNA_AVAILABLE:
-                print("🚀 创建SIONNA专业信道模型")
-                try:
-                    channel_model_instance = SIONNAChannelModel(
-                        system_config=system_config,  # 传入系统配置
-                        model_type=final_channel_model,
-                        num_rx_antennas=final_num_rx_antennas,
-                        delay_spread=final_delay_spread,
-                        device=device
-                    )
-                    print("✅ SIONNA信道模型创建成功")
-                except Exception as e:
-                    print(f"❌ SIONNA信道模型创建失败: {e}")
-                    print("   回退到简化信道模型")
-                    channel_model_instance = None
-            
-            if channel_model_instance is None:
-                print("⚠️  使用简化回退信道模型")
-                # 这里可以创建一个简化的信道模型
-                # 为了简化，我们先不使用信道
-                channel_model_instance = None
-        
-        # 创建数据生成器
-        if channel_model_instance is not None:
-            print(f"✅ 创建完整数据生成器（包含{type(channel_model_instance).__name__}信道）")
-            generator = SRSDataGenerator(
-                config=srs_config,  # 使用用户SRS配置
-                channel_model=channel_model_instance,
+
+            channel_model_instance = SIONNAChannelModel(
+                system_config=system_config,  # 传入系统配置
+                model_type=final_channel_model,
                 num_rx_antennas=final_num_rx_antennas,
-                snr_range=final_snr_range,
-                sampling_rate=final_sampling_rate,
-                device=device,
-                **kwargs
+                delay_spread=final_delay_spread,
+                device=device
             )
-        else:
-            print("✅ 创建纯数据生成器（无信道模型）")
-            # 创建包装器，使BaseSRSDataGenerator兼容原接口
-            base_gen = BaseSRSDataGenerator(
-                config=srs_config,  # 使用用户SRS配置
-                num_rx_antennas=final_num_rx_antennas,
-                snr_range=final_snr_range,
-                sampling_rate=final_sampling_rate,
-                device=device,
-                **kwargs
-            )
-            
-            # 包装成SRSDataGenerator接口
-            generator = SRSDataGenerator(
-                config=srs_config,  # 使用用户SRS配置
-                channel_model=None,  # 无信道
-                num_rx_antennas=final_num_rx_antennas,
-                snr_range=final_snr_range,
-                sampling_rate=final_sampling_rate,
-                device=device,
-                **kwargs
-            )
+
+
+
+        generator = SRSDataGenerator(
+            config=srs_config,  # 使用用户SRS配置
+            channel_model=channel_model_instance,
+            num_rx_antennas=final_num_rx_antennas,
+            snr_range=final_snr_range,
+            sampling_rate=final_sampling_rate,
+            device=device,
+            **kwargs
+        )
+
         
         return generator
     

@@ -8,25 +8,16 @@ import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-# Try to import professional channel libraries
-try:
-    import sionna
-    SIONNA_AVAILABLE = True
-    print("✅ SIONNA available - using professional 3GPP channel models")
-except ImportError:
-    SIONNA_AVAILABLE = False
-    print("❌ SIONNA not available - using custom TDL implementation")
-    print("   To install SIONNA (Intel网络): python -m pip install --proxy http://child-prc.intel.com:913 sionna tensorflow")
-    print("   To install SIONNA (其他网络): python -m pip install sionna tensorflow")
 
-# Import professional channel model wrapper
-try:
-    from professional_channels import SIONNAChannelModel, SIONNAChannelGenerator, print_sionna_info
-    PROFESSIONAL_CHANNELS_AVAILABLE = True
-    print("✅ Professional channel wrapper available")
-except ImportError:
-    PROFESSIONAL_CHANNELS_AVAILABLE = False
-    print("❌ Professional channel wrapper not found")
+import sionna
+SIONNA_AVAILABLE = True
+print("✅ SIONNA available - using professional 3GPP channel models")
+
+
+from professional_channels import SIONNAChannelModel, SIONNAChannelGenerator, print_sionna_info
+PROFESSIONAL_CHANNELS_AVAILABLE = True
+print("✅ Professional channel wrapper available")
+
 
 import argparse
 from typing import List, Dict, Optional, Tuple
@@ -389,51 +380,32 @@ class SRSTrainerModified:
         
         # 检查是否有预创建的生成器
         if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
-            generator = self.data_generators[snr_key]
-            
-            # 检查信道配置是否匹配（如果指定了）
-            if channel_config is not None:
-                # 这里可以添加信道配置匹配检查
-                # 目前使用默认信道配置
-                pass
-            
-            print(f"🎯 使用数据生成器: {snr_key} (SNR范围: {self.srs_config.snr_range}) (using_channel={generator.using_channel})")
-            return generator
+            return self.data_generators[snr_key]
         
-        # 需要动态创建
-        print(f"🔄 动态创建数据生成器: {snr_key}")
         
         # 获取信道模型
-        if channel_config is not None:
-            channel_key = f"{channel_config['model']}_{channel_config['delay_spread']*1e9:.0f}ns"
-            channel_model = self.channel_models.get(channel_key)
-            if channel_model is None:
-                print(f"⚠️  信道模型 {channel_key} 不存在，使用默认")
-                default_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
-                channel_model = self.channel_models.get(default_key)
-        else:
+
+        channel_key = f"{channel_config['model']}_{channel_config['delay_spread']*1e9:.0f}ns"
+        channel_model = self.channel_models.get(channel_key)
+        if channel_model is None:
+            print(f"⚠️  信道模型 {channel_key} 不存在，使用默认")
             default_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
             channel_model = self.channel_models.get(default_key)
         
-        try:
-            from data_generator_refactored import SRSDataGenerator
-            generator = SRSDataGenerator(
-                config=self.signal_gen_params['srs_config'],
-                channel_model=channel_model,
-                num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
-                sampling_rate=self.signal_gen_params['sampling_rate'],
-                device=self.signal_gen_params['device']
-            )
-            
-            # 缓存新创建的生成器
-            self.data_generators[snr_key] = generator
-            print(f"✅ 动态生成器创建并缓存: {snr_key} (SNR范围: {self.srs_config.snr_range}) (using_channel={generator.using_channel})")
-            
-            return generator
-            
-        except Exception as e:
-            print(f"❌ 动态生成器创建失败: {e}")
-            raise RuntimeError(f"无法获取数据生成器: {e}")
+        from data_generator_refactored import SRSDataGenerator
+        generator = SRSDataGenerator(
+            config=self.signal_gen_params['srs_config'],
+            channel_model=channel_model,
+            num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
+            sampling_rate=self.signal_gen_params['sampling_rate'],
+            device=self.signal_gen_params['device']
+        )
+        
+        # 缓存新创建的生成器
+        self.data_generators[snr_key] = generator
+        
+        return generator
+
     
     def get_channel_model(self, model_type="TDL-A", delay_spread=None):
         """
@@ -452,34 +424,21 @@ class SRSTrainerModified:
         channel_key = f"{model_type}_{delay_spread*1e9:.0f}ns"
         
         if channel_key in self.channel_models and self.channel_models[channel_key] is not None:
-            print(f"🎯 使用预创建的信道模型: {channel_key}")
             return self.channel_models[channel_key]
         
-        # 动态创建
-        print(f"🔄 动态创建信道模型: {channel_key}")
+        channel_model = SIONNAChannelModel(
+            system_config=self.system_config,
+            model_type=model_type,
+            num_rx_antennas=self.system_config.num_rx_antennas,
+            delay_spread=delay_spread,
+            device=self.channel_params['device']
+        )
         
-        if not PROFESSIONAL_CHANNELS_AVAILABLE:
-            print("❌ 专业信道库不可用")
-            return None
+        # 缓存新创建的信道模型
+        self.channel_models[channel_key] = channel_model
         
-        try:
-            channel_model = SIONNAChannelModel(
-                system_config=self.system_config,
-                model_type=model_type,
-                num_rx_antennas=self.system_config.num_rx_antennas,
-                delay_spread=delay_spread,
-                device=self.channel_params['device']
-            )
+        return channel_model
             
-            # 缓存新创建的信道模型
-            self.channel_models[channel_key] = channel_model
-            print(f"✅ 动态信道模型创建并缓存: {channel_key}")
-            
-            return channel_model
-            
-        except Exception as e:
-            print(f"❌ 动态信道模型创建失败: {e}")
-            return None
             
     def generate_batch_with_dynamic_channel(self, batch_size: int, enable_debug: bool = False, channel_config=None):
         """
