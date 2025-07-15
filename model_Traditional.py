@@ -8,8 +8,29 @@ class SRSChannelEstimator(nn.Module):
     """
     SRS Channel Estimator using AI-enhanced methods
     
-    This module implements the SRS channel estimation process as described,
-    with flexibility to incorporate AI-based components for improved estimation.
+    ⚠️  IMPORTANT ARCHITECTURAL CHANGE ⚠️
+    
+    This module has been refactored to ONLY support MLP-based MMSE filtering.
+    All traditional C/R matrix calculation methods have been marked as OBSOLETE.
+    
+    CURRENT MMSE APPROACH:
+    - Uses TrainableMMSEModule (MLP-based) for C and R matrix generation
+    - C and R matrices are learned through neural networks with proper initialization
+    - Traditional exponential decay and diagonal noise models are deprecated
+    
+    OBSOLETE METHODS (marked with warnings):
+    - _get_block_C_matrix: replaced by TrainableMMSEModule
+    - _get_block_R_matrix: replaced by TrainableMMSEModule  
+    - _get_C_matrix: replaced by TrainableMMSEModule
+    - _get_R_matrix: replaced by TrainableMMSEModule
+    - _apply_mmse_filter: use _apply_mmse_filter_batch instead
+    
+    This module implements the complete SRS channel estimation process:
+    1. LS estimation from received signals
+    2. OCC demultiplexing and interpolation  
+    3. Global residual calculation and application
+    4. MLP-based MMSE filtering (NEW: only supported method)
+    5. Timing offset estimation and recovery
     """
     def __init__(
         self,
@@ -60,6 +81,7 @@ class SRSChannelEstimator(nn.Module):
     ) -> Dict[Tuple[int, int], torch.Tensor]:
         """
         Forward pass through the channel estimation process - 原生支持多用户多端口多天线批处理
+        包含完整的残差计算逻辑，在所有用户/端口处理后进行全局残差计算
         
         Args:
             ls_estimates_dict: LS信道估计字典 Dict[(user_id, port_id), torch.Tensor]
@@ -75,13 +97,16 @@ class SRSChannelEstimator(nn.Module):
         # 从用户配置获取循环移位信息
         cyclic_shifts = user_config.cyclic_shifts
         
-        # 初始化返回字典
-        channel_estimates_dict = {}
+        # 第一阶段：预处理所有用户/端口，计算基本信道估计和时序偏移
+        preprocessed_data = {}
+        batch_size = None
         
-        # 批处理处理每个用户端口
         for (user_id, port_id), ls_estimates in ls_estimates_dict.items():
             # 验证输入形状: [batch_size, num_rx_ant, seq_length]
-            batch_size, num_rx_ant, seq_length = ls_estimates.shape
+            current_batch_size, num_rx_ant, seq_length = ls_estimates.shape
+            if batch_size is None:
+                batch_size = current_batch_size
+            assert current_batch_size == batch_size, "All LS estimates must have same batch size"
             assert seq_length == self.seq_length, f"Expected sequence length {self.seq_length}, got {seq_length}"
             
             # 获取该端口的循环移位
@@ -123,29 +148,71 @@ class SRSChannelEstimator(nn.Module):
                 # 线性插值回完整长度 [batch_size, num_rx_ant, seq_length]
                 h_interpolated = self._linear_interpolation_batch(h_avg, self.seq_length)
                 
-                # 保存相位校正后的信道信息（用于MMSE）
-                h_with_residual = h_interpolated  # 简化版本，不计算全局残差
-                phasor_T_expanded = torch.conj(phasors_T).unsqueeze(1)  # [batch_size, 1, seq_length]
-                self.current_h_with_residual_phasors[(user_id, port_id)] = h_with_residual * phasor_T_expanded
+                # 保存预处理结果
+                preprocessed_data[(user_id, port_id)] = {
+                    'ls_estimates': ls_estimates,
+                    'h_interpolated': h_interpolated,
+                    'timing_offsets': timing_offsets,
+                    'phasors_m': phasors_m,
+                    'phasors_T': phasors_T,
+                    'n_u_p': n_u_p
+                }
+        
+        # 第二阶段：计算全局残差
+        # 重建所有用户的信号（包含时延信息）并求和得到全局残差
+        total_reconstructed_signal = torch.zeros(batch_size, num_rx_ant, self.seq_length, 
+                                               dtype=torch.complex64, device=self.device)
+        
+        for (user_id, port_id), data in preprocessed_data.items():
+            h_interpolated = data['h_interpolated']
+            timing_offsets = data['timing_offsets']
+            phasors_T = data['phasors_T']
+            phasors_m = data['phasors_m']
+            # 恢复时延信息 (加回timing offset)
+            h_with_timing = h_interpolated * torch.conj(phasors_m).unsqueeze(1)
+            
+            # 累加到总重建信号
+            total_reconstructed_signal += h_with_timing
+        
+        # 计算全局残差：原始LS总和 - 重建信号总和
+        global_residual = ls_estimates_dict[(0,0)] - total_reconstructed_signal
+        
+        # 第三阶段：应用残差校正、MMSE滤波并生成最终估计
+        channel_estimates_dict = {}
+        
+        for (user_id, port_id), data in preprocessed_data.items():
+            h_interpolated = data['h_interpolated']
+            timing_offsets = data['timing_offsets']
+            phasors_T = data['phasors_T']
+            phasors_m = data['phasors_m']
+            ls_estimates = data['ls_estimates']
+            
+            # 将全局残差添加到当前用户的插值信道估计
+            h_with_residual = h_interpolated + global_residual * phasors_m.unsqueeze(1)
+            
+            # 保存用于MMSE的信道信息
+            self.current_h_with_residual_phasors[(user_id, port_id)] = h_with_residual
             
             # 如果存在MMSE模块，使用它生成MMSE矩阵 (暂时处理第一个样本)
             if self.mmse_module is not None:
                 C, R = self.mmse_module(h_with_residual[0, 0, :])  # 使用第一个样本第一个天线
                 self.set_mmse_matrices(C=C, R=R, user_port=(user_id, port_id))
             
-            # 批处理应用MMSE滤波
+            # 批处理估计噪声功率
             if noise_powers is None:
-                # 批处理估计噪声功率 [batch_size]
                 noise_powers_estimated = self._estimate_noise_power_batch(ls_estimates)
             else:
                 noise_powers_estimated = noise_powers
             
-            # 批处理MMSE滤波 [batch_size, num_rx_ant, seq_length]
-            final_estimates = self._apply_mmse_filter_batch(
+            # 批处理应用MMSE滤波到对齐后的信道
+            h_mmse_aligned = self._apply_mmse_filter_batch(
                 h_with_residual, 
                 noise_powers_estimated,
                 user_port=(user_id, port_id)
             )
+            
+            # 恢复时延信息作为最终输出 (乘以conj(phasors_T))
+            final_estimates = h_mmse_aligned * torch.conj(phasors_T).unsqueeze(1)
             
             channel_estimates_dict[(user_id, port_id)] = final_estimates
         
@@ -269,7 +336,10 @@ class SRSChannelEstimator(nn.Module):
     
     def _apply_mmse_filter_batch(self, h: torch.Tensor, noise_powers: torch.Tensor, user_port: Tuple[int, int] = None) -> torch.Tensor:
         """
-        批处理应用MMSE滤波
+        批处理应用MMSE滤波 - 只支持 MLP 方法
+        
+        传统的 C/R 矩阵计算方法已废弃。现在只使用基于 MLP 的 TrainableMMSEModule。
+        如果没有提供 mmse_module，将返回原始输入不做任何滤波。
         
         Args:
             h: 输入信道估计 [batch_size, num_rx_ant, seq_length]
@@ -279,6 +349,11 @@ class SRSChannelEstimator(nn.Module):
         Returns:
             h_mmse: MMSE滤波后的信道估计 [batch_size, num_rx_ant, seq_length]
         """
+        if self.mmse_module is None:
+            # 如果没有 MLP MMSE 模块，直接返回原始输入
+            print("WARNING: No trainable MMSE module provided. Returning unfiltered channel estimates.")
+            return h
+            
         batch_size, num_rx_ant, L = h.shape
         block_size = self.mmse_block_size
         
@@ -300,17 +375,14 @@ class SRSChannelEstimator(nn.Module):
             # 提取块 [batch_size, num_rx_ant, current_block_size]
             h_block = h[..., start_idx:end_idx]
             
-            # 获取MMSE矩阵
-            C_block = self._get_block_C_matrix(current_block_size, user_port)
+            # 从 MLP 获取 MMSE 矩阵
+            C_block = self._get_block_C_matrix(user_port)
+            R_block = self._get_block_R_matrix(user_port)
             
             # 批处理应用MMSE
             for b in range(batch_size):
-                noise_power = noise_powers[b].item()
-                R_block = self._get_block_R_matrix(noise_power, current_block_size, user_port)
-                
-                # MMSE滤波器
                 mmse_filter = C_block @ torch.inverse(C_block + R_block)
-                
+
                 for a in range(num_rx_ant):
                     h_vec = h_block[b, a, :].reshape(-1, 1)  # [current_block_size, 1]
                     h_filtered = mmse_filter @ h_vec
@@ -465,10 +537,13 @@ class SRSChannelEstimator(nn.Module):
         
     def _apply_mmse_filter(self, h: torch.Tensor, noise_power: float, user_port: Tuple[int, int] = None) -> torch.Tensor:
         """
-        Apply MMSE filtering in blocks: h_mmse = C * (C + R)^-1 * h
+        [OBSOLETE] Apply MMSE filtering in blocks - LEGACY METHOD
         
-        Process the channel in blocks of size mmse_block_size to improve efficiency.
-        Each block is filtered separately with a smaller MMSE matrix.
+        ⚠️  This method is OBSOLETE and should not be used. 
+        Use the batch version with MLP-based MMSE module instead.
+        
+        Traditional C/R matrix calculation methods have been deprecated in favor of 
+        the TrainableMMSEModule (MLP-based) approach.
         
         Args:
             h: Input channel estimate
@@ -476,148 +551,53 @@ class SRSChannelEstimator(nn.Module):
             user_port: Optional tuple of (user_idx, port_idx) to use specific matrices
             
         Returns:
-            MMSE filtered channel estimate
+            MMSE filtered channel estimate (or unfiltered if no MLP module)
         """
-        # Get sequence length and block size
-        L = self.seq_length
-        block_size = self.mmse_block_size
+        print("WARNING: _apply_mmse_filter is OBSOLETE. Use _apply_mmse_filter_batch with MLP MMSE module.")
         
-        # Create output tensor
-        h_mmse = torch.zeros_like(h)
-        
-        # Process each block separately
-        num_blocks = (L + block_size - 1) // block_size  # Ceiling division
-        
-        for i in range(num_blocks):
-            # Calculate block indices with proper handling of the last block
-            start_idx = i * block_size
-            end_idx = min((i + 1) * block_size, L)
-            current_block_size = end_idx - start_idx
+        if self.mmse_module is None:
+            return h  # Return unfiltered if no MLP module
             
-            if current_block_size < 2:  # Skip processing for very small blocks
-                h_mmse[start_idx:end_idx] = h[start_idx:end_idx]
-                continue
-            
-            # Extract block
-            h_block = h[start_idx:end_idx]
-              # Get block-specific MMSE matrices - use user_port specific if provided
-            C_block = self._get_block_C_matrix(current_block_size, user_port)
-            R_block = self._get_block_R_matrix(noise_power, current_block_size, user_port)
-            
-            # Apply MMSE filter to block
-            h_block_vec = h_block.reshape(-1, 1)  # Convert to column vector
-            
-            # MMSE formula: C * (C + R)^-1 * h
-            mmse_filter = C_block @ torch.inverse(C_block + R_block)
-            h_block_mmse = mmse_filter @ h_block_vec
-            
-            # Store filtered block in output
-            h_mmse[start_idx:end_idx] = h_block_mmse.reshape(-1)
-        return h_mmse
+        # For single sample, convert to batch and call batch version
+        h_batch = h.unsqueeze(0)  # Add batch dimension
+        noise_powers = torch.tensor([noise_power], device=h.device)
         
-    def _get_block_C_matrix(self, block_size: int, user_port: Tuple[int, int] = None) -> torch.Tensor:
-        """
-        Get channel correlation matrix C for a specific block size
+        h_mmse_batch = self._apply_mmse_filter_batch(h_batch, noise_powers, user_port)
+        return h_mmse_batch.squeeze(0)  # Remove batch dimension
         
-        Args:
-            block_size: Size of the block to process
-            user_port: Optional tuple of (user_idx, port_idx) for user/port specific matrices
-            
-        Returns:
-            C matrix for MMSE filtering of the specified block
-        """
-        # Check if we have a user-specific matrix
-        if user_port is not None and hasattr(self, 'C_matrices') and user_port in self.C_matrices:
-            user_matrix = self.C_matrices[user_port]
-            # Check if dimensions match
-            if user_matrix.shape[0] == block_size:
-                return user_matrix
+    def _get_block_C_matrix(self, user_port: Tuple[int, int] = None) -> torch.Tensor:
+        return self.C_matrices[user_port]
         
-        # If not, try the global matrix
-        if self.C_matrix is not None:
-            # Check if dimensions match
-            if self.C_matrix.shape[0] == block_size:
-                return self.C_matrix
-            else:
-                # We have a matrix but with different dimensions
-                # For now, fallback to traditional method
-                pass
-        
-        # Fallback to traditional method: construct based on exponential decay model for this block
-        C = torch.zeros((block_size, block_size), dtype=torch.complex64, device=self.device)
-        
-        # Exponential power delay profile
-        tau = 0.1  # Time constant
-        for i in range(block_size):
-            for j in range(block_size):
-                delay_diff = abs(i - j)                # Convert scalar to tensor before using torch.exp
-                exponent = torch.tensor(-delay_diff / (tau * block_size), device=self.device)
-                C[i, j] = torch.exp(exponent)
-        
-        return C
-        
-    def _get_block_R_matrix(self, noise_power: float, block_size: int, user_port: Tuple[int, int] = None) -> torch.Tensor:
-        """
-        Get noise correlation matrix R for a specific block size
-        
-        Args:
-            noise_power: Estimated noise power
-            block_size: Size of the block to process
-            user_port: Optional tuple of (user_idx, port_idx) for user/port specific matrices
-            
-        Returns:
-            R matrix for MMSE filtering of the specified block
-        """
-        # Check if we have a user-specific matrix
-        if user_port is not None and hasattr(self, 'R_matrices') and user_port in self.R_matrices:
-            user_matrix = self.R_matrices[user_port]
-            # Check if dimensions match
-            if user_matrix.shape[0] == block_size:
-                return user_matrix
-        
-        # If not, try the global matrix
-        if self.R_matrix is not None:
-            # Check if dimensions match
-            if self.R_matrix.shape[0] == block_size:
-                return self.R_matrix
-            else:
-                # We have a matrix but with different dimensions
-                # For now, fallback to traditional method
-                pass
-                
-        # Fallback to traditional method: diagonal matrix with noise power
-        R = torch.eye(block_size, device=self.device) * noise_power
-        return R
+    def _get_block_R_matrix(self, user_port: Tuple[int, int] = None) -> torch.Tensor:
+        return self.R_matrices[user_port]
+
     
     def _get_C_matrix(self) -> torch.Tensor:
         """
-        Get channel correlation matrix C for the entire sequence
-        (This method is kept for compatibility but blocks should use _get_block_C_matrix)
+        [OBSOLETE] Get channel correlation matrix C for the entire sequence - LEGACY METHOD
+        
+        ⚠️  This method is OBSOLETE and should not be used.
+        Traditional C/R matrix calculation methods have been deprecated in favor of 
+        the TrainableMMSEModule (MLP-based) approach.
         
         Returns:
             C matrix for MMSE filtering
         """
+        print("WARNING: _get_C_matrix is OBSOLETE. Use TrainableMMSEModule instead.")
+        
         if self.C_matrix is not None:
             return self.C_matrix
         else:
-            # Traditional method: construct based on exponential decay model
+            # Fallback: return identity matrix instead of exponential model
             L = self.seq_length
-            C = torch.zeros((L, L), dtype=torch.complex64, device=self.device)
-            
-            # Exponential power delay profile
-            tau = 0.1  # Time constant
-            for i in range(L):
-                for j in range(L):
-                    delay_diff = abs(i - j)
-                    # Convert scalar to tensor before using torch.exp
-                    exponent = torch.tensor(-delay_diff / (tau * L), device=self.device)
-                    C[i, j] = torch.exp(exponent)
-            
-            return C
+            return torch.eye(L, dtype=torch.complex64, device=self.device)
     def _get_R_matrix(self, noise_power: float) -> torch.Tensor:
         """
-        Get noise correlation matrix R for the entire sequence
-        (This method is kept for compatibility but blocks should use _get_block_R_matrix)
+        [OBSOLETE] Get noise correlation matrix R for the entire sequence - LEGACY METHOD
+        
+        ⚠️  This method is OBSOLETE and should not be used.
+        Traditional C/R matrix calculation methods have been deprecated in favor of 
+        the TrainableMMSEModule (MLP-based) approach.
         
         Args:
             noise_power: Estimated noise power
@@ -625,21 +605,26 @@ class SRSChannelEstimator(nn.Module):
         Returns:
             R matrix for MMSE filtering
         """
+        print("WARNING: _get_R_matrix is OBSOLETE. Use TrainableMMSEModule instead.")
+        
         if self.R_matrix is not None:
             return self.R_matrix
         else:
-            # Traditional method: diagonal matrix with noise power
+            # Fallback: diagonal matrix with noise power
             L = self.seq_length
             R = torch.eye(L, device=self.device) * noise_power
             return R
             
     def set_mmse_matrices(self, C: torch.Tensor = None, R: torch.Tensor = None, user_port: Tuple[int, int] = None):
         """
-        Set custom MMSE filter matrices
+        Set MMSE filter matrices generated by the MLP-based TrainableMMSEModule
+        
+        This method is used to store the C and R matrices generated by the TrainableMMSEModule.
+        It should NOT be used to set manually calculated matrices using traditional methods.
         
         Args:
-            C: Channel correlation matrix
-            R: Noise correlation matrix
+            C: Channel correlation matrix from MLP
+            R: Noise correlation matrix from MLP  
             user_port: Optional tuple of (user_idx, port_idx) for user/port specific matrices
         """
         if user_port is not None:
@@ -649,7 +634,7 @@ class SRSChannelEstimator(nn.Module):
             if not hasattr(self, 'R_matrices'):
                 self.R_matrices = {}
             
-            # Store matrices for this specific user/port
+            # Store matrices for this specific user/port (from MLP)
             if C is not None:
                 self.C_matrices[user_port] = C
             if R is not None:

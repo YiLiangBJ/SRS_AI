@@ -17,7 +17,10 @@ class TrainableMMSEModule(nn.Module):
     """
     def __init__(self, seq_length: int, mmse_block_size: int = 12, hidden_dim: int = 64, use_complex_input: bool = False):
         """
-        Initialize the trainable MMSE module with Cholesky factor construction
+        Initialize the trainable MMSE module with Cholesky factor construction.
+        
+        This is the ONLY supported MMSE method. All traditional C/R calculation methods 
+        are obsolete and have been removed in favor of this MLP-based approach.
         
         Args:
             seq_length: Length of sequence (L)
@@ -49,6 +52,7 @@ class TrainableMMSEModule(nn.Module):
         c_matrix_size = real_params + imag_params
         r_matrix_size = real_params + imag_params
           # Networks to generate Cholesky factors (L matrices) for C and R
+        # Initialize with Xavier/Glorot initialization for better random initialization
         self.C_factor_generator = nn.Sequential(
             nn.Linear(input_dim, hidden_dim * 2),  # 增加神经元数量
             nn.LayerNorm(hidden_dim * 2),         # 添加批标准化
@@ -75,8 +79,26 @@ class TrainableMMSEModule(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(hidden_dim * 2, hidden_dim),
             nn.LeakyReLU(0.1),
-            nn.Linear(hidden_dim, c_matrix_size)
+            nn.Linear(hidden_dim, r_matrix_size)
         )
+        
+        # Apply Xavier initialization for better random initial values
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        """
+        Initialize network weights with Xavier/Glorot initialization for better randomness.
+        This ensures that the initial MMSE matrices have reasonable random values.
+        """
+        for module in [self.C_factor_generator, self.R_factor_generator]:
+            for layer in module:
+                if isinstance(layer, nn.Linear):
+                    # Xavier initialization for linear layers
+                    nn.init.xavier_uniform_(layer.weight)
+                    if layer.bias is not None:
+                        # Small random bias initialization
+                        nn.init.uniform_(layer.bias, -0.1, 0.1)
+    
     def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:        
         """
         Generate C and R matrices for specified block size using Cholesky factor construction
