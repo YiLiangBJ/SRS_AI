@@ -252,7 +252,7 @@ def create_example_config() -> SRSConfig:
         ktc=4,  # K=12
         cyclic_shifts=[
             [0, 6],
-            [3]  # User 0: 1个端口，循环移位为0
+            [3, 9]  # User 0: 1个端口，循环移位为0
         ],
         snr_range=(30.0, 30.0),  # SNR range: 20-30 dB (random)
         timing_offset_range=(-130e-9, 130e-9),  # Timing offset: -130ns to 130ns (random)
