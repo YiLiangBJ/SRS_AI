@@ -504,7 +504,8 @@ class SRSTrainerModified:
             # 批处理化计算损失和NMSE
             batch_loss, batch_nmse, batch_sample_count = self.compute_batch_loss_and_nmse(
                 estimated_channels_dict, 
-                true_channels_dict
+                true_channels_dict,
+                is_training=True  # 训练模式
             )
             
             # 反向传播和优化
@@ -590,7 +591,8 @@ class SRSTrainerModified:
                 # 批处理化计算损失和NMSE
                 batch_loss, batch_nmse, batch_sample_count = self.compute_batch_loss_and_nmse(
                     estimated_channels_dict, 
-                    true_channels_dict
+                    true_channels_dict,
+                    is_training=False  # 验证模式
                 )
                 
                 # Update totals
@@ -848,7 +850,8 @@ class SRSTrainerModified:
     
     def compute_batch_loss_and_nmse(self, 
                                     estimated_channels_list: List[Dict[Tuple[int, int], torch.Tensor]],
-                                    true_channels_list: List[Dict[Tuple[int, int], torch.Tensor]]
+                                    true_channels_list: List[Dict[Tuple[int, int], torch.Tensor]],
+                                    is_training: bool = True
                                     ) -> Tuple[torch.Tensor, float, int]:
         """
         批处理化的损失和NMSE计算 - 适配列表格式
@@ -858,11 +861,16 @@ class SRSTrainerModified:
                                    每个tensor形状: [num_rx_ant, seq_length]
             true_channels_list: 真实信道列表，长度为batch_size，每个元素是Dict[(user_id, port_id), tensor]
                                每个tensor形状: [num_rx_ant, seq_length]
+            is_training: 是否在训练模式（验证时不检查梯度）
         
         Returns:
             Tuple[总损失标量, 总NMSE, 样本数量]
         """
-        total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        if is_training:
+            total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        else:
+            total_loss = torch.tensor(0.0, device=self.device, requires_grad=False)
+        
         total_nmse = 0.0
         sample_count = 0
         
@@ -881,8 +889,8 @@ class SRSTrainerModified:
                 est_channels = est_dict[user_port_key]      # [num_rx_ant, seq_length]
                 true_channels = true_dict[user_port_key]    # [num_rx_ant, seq_length]
                 
-                # 验证估计信道需要梯度
-                if not est_channels.requires_grad:
+                # 只在训练时检查梯度
+                if is_training and not est_channels.requires_grad:
                     print(f"警告：估计的信道在batch {batch_idx} 用户端口 {user_port_key} 不需要梯度")
                     continue
                 
