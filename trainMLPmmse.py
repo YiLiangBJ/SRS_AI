@@ -583,7 +583,7 @@ class SRSTrainerModified:
                 
                 # 一次性处理整个批次的所有用户端口
                 estimated_channels_dict = self.srs_estimator(
-                    ls_estimates_dict=ls_estimates_dict,
+                    ls_estimates=ls_estimates_dict,
                     user_config=self.srs_config
                 )
                 
