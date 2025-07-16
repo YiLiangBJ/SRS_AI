@@ -74,77 +74,74 @@ class SRSChannelEstimator(nn.Module):
 
     def forward(
         self, 
-        ls_estimates_dict: List[Dict[Tuple[int, int], torch.Tensor]],  # 修改类型注解
+        ls_estimates: List[torch.Tensor],  # 修改类型注解
         user_config,
-        delay_search_range: Tuple[int, int] = (-10, 10)) -> List[Dict[Tuple[int, int], torch.Tensor]]:  # 修改返回类型
+        true_channels_dict: Optional[List[Dict[Tuple[int, int],torch.tensor]]] = None, # Debug purpose
+        delay_search_range: Tuple[int, int] = (-30, 30)) -> List[Dict[Tuple[int, int], torch.Tensor]]:  # 修改返回类型
 
         # 从用户配置获取循环移位信息
         cyclic_shifts = user_config.cyclic_shifts
-        batch_size = len(ls_estimates_dict)
+        batch_size = len(ls_estimates)
         
         # 初始化结果列表
         channel_estimates_list = []
         
         # 遍历每个batch样本
         for batch_idx in range(batch_size):
-            sample_ls_estimates = ls_estimates_dict[batch_idx]  # 当前样本的字典
+            sample_ls_estimates = ls_estimates[batch_idx]  # 当前样本的张量
+            num_rx_ant, seq_length = sample_ls_estimates.shape
+
             sample_channel_estimates = {}  # 当前样本的结果
             
             # 第一阶段：预处理当前样本的所有用户/端口
             preprocessed_data = {}
-            
-            # 遍历当前样本的每个(user_id, port_id)
-            for (user_id, port_id), ls_estimates in sample_ls_estimates.items():
-                # 验证输入形状: [num_rx_ant, seq_length]
-                num_rx_ant, seq_length = ls_estimates.shape
-                assert seq_length == self.seq_length, f"Expected sequence length {self.seq_length}, got {seq_length}"
+            # 转换到时域 [num_rx_ant, seq_length]
+            h_time = torch.fft.ifft(sample_ls_estimates, dim=-1)
+            # 计算所有天线的功率和 [seq_length]
+            h_power_sum = torch.sum(torch.abs(h_time)**2, dim=0)
+            # 从用户配置中获取所有(user_id, port_id)组合
+            for user_id in range(user_config.num_users):
+                for port_id in range(user_config.ports_per_user[user_id]):
+
+                    # 获取该端口的循环移位
+                    n_u_p = cyclic_shifts[user_id][port_id]
+                    
+                    # 计算理想峰值位置
+                    ideal_peak = (self.K - n_u_p) % self.K * self.seq_length // self.K
+
+                    # 估计时间偏移
+                    with torch.no_grad():
+                        # 估计timing offset
+                        timing_offset = self._estimate_timing_offset(
+                            h_power_sum, ideal_peak, delay_search_range
+                        )
+                        
+                        # 计算循环移位量
+                        m_value = timing_offset + ideal_peak
+                        
+                        # 生成相位因子 [seq_length]
+                        phasor_m = self._generate_phasor(m_value)
+                        phasor_T = self._generate_phasor(timing_offset)
+                        
+                        # 移位信道以将峰值对齐到位置0 [num_rx_ant, seq_length]
+                        h_shifted = sample_ls_estimates * phasor_m.unsqueeze(0)  # 广播到天线维度
+                        
+                        # 应用OCC去复用 [num_rx_ant, seq_length//Locc]
+                        Locc = self._compute_locc([[n_u_p]])
+                        h_avg = self._apply_occ_demux_single(h_shifted, Locc)
+                        
+                        # 线性插值回完整长度 [num_rx_ant, seq_length]
+                        h_interpolated = self._linear_interpolation_single(h_avg, self.seq_length)
+                        
+                        # 保存预处理结果
+                        preprocessed_data[(user_id, port_id)] = {
+                            'h_interpolated': h_interpolated,
+                            'timing_offset': timing_offset,
+                            'phasor_m': phasor_m,
+                            'phasor_T': phasor_T,
+                            'n_u_p': n_u_p
+                        }
                 
-                # 获取该端口的循环移位
-                n_u_p = cyclic_shifts[user_id][port_id]
-                
-                # 计算理想峰值位置
-                ideal_peak = (self.K - n_u_p) % self.K * self.seq_length // self.K
-                
-                # 转换到时域 [num_rx_ant, seq_length]
-                h_time = torch.fft.ifft(ls_estimates, dim=-1)
-                
-                # 估计时间偏移
-                with torch.no_grad():
-                    # 计算所有天线的功率和 [seq_length]
-                    h_power_sum = torch.sum(torch.abs(h_time)**2, dim=0)
-                    
-                    # 估计timing offset
-                    timing_offset = self._estimate_timing_offset(
-                        h_power_sum, ideal_peak, delay_search_range
-                    )
-                    
-                    # 计算循环移位量
-                    m_value = timing_offset + ideal_peak
-                    
-                    # 生成相位因子 [seq_length]
-                    phasor_m = self._generate_phasor(m_value)
-                    phasor_T = self._generate_phasor(timing_offset)
-                    
-                    # 移位信道以将峰值对齐到位置0 [num_rx_ant, seq_length]
-                    h_shifted = ls_estimates * phasor_m.unsqueeze(0)  # 广播到天线维度
-                    
-                    # 应用OCC去复用 [num_rx_ant, seq_length//Locc]
-                    Locc = self._compute_locc([[n_u_p]])
-                    h_avg = self._apply_occ_demux_single(h_shifted, Locc)
-                    
-                    # 线性插值回完整长度 [num_rx_ant, seq_length]
-                    h_interpolated = self._linear_interpolation_single(h_avg, self.seq_length)
-                    
-                    # 保存预处理结果
-                    preprocessed_data[(user_id, port_id)] = {
-                        'ls_estimates': ls_estimates,
-                        'h_interpolated': h_interpolated,
-                        'timing_offset': timing_offset,
-                        'phasor_m': phasor_m,
-                        'phasor_T': phasor_T,
-                        'n_u_p': n_u_p
-                    }
-            
             # 第二阶段：计算当前样本的全局残差
             total_reconstructed_signal = torch.zeros(num_rx_ant, self.seq_length, 
                                                 dtype=torch.complex64, device=self.device)
@@ -157,8 +154,7 @@ class SRSChannelEstimator(nn.Module):
                 total_reconstructed_signal += h_with_timing
             
             # 计算全局残差
-            first_key = next(iter(sample_ls_estimates.keys()))
-            global_residual = sample_ls_estimates[first_key] - total_reconstructed_signal
+            global_residual = sample_ls_estimates - total_reconstructed_signal
             
             # 第三阶段：应用残差校正和MMSE滤波
             for (user_id, port_id), data in preprocessed_data.items():
@@ -169,10 +165,15 @@ class SRSChannelEstimator(nn.Module):
                 # 添加全局残差
                 h_with_residual = h_interpolated + global_residual * phasor_m.unsqueeze(0)
                 
-                # MMSE滤波
-                if self.mmse_module is not None:
-                    C, R = self.mmse_module(h_with_residual[0, :])  # 使用第一个天线
-                    self.set_mmse_matrices(C=C, R=R, user_port=(user_id, port_id))
+                # MMSE滤波 - 使用能量最大的天线来计算C和R矩阵
+                # 计算每个天线的总能量 [num_rx_ant]
+                antenna_energies = torch.sum(torch.abs(h_with_residual)**2, dim=1)  # [num_rx_ant]
+                # 找到能量最大的天线索引
+                max_energy_antenna_idx = torch.argmax(antenna_energies).item()
+                # 使用能量最大的天线计算C和R
+                reference_antenna_signal = h_with_residual[max_energy_antenna_idx, :]  # [seq_length]
+                C, R = self.mmse_module(reference_antenna_signal)
+                self.set_mmse_matrices(C=C, R=R, user_port=(user_id, port_id))
                 
                 h_mmse_aligned = self._apply_mmse_filter_single(h_with_residual, user_port=(user_id, port_id))
                 

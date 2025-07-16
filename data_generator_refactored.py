@@ -543,32 +543,22 @@ class SRSDataGenerator:
         data_sample['freq_channels'] = freq_channels
         
         # LS信道估计 - 按用户端口组织为字典
-        ls_estimates_dict = {}
+        # ls_estimates_dict = {}
         true_channels_dict = {}
         
         # 直接从配置获取用户端口信息
-        sequences = data_sample['sequences']
-        
+        base_seq = self.base_generator.base_seq
+        ls_estimates = rx_signals[:, data_sample['mapping_indices']] / base_seq.unsqueeze(0)
+
         # 按配置顺序遍历所有用户和端口
         for user_id in range(self.base_generator.config.num_users):
             num_ports = self.base_generator.config.ports_per_user[user_id]
-            
             for port_id in range(num_ports):
-                # 获取该端口的发送序列
-                tx_sequence = sequences[(user_id, port_id)]  # [seq_length]
-                
-                # LS估计：接收信号除以发送序列
-                ls_estimate = rx_signals[:, data_sample['mapping_indices']] / tx_sequence.unsqueeze(0)  # [num_rx_ant, num_subcarriers]
-                ls_estimates_dict[(user_id, port_id)] = ls_estimate
-                
-                # 从对应用户的频域信道中提取该端口的真实信道
-                user_freq_channels = freq_channels[user_id]  # [num_rx_ant, user_ports, num_subcarriers]
-                true_channel = user_freq_channels[:, port_id, data_sample['mapping_indices']]  # [num_rx_ant, num_subcarriers]
-                true_channels_dict[(user_id, port_id)] = true_channel
+                true_channels_dict[(user_id, port_id)] = freq_channels[user_id][:, port_id, data_sample['mapping_indices']]
                 
 
         batch = {}
-        batch['ls_estimates'] = ls_estimates_dict  # Dict[(user_id, port_id), tensor]
+        batch['ls_estimates'] = ls_estimates  
         batch['true_channels'] = true_channels_dict  # Dict[(user_id, port_id), tensor]
 
         return batch

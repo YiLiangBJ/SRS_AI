@@ -488,7 +488,7 @@ class SRSTrainerModified:
                 )
 
             # Get batch data - 现在是列表形式
-            ls_estimates_dict = batch['ls_estimates']
+            ls_estimates = batch['ls_estimates']
             true_channels_dict = batch['true_channels']
             
             # Clear gradients
@@ -496,8 +496,9 @@ class SRSTrainerModified:
             
             # 一次性处理整个批次的所有用户端口
             estimated_channels_dict = self.srs_estimator(
-                ls_estimates_dict=ls_estimates_dict,
+                ls_estimates=ls_estimates,
                 user_config=self.srs_config,
+                true_channels_dict=true_channels_dict # for debug purpose
             )
             
             # 批处理化计算损失和NMSE
