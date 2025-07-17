@@ -932,14 +932,14 @@ def main():
     parser.add_argument('--load_checkpoint', type=str, default='', help='Load checkpoint file')
     
     # Channel model arguments
-    parser.add_argument('--channel_model', type=str, default='TDL-A', 
+    parser.add_argument('--channel_model', type=str, default='TDL-C', 
                        choices=['TDL-A', 'TDL-B', 'TDL-C', 'TDL-D', 'TDL-E'],
                        help='Channel model type')
     parser.add_argument('--use_sionna', action='store_true', default=True,
                        help='Use SIONNA professional channel models (default: True)')
     parser.add_argument('--use_custom_channels', action='store_true',
                        help='Force use of custom channel implementation')
-    parser.add_argument('--delay_spread', type=float, default=None,
+    parser.add_argument('--delay_spread', type=float, default=300e-9,
                        help='Channel delay spread in seconds (default: use system config)')
     parser.add_argument('--carrier_frequency', type=float, default=3.5e9,
                        help='Carrier frequency in Hz')

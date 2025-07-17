@@ -77,12 +77,15 @@ class SRSEvaluator:
         print(f"Loading checkpoint from {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         
-        # Load model state
-        self.srs_estimator.load_state_dict(checkpoint['model_state_dict'])
+        # SRSChannelEstimator doesn't have trainable parameters, only load MMSE module
+        # self.srs_estimator.load_state_dict(checkpoint['model_state_dict'])  # Not needed
         
         # Load MMSE module state if available
         if self.mmse_module and 'mmse_state_dict' in checkpoint:
             self.mmse_module.load_state_dict(checkpoint['mmse_state_dict'])
+            print("✅ Loaded trainable MMSE module parameters")
+        else:
+            print("⚠️  No trainable MMSE parameters to load")
     
     def evaluate_model(
         self,
@@ -289,7 +292,7 @@ def main():
     """Main function"""
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Evaluate SRS Channel Estimator Performance")
-    parser.add_argument('--checkpoint', type=str, default='best_model.pt', help='Path to model checkpoint')
+    parser.add_argument('--checkpoint', type=str, default='best_model_tdlc.pt', help='Path to model checkpoint')
     parser.add_argument('--channel_model', type=str, default="TDL-A", 
                         help='Channel model to evaluate (e.g., TDL-A, TDL-C, TDL-E)')
     parser.add_argument('--snr_start', type=float, default=-10.0, 
