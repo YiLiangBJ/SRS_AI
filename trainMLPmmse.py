@@ -36,8 +36,17 @@ class SRSTrainerModified:
     """
     def __init__(
         self,
-        srs_config: SRSConfig,
+        srs_estimator: SRSChannelEstimator = None,
+        mmse_module: TrainableMMSEModule = None,
+        config: SRSConfig = None,
+        data_generator: SRSDataGenerator = None,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        learning_rate: float = 1e-4,
+        batch_size: int = 32,
+        use_tensorboard: bool = True,
+        log_dir: str = "./logs",
+        # Legacy parameters for backward compatibility
+        srs_config: SRSConfig = None,
         save_dir: str = "./checkpoints_modified",
         use_trainable_mmse: bool = True,
         enable_plotting: bool = False,
@@ -45,65 +54,108 @@ class SRSTrainerModified:
         use_sionna: bool = True
     ):
         """
-        Initialize the trainer
+        Initialize the trainer with support for distributed training
         
         Args:
-            srs_config: SRS configuration
+            srs_estimator: Pre-initialized SRS estimator (for DDP support)
+            mmse_module: Pre-initialized MMSE module (for DDP support)
+            config: SRS configuration
+            data_generator: Pre-initialized data generator
             device: Computation device
+            learning_rate: Learning rate for training
+            batch_size: Batch size for training
+            use_tensorboard: Whether to use TensorBoard logging
+            log_dir: Directory for logs
+            
+            # Legacy parameters (backward compatibility)
+            srs_config: Legacy parameter name for config
             save_dir: Directory for saving checkpoints
-            use_trainable_mmse: Whether to use trainable MMSE matrices
-            enable_plotting: Whether to enable plotting during training
-            use_professional_channels: Whether to use professional channel libraries
-            use_sionna: Whether to use SIONNA (if available)
+            use_trainable_mmse: Whether to use trainable MMSE
+            enable_plotting: Whether to enable plotting
+            use_professional_channels: Whether to use professional channels
+            use_sionna: Whether to use SIONNA
         """
-        self.srs_config = srs_config
+        # Handle legacy parameter names
+        if config is None and srs_config is not None:
+            config = srs_config
+        
+        if config is None:
+            config = create_example_config()
+        
+        self.config = config
         self.device = device
+        self.learning_rate = learning_rate
+        self.batch_size = batch_size
+        self.use_tensorboard = use_tensorboard
+        self.log_dir = log_dir
         self.save_dir = save_dir
-        self.use_trainable_mmse = use_trainable_mmse
         self.enable_plotting = enable_plotting
-        self.use_professional_channels = use_professional_channels
         
-        # 保存系统配置
-        from system_config import create_default_system_config
-        self.system_config = create_default_system_config()
+        # Initialize models if not provided (for backward compatibility)
+        if srs_estimator is None or mmse_module is None:
+            self._init_models_legacy(use_trainable_mmse)
+        else:
+            self.srs_estimator = srs_estimator
+            self.mmse_module = mmse_module
         
-        # 保存信号生成参数（运行时动态使用）
-        self.signal_gen_params = {
-            'srs_config': srs_config,
-            'num_rx_antennas': self.system_config.num_rx_antennas,
-            'sampling_rate': self.system_config.sampling_rate,
-            'device': device
-        }
+        # Initialize data generator if not provided
+        if data_generator is None:
+            self._init_data_generator_legacy(use_professional_channels, use_sionna)
+        else:
+            self.data_generator = data_generator
         
-        # 保存信道参数（运行时动态使用）
-        self.channel_params = {
-            'use_sionna': use_sionna,
-            'channel_model': "TDL-A",
-            'delay_spread': self.system_config.delay_spread,  # 🎯 使用系统配置的延迟扩展
-            'carrier_frequency': 3.5e9,
-            'device': device
-        }
-
+        # Initialize optimizer
+        self.optimizer = optim.Adam(
+            self.mmse_module.parameters(),
+            lr=self.learning_rate,
+            weight_decay=1e-5
+        )
+        
+        # Initialize TensorBoard writer
+        if self.use_tensorboard:
+            os.makedirs(self.log_dir, exist_ok=True)
+            self.writer = SummaryWriter(self.log_dir)
+        else:
+            self.writer = None
+        
+        # Initialize checkpoint directory
+        os.makedirs(self.save_dir, exist_ok=True)
+        
+        # Training state
+        self.epoch = 0
+        self.step = 0
+        self.best_loss = float('inf')
+        
+        print(f"✅ SRSTrainerModified initialized")
+        print(f"   - Device: {self.device}")
+        print(f"   - Batch size: {self.batch_size}")
+        print(f"   - Learning rate: {self.learning_rate}")
+        print(f"   - TensorBoard: {self.use_tensorboard}")
+        print(f"   - Log directory: {self.log_dir}")
+        print(f"   - Save directory: {self.save_dir}")
+    
+    def _init_models_legacy(self, use_trainable_mmse: bool):
+        """Initialize models for backward compatibility"""
         # Create trainable MMSE module if needed
         if use_trainable_mmse:
             self.mmse_module = TrainableMMSEModule(
-                seq_length=srs_config.seq_length,
-                mmse_block_size=srs_config.mmse_block_size,
+                seq_length=self.config.seq_length,
+                mmse_block_size=self.config.mmse_block_size,
                 use_complex_input=True
-            ).to(device)
+            ).to(self.device)
         else:
             self.mmse_module = None
             
         # Create models
         self.srs_estimator = SRSChannelEstimator(
-            seq_length=srs_config.seq_length,
-            ktc=srs_config.ktc,
-            max_users=srs_config.num_users,
-            max_ports_per_user=max(srs_config.ports_per_user),
-            mmse_block_size=srs_config.mmse_block_size,
-            device=device,
+            seq_length=self.config.seq_length,
+            ktc=self.config.ktc,
+            max_users=self.config.num_users,
+            max_ports_per_user=max(self.config.ports_per_user),
+            mmse_block_size=self.config.mmse_block_size,
+            device=self.device,
             mmse_module=self.mmse_module if use_trainable_mmse else None  # 传入 MMSE 模块
-        ).to(device)
+        ).to(self.device)
 
         # Make sure all model parameters require gradients
         for name, param in self.srs_estimator.named_parameters():
@@ -141,14 +193,14 @@ class SRSTrainerModified:
         self.optimizer = optim.Adam(model_params, lr=0.01)
         
         # Create save directory if it doesn't exist
-        os.makedirs(save_dir, exist_ok=True)
+        os.makedirs(self.save_dir, exist_ok=True)
         
         # Create logs directory for TensorBoard
-        self.log_dir = os.path.join(save_dir, 'logs')
-        os.makedirs(self.log_dir, exist_ok=True)
+        legacy_log_dir = os.path.join(self.save_dir, 'logs')
+        os.makedirs(legacy_log_dir, exist_ok=True)
         
         # Initialize TensorBoard writer
-        self.writer = SummaryWriter(log_dir=self.log_dir)
+        self.writer = SummaryWriter(log_dir=legacy_log_dir)
           
         # Training history
         self.train_losses = []
