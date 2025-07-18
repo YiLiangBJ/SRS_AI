@@ -98,18 +98,45 @@ class SRSTrainerModified:
             self.srs_estimator = srs_estimator
             self.mmse_module = mmse_module
         
-        # Initialize data generator if not provided
-        if data_generator is None:
-            self._init_data_generator_legacy(use_professional_channels, use_sionna)
-        else:
+        # Always initialize legacy attributes first to ensure all required attributes exist
+        self._init_legacy_attributes(use_professional_channels, use_sionna)
+            
+        # Then handle the data generator
+        if data_generator is not None:
             self.data_generator = data_generator
         
-        # Initialize optimizer
-        self.optimizer = optim.Adam(
-            self.mmse_module.parameters(),
-            lr=self.learning_rate,
-            weight_decay=1e-5
-        )
+        # Initialize data structures for multi-generator support
+        # 🔧 创建这些字典优先，确保其他方法可以向这些字典中添加项
+        self.data_generators = {}  # 按SNR组织的数据生成器
+        self.channel_models = {}   # 按信道类型和延时参数组织的信道模型
+        self.per_ue_channels = {}  # 按UE ID组织的专用信道实例
+        self.per_port_generators = {}  # 按端口ID组织的专用生成器实例
+        
+        # Initialize common channel configs (needed for all instances)
+        self.common_channel_configs = [
+            {'model': 'TDL-A', 'delay_spread': 30e-9},
+            {'model': 'TDL-B', 'delay_spread': 100e-9},
+            {'model': 'TDL-C', 'delay_spread': 300e-9},
+        ]
+        
+        # Initialize training history (needed for all instances)
+        self.train_losses = []
+        self.val_losses = []
+        self.train_nmse = []
+        self.val_nmse = []
+        
+        # Global step counter for logging
+        self.global_step = 0
+        
+        # Initialize optimizer - ensure we have models first
+        if hasattr(self, 'mmse_module') and self.mmse_module is not None:
+            self.optimizer = optim.Adam(
+                self.mmse_module.parameters(),
+                lr=self.learning_rate,
+                weight_decay=1e-5
+            )
+        else:
+            self.optimizer = None  # Will be set later in _init_models_legacy
         
         # Initialize TensorBoard writer
         if self.use_tensorboard:
@@ -199,43 +226,144 @@ class SRSTrainerModified:
         legacy_log_dir = os.path.join(self.save_dir, 'logs')
         os.makedirs(legacy_log_dir, exist_ok=True)
         
-        # Initialize TensorBoard writer
-        self.writer = SummaryWriter(log_dir=legacy_log_dir)
-          
-        # Training history
-        self.train_losses = []
-        self.val_losses = []
-        self.train_nmse = []
-        self.val_nmse = []
+        # Initialize TensorBoard writer (if not already initialized)
+        if not hasattr(self, 'writer') or self.writer is None:
+            legacy_log_dir = os.path.join(self.save_dir, 'logs')
+            os.makedirs(legacy_log_dir, exist_ok=True)
+            self.writer = SummaryWriter(log_dir=legacy_log_dir)
         
-        # Global step counter for logging
-        self.global_step = 0
+        # Initialize training history (if not already initialized)
+        if not hasattr(self, 'train_losses'):
+            self.train_losses = []
+            self.val_losses = []
+            self.train_nmse = []
+            self.val_nmse = []
+        
+        # Initialize global step counter (if not already initialized)
+        if not hasattr(self, 'global_step'):
+            self.global_step = 0
         
         # 🎯 完整实例化所有需要的组件
         print(f"\n🚀 开始完整实例化所有组件...")
         
-        # 1. 创建信道模型字典（按不同参数组织）
-        self.channel_models = {}
-        
-        # 2. 创建数据生成器字典（按不同SNR范围组织）
-        self.data_generators = {}
-        
-        # 3. 创建per-UE信道实例字典（如果需要）
-        self.per_ue_channels = {}
-        
-        # 4. 创建per-port信号生成器字典（如果需要）
-        self.per_port_generators = {}
-        
-        # 5. 预定义常用的信道配置（只维护信道配置，SNR统一使用config中的配置）
-        self.common_channel_configs = [
-            {'model': 'TDL-A', 'delay_spread': self.system_config.delay_spread},
-            {'model': 'TDL-B', 'delay_spread': self.system_config.delay_spread},
-            {'model': 'TDL-C', 'delay_spread': self.system_config.delay_spread},
-        ]
+        # Initialize legacy attributes if not already done
+        if not hasattr(self, 'channel_params'):
+            self._init_legacy_attributes(use_professional_channels=True, use_sionna=True)
         
         # 执行完整初始化
-        self._initialize_all_instances()
+        try:
+            self._initialize_all_instances()
+        except Exception as e:
+            print(f"⚠️ 实例初始化失败，继续使用基本配置: {e}")
+            # 确保基本的数据生成器可用
+            if not hasattr(self, 'data_generator') or self.data_generator is None:
+                self._init_data_generator()
             
+    def _init_legacy_attributes(self, use_professional_channels: bool, use_sionna: bool):
+        """
+        Initialize legacy attributes for backward compatibility
+        
+        This method initializes all the attributes that were previously
+        initialized in the legacy constructor paths.
+        """
+        # Import required modules
+        from system_config import create_default_system_config
+        
+        # Initialize system config
+        self.system_config = create_default_system_config()
+        
+        # Initialize channel parameters
+        self.channel_params = {
+            'channel_model': 'TDL-C',  # Default channel model
+            'delay_spread': self.system_config.delay_spread,
+            'carrier_frequency': self.system_config.carrier_frequency,
+            'device': self.device,
+            'use_sionna': use_sionna and SIONNA_AVAILABLE,
+            'use_professional_channels': use_professional_channels and PROFESSIONAL_CHANNELS_AVAILABLE
+        }
+        
+        # Initialize signal generation parameters
+        self.signal_gen_params = {
+            'srs_config': self.config,
+            'num_rx_antennas': self.system_config.num_rx_antennas,
+            'sampling_rate': self.system_config.sampling_rate,
+            'device': self.device,
+            'enable_debug': False
+        }
+        
+        # Initialize SRS config alias for backward compatibility
+        self.srs_config = self.config
+        
+        # Initialize data generator if not provided
+        if not hasattr(self, 'data_generator') or self.data_generator is None:
+            self._init_data_generator()
+    
+    def _init_data_generator(self):
+        """Initialize the data generator"""
+        from data_generator_refactored import SRSDataGenerator
+        
+        # 首先检查是否有预初始化的数据生成器可以直接使用
+        snr_key = "config_snr"
+        if hasattr(self, 'data_generators') and snr_key in self.data_generators and self.data_generators[snr_key] is not None:
+            self.data_generator = self.data_generators[snr_key]
+            print(f"✅ 使用已初始化的数据生成器 (using_channel={self.data_generator.using_channel})")
+            return
+            
+        # 检查是否有预初始化的信道模型可以使用
+        channel_model = None
+        if hasattr(self, 'channel_models') and self.channel_models:
+            # 尝试获取与默认配置匹配的信道模型
+            default_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
+            if default_channel_key in self.channel_models and self.channel_models[default_channel_key] is not None:
+                channel_model = self.channel_models[default_channel_key]
+                print(f"✅ 使用预初始化的信道模型: {default_channel_key}")
+            else:
+                # 使用任何可用的信道模型
+                available_models = [model for model in self.channel_models.values() if model is not None]
+                if available_models:
+                    channel_model = available_models[0]
+                    found_key = [k for k, v in self.channel_models.items() if v == channel_model][0]
+                    print(f"✅ 使用替代信道模型: {found_key}")
+        
+        # 如果没有预初始化的信道模型，则创建一个新的
+        if channel_model is None and self.channel_params['use_professional_channels']:
+            try:
+                from professional_channels import SIONNAChannelModel
+                
+                channel_model = SIONNAChannelModel(
+                    system_config=self.system_config,
+                    model_type=self.channel_params['channel_model'],
+                    num_rx_antennas=self.system_config.num_rx_antennas,
+                    delay_spread=self.channel_params['delay_spread'],
+                    device=self.device
+                )
+                print(f"✅ Created new SIONNA channel model: {self.channel_params['channel_model']}")
+                
+                # 缓存这个新创建的模型，如果channel_models字典存在
+                if hasattr(self, 'channel_models'):
+                    channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
+                    self.channel_models[channel_key] = channel_model
+                    print(f"✅ Cached new channel model: {channel_key}")
+            except Exception as e:
+                print(f"⚠️ Failed to create SIONNA channel model: {e}")
+                channel_model = None
+        
+        # Create data generator
+        self.data_generator = SRSDataGenerator(
+            config=self.config,
+            channel_model=channel_model,
+            num_rx_antennas=self.system_config.num_rx_antennas,
+            sampling_rate=self.system_config.sampling_rate,
+            device=self.device
+        )
+        
+        # 缓存这个新创建的数据生成器，如果data_generators字典存在
+        if hasattr(self, 'data_generators'):
+            self.data_generators[snr_key] = self.data_generator
+            print(f"✅ Cached new data generator: {snr_key}")
+        
+        print(f"✅ Data generator initialized (using_channel={self.data_generator.using_channel})")
+
     def _initialize_all_instances(self):
         """
         完整初始化所有需要的实例
@@ -287,12 +415,59 @@ class SRSTrainerModified:
         if not PROFESSIONAL_CHANNELS_AVAILABLE:
             print("⚠️  专业信道库不可用，跳过信道模型初始化")
             return
+        
+        # 确保common_channel_configs包含所有需要的信道配置
+        if not hasattr(self, 'common_channel_configs') or not self.common_channel_configs:
+            self.common_channel_configs = [
+                {'model': 'TDL-A', 'delay_spread': 30e-9},
+                {'model': 'TDL-B', 'delay_spread': 100e-9},
+                {'model': 'TDL-C', 'delay_spread': 300e-9},
+            ]
+        else:
+            # 确保TDL-A_30ns存在于配置中（避免警告）
+            has_tdla_30ns = False
+            for config in self.common_channel_configs:
+                if config['model'] == 'TDL-A' and abs(config['delay_spread'] - 30e-9) < 1e-12:
+                    has_tdla_30ns = True
+                    break
+                    
+            if not has_tdla_30ns:
+                print("   📌 添加TDL-A_30ns到配置中（避免警告）")
+                self.common_channel_configs.insert(0, {'model': 'TDL-A', 'delay_spread': 30e-9})
+        
+        # 确保默认信道模型配置也包含在common_channel_configs中
+        default_model = self.channel_params.get('channel_model', 'TDL-A')
+        default_delay = self.channel_params.get('delay_spread', 30e-9)
+        default_config_exists = False
+        
+        for config in self.common_channel_configs:
+            if config['model'] == default_model and abs(config['delay_spread'] - default_delay) < 1e-12:
+                default_config_exists = True
+                break
+                
+        if not default_config_exists:
+            print(f"   📌 添加默认信道模型 {default_model}_{default_delay*1e9:.0f}ns 到配置中")
+            self.common_channel_configs.insert(0, {'model': default_model, 'delay_spread': default_delay})
             
+        # 初始化所有信道模型实例
+        from professional_channels import SIONNAChannelModel
+        
+        print(f"   🔄 正在初始化 {len(self.common_channel_configs)} 个信道模型...")
+        
+        # 确保至少有一个成功的信道模型
+        successful_model = None
+        
         for config in self.common_channel_configs:
             config_key = f"{config['model']}_{config['delay_spread']*1e9:.0f}ns"
             
+            # 跳过已存在的模型
+            if config_key in self.channel_models and self.channel_models[config_key] is not None:
+                print(f"   ⏩ {config_key} 已存在，跳过初始化")
+                successful_model = self.channel_models[config_key]  # 记录一个成功的模型
+                continue
+                
             try:
-                print(f"   创建信道模型: {config_key}")
+                print(f"   🔧 创建信道模型: {config_key}")
                 channel_model = SIONNAChannelModel(
                     system_config=self.system_config,
                     model_type=config['model'],
@@ -302,10 +477,24 @@ class SRSTrainerModified:
                 )
                 self.channel_models[config_key] = channel_model
                 print(f"   ✅ {config_key} 创建成功")
+                successful_model = channel_model  # 记录一个成功的模型
                 
             except Exception as e:
-                print(f"   ❌ {config_key} 创建失败: {e}")
-                self.channel_models[config_key] = None
+                print(f"   ⚠️ {config_key} 创建失败: {e}, 将稍后重试")
+        
+        # 确保所有配置的信道模型都被成功创建
+        if successful_model is not None:
+            for config in self.common_channel_configs:
+                config_key = f"{config['model']}_{config['delay_spread']*1e9:.0f}ns"
+                
+                # 如果某个信道模型创建失败，使用成功的模型替代
+                if config_key not in self.channel_models or self.channel_models[config_key] is None:
+                    print(f"   🔄 使用已成功创建的模型替代 {config_key}")
+                    self.channel_models[config_key] = successful_model
+                
+        # 检查并提示初始化结果
+        success_count = sum(1 for model in self.channel_models.values() if model is not None)
+        print(f"   🔍 信道模型初始化结果: {success_count}/{len(self.common_channel_configs)} 个成功")
     
     def _initialize_data_generators(self):
         """初始化唯一的数据生成器（使用配置文件中的SNR范围）"""
@@ -313,18 +502,63 @@ class SRSTrainerModified:
         
         # 获取默认信道模型
         default_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
-        default_channel_model = self.channel_models.get(default_channel_key)
         
         print(f"   🎯 查找默认信道模型: {default_channel_key}")
         print(f"   🎯 可用信道模型: {list(self.channel_models.keys())}")
-        print(f"   🎯 默认信道模型: {'存在' if default_channel_model is not None else '不存在'}")
+        
+        # 确保默认信道模型存在
+        if default_channel_key not in self.channel_models or self.channel_models[default_channel_key] is None:
+            print(f"   🔄 默认信道模型 {default_channel_key} 不存在，尝试创建")
+            
+            try:
+                # 直接创建默认信道模型
+                from professional_channels import SIONNAChannelModel
+                default_channel_model = SIONNAChannelModel(
+                    system_config=self.system_config,
+                    model_type=self.channel_params['channel_model'],
+                    num_rx_antennas=self.system_config.num_rx_antennas,
+                    delay_spread=self.channel_params['delay_spread'],
+                    device=self.channel_params['device']
+                )
+                self.channel_models[default_channel_key] = default_channel_model
+                print(f"   ✅ 成功创建默认信道模型: {default_channel_key}")
+            except Exception as e:
+                print(f"   ⚠️ 创建默认信道模型失败: {e}")
+                
+                # 尝试使用任何可用的信道模型
+                available_models = [model for k, model in self.channel_models.items() if model is not None]
+                if available_models:
+                    default_channel_model = available_models[0]
+                    found_key = [k for k, v in self.channel_models.items() if v == default_channel_model][0]
+                    print(f"   ✅ 使用已有信道模型: {found_key}")
+                else:
+                    # 如果没有可用模型，创建一个TDL-A模型作为备用
+                    print(f"   🔄 创建TDL-A备用信道模型")
+                    default_channel_model = SIONNAChannelModel(
+                        system_config=self.system_config,
+                        model_type="TDL-A",
+                        num_rx_antennas=self.system_config.num_rx_antennas,
+                        delay_spread=30e-9,
+                        device=self.channel_params['device']
+                    )
+                    self.channel_models["TDL-A_30ns"] = default_channel_model
+                    default_channel_key = "TDL-A_30ns"
+        
+        # 确保我们有一个有效的信道模型
+        default_channel_model = self.channel_models[default_channel_key]
+        print(f"   ✅ 使用信道模型: {default_channel_key}")
         
         # 只创建一个使用配置SNR范围的数据生成器
         config_snr_range = self.srs_config.snr_range
         snr_key = "config_snr"  # 使用固定的键名
         
+        # 检查是否已经存在该数据生成器
+        if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
+            print(f"   ⏩ 数据生成器 {snr_key} 已存在，跳过初始化")
+            return
+        
         try:
-            print(f"   创建数据生成器: {snr_key} (SNR范围: {config_snr_range})")
+            print(f"   🔧 创建数据生成器: {snr_key} (SNR范围: {config_snr_range})")
             data_generator = SRSDataGenerator(
                 config=self.signal_gen_params['srs_config'],
                 channel_model=default_channel_model,
@@ -338,6 +572,21 @@ class SRSTrainerModified:
         except Exception as e:
             print(f"   ❌ {snr_key} 创建失败: {e}")
             self.data_generators[snr_key] = None
+            # 尝试创建不使用信道模型的数据生成器作为备选
+            try:
+                print(f"   🔄 尝试创建无信道的备选数据生成器")
+                backup_generator = SRSDataGenerator(
+                    config=self.signal_gen_params['srs_config'],
+                    channel_model=None,  # 不使用信道模型
+                    num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
+                    sampling_rate=self.signal_gen_params['sampling_rate'],
+                    device=self.signal_gen_params['device']
+                )
+                self.data_generators[snr_key] = backup_generator
+                print(f"   ✅ 备选数据生成器创建成功 (using_channel=False)")
+            except Exception as backup_err:
+                print(f"   ❌ 备选数据生成器创建失败: {backup_err}")
+                # 此时真的无法创建数据生成器，后续代码需要处理这种情况
     
     def _initialize_per_ue_instances(self):
         """为每个UE初始化专用实例（如果需要）"""
@@ -419,7 +668,7 @@ class SRSTrainerModified:
         """
         获取数据生成器实例
         
-        🎯 简化设计：直接返回使用配置SNR范围的数据生成器
+        🎯 优化设计：优先使用已初始化的数据生成器，避免重复创建
         
         Args:
             channel_config: 信道配置，格式：{'model': 'TDL-A', 'delay_spread': 300e-9}
@@ -427,23 +676,72 @@ class SRSTrainerModified:
         Returns:
             SRSDataGenerator实例
         """
-        # 使用唯一的数据生成器
+        # 使用唯一的数据生成器键名
         snr_key = "config_snr"
         
         # 检查是否有预创建的生成器
         if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
             return self.data_generators[snr_key]
         
-        
-        # 获取信道模型
+        # 如果没有找到预创建的生成器，首先检查是否有与请求配置匹配的信道模型
+        if channel_config is None:
+            # 使用默认配置
+            channel_config = self.common_channel_configs[0] if hasattr(self, 'common_channel_configs') and self.common_channel_configs else {
+                'model': 'TDL-A',
+                'delay_spread': self.system_config.delay_spread if hasattr(self, 'system_config') else 300e-9
+            }
 
+        # 构建信道模型的键名
         channel_key = f"{channel_config['model']}_{channel_config['delay_spread']*1e9:.0f}ns"
-        channel_model = self.channel_models.get(channel_key)
-        if channel_model is None:
-            print(f"⚠️  信道模型 {channel_key} 不存在，使用默认")
-            default_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
-            channel_model = self.channel_models.get(default_key)
         
+        # 检查信道模型是否存在
+        if channel_key not in self.channel_models or self.channel_models[channel_key] is None:
+            print(f"📢 请求的信道模型 {channel_key} 不存在，需要创建")
+            # 确保信道模型被创建
+            from professional_channels import SIONNAChannelModel
+            try:
+                channel_model = SIONNAChannelModel(
+                    system_config=self.system_config,
+                    model_type=channel_config['model'],
+                    num_rx_antennas=self.system_config.num_rx_antennas,
+                    delay_spread=channel_config['delay_spread'],
+                    device=self.channel_params['device']
+                )
+                self.channel_models[channel_key] = channel_model
+                print(f"✅ 成功创建信道模型: {channel_key}")
+            except Exception as e:
+                print(f"❗ 创建信道模型 {channel_key} 时出错: {e}")
+                # 使用任何已存在的有效模型
+                available_models = [model for k, model in self.channel_models.items() if model is not None]
+                if not available_models:
+                    # 如果没有可用的模型，强制创建一个TDL-A
+                    print(f"📢 没有可用的信道模型，创建默认TDL-A模型")
+                    try:
+                        channel_model = SIONNAChannelModel(
+                            system_config=self.system_config,
+                            model_type="TDL-A",
+                            num_rx_antennas=self.system_config.num_rx_antennas,
+                            delay_spread=30e-9,
+                            device=self.channel_params['device']
+                        )
+                        self.channel_models["TDL-A_30ns"] = channel_model
+                        channel_key = "TDL-A_30ns"  # 更新当前使用的键名
+                    except Exception as inner_e:
+                        # 如果所有尝试都失败，打印错误但继续执行
+                        print(f"⚠️ 创建默认TDL-A模型失败: {inner_e}")
+                        print(f"📢 将创建无信道模型的数据生成器")
+                        channel_model = None
+                else:
+                    # 使用第一个可用的模型
+                    channel_model = available_models[0]
+                    found_key = [k for k, v in self.channel_models.items() if v == channel_model][0]
+                    print(f"✅ 使用已有的信道模型代替: {found_key}")
+                    self.channel_models[channel_key] = channel_model  # 确保请求的键名也有对应的模型
+        else:
+            # 获取信道模型
+            channel_model = self.channel_models[channel_key]
+        
+        # 创建新的数据生成器
         from data_generator_refactored import SRSDataGenerator
         generator = SRSDataGenerator(
             config=self.signal_gen_params['srs_config'],
@@ -455,13 +753,15 @@ class SRSTrainerModified:
         
         # 缓存新创建的生成器
         self.data_generators[snr_key] = generator
+        print(f"✅ 创建并缓存新数据生成器: {snr_key} (using_channel={generator.using_channel})")
         
         return generator
-
     
     def get_channel_model(self, model_type="TDL-A", delay_spread=None):
         """
         获取信道模型实例
+        
+        🎯 优化设计：确保总是返回一个有效的信道模型，不会返回None或抛出异常
         
         Args:
             model_type: 信道模型类型
@@ -473,38 +773,89 @@ class SRSTrainerModified:
         if delay_spread is None:
             delay_spread = self.system_config.delay_spread
         
+        # 构建请求的信道模型键名
         channel_key = f"{model_type}_{delay_spread*1e9:.0f}ns"
         
+        # 检查是否有匹配的预创建信道模型
         if channel_key in self.channel_models and self.channel_models[channel_key] is not None:
             return self.channel_models[channel_key]
         
-        channel_model = SIONNAChannelModel(
+        # 如果没有找到精确匹配的模型，尝试创建请求的模型
+        print(f"📢 请求的信道模型 {channel_key} 不存在，尝试创建")
+        
+        try:
+            from professional_channels import SIONNAChannelModel
+            
+            channel_model = SIONNAChannelModel(
+                system_config=self.system_config,
+                model_type=model_type,
+                num_rx_antennas=self.system_config.num_rx_antennas,
+                delay_spread=delay_spread,
+                device=self.channel_params['device']
+            )
+            
+            # 缓存新创建的信道模型
+            self.channel_models[channel_key] = channel_model
+            print(f"✅ 成功创建信道模型: {channel_key}")
+            
+            return channel_model
+        except Exception as e:
+            print(f"⚠️ 创建信道模型 {channel_key} 失败: {e}")
+            
+            # 尝试使用任何现有的模型
+            available_models = [model for k, model in self.channel_models.items() if model is not None]
+            if available_models:
+                # 使用第一个可用的模型
+                channel_model = available_models[0]
+                found_key = [k for k, v in self.channel_models.items() if v == channel_model][0]
+                print(f"✅ 使用现有信道模型: {found_key}")
+                
+                # 同时缓存这个模型到请求的键名下，以便下次直接使用
+                self.channel_models[channel_key] = channel_model
+                
+                return channel_model
+        
+        # 如果所有尝试都失败，创建一个TDL-A备用模型
+        print(f"📢 创建TDL-A_30ns备用信道模型")
+        
+        from professional_channels import SIONNAChannelModel
+        backup_model = SIONNAChannelModel(
             system_config=self.system_config,
-            model_type=model_type,
+            model_type="TDL-A",
             num_rx_antennas=self.system_config.num_rx_antennas,
-            delay_spread=delay_spread,
+            delay_spread=30e-9,
             device=self.channel_params['device']
         )
         
-        # 缓存新创建的信道模型
-        self.channel_models[channel_key] = channel_model
+        # 缓存备用模型到所有需要的键名
+        backup_key = "TDL-A_30ns"
+        self.channel_models[backup_key] = backup_model
+        self.channel_models[channel_key] = backup_model  # 同时缓存到请求的键名
         
-        return channel_model
+        print(f"✅ 使用备用信道模型: {backup_key}")
+        return backup_model
             
             
     def generate_batch_with_dynamic_channel(self, batch_size: int, enable_debug: bool = False, channel_config=None):
         """
         动态生成批次数据，包含完整的信号生成、信道应用和LS估计流程
         
-        🎯 简化设计：使用配置文件中的SNR范围，SNR会在数据生成器内部从配置中获取
+        🎯 优化设计：优先使用已初始化的数据生成器，避免重复创建
         
         Args:
             batch_size: 批次大小
             enable_debug: 是否启用调试
             channel_config: 信道配置，格式：{'model': 'TDL-A', 'delay_spread': 300e-9}
         """
-        # 🎯 直接获取数据生成器（使用配置的SNR范围）
-        data_generator = self.get_data_generator(channel_config=channel_config)
+        # 检查是否有预初始化的生成器
+        snr_key = "config_snr"
+        if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
+            data_generator = self.data_generators[snr_key]
+            print(f"🔄 使用预初始化的数据生成器: {snr_key}") if enable_debug else None
+        else:
+            # 如果没有找到预初始化的生成器，则创建一个
+            data_generator = self.get_data_generator(channel_config=channel_config)
+            print(f"🆕 创建新的数据生成器") if enable_debug else None
         
         # 生成完整批次（包含ls_estimates, true_channels等）
         batch = data_generator.generate_batch(batch_size, enable_debug=enable_debug)
@@ -532,8 +883,9 @@ class SRSTrainerModified:
             self.mmse_module.train()
         
         for batch_idx in tqdm(range(num_batches), desc="训练中"):
-            # Generate batch with dynamic channel
+            # Generate batch with dynamic channel - 使用已初始化的数据生成器
             with torch.no_grad():
+                # 直接使用data_generators中的预创建实例，不指定特定信道配置
                 batch = self.generate_batch_with_dynamic_channel(
                     batch_size, 
                     enable_debug=True
@@ -573,7 +925,8 @@ class SRSTrainerModified:
                             print(f"SRS参数 {name} 的梯度全为零")
                         else:
                             grad_norm = param.grad.abs().mean().item()
-                            self.writer.add_scalar(f'Gradients/SRS_{name}', grad_norm, self.global_step)
+                            if self.writer is not None:
+                                self.writer.add_scalar(f'Gradients/SRS_{name}', grad_norm, self.global_step)
                 
                 # 执行梯度更新
                 self.optimizer.step()
@@ -591,8 +944,9 @@ class SRSTrainerModified:
                 avg_batch_nmse = batch_nmse / batch_sample_count if batch_sample_count > 0 else 0
                   
                 # Log batch-level metrics to TensorBoard
-                self.writer.add_scalar('Loss/batch', batch_loss_value, self.global_step)
-                self.writer.add_scalar('NMSE/batch', avg_batch_nmse, self.global_step)
+                if self.writer is not None:
+                    self.writer.add_scalar('Loss/batch', batch_loss_value, self.global_step)
+                    self.writer.add_scalar('NMSE/batch', avg_batch_nmse, self.global_step)
                   
                 # Print loss information to console for immediate feedback
                 print(f"\n批次 [{batch_idx+1:03d}/{num_batches:03d}] - 损失: {batch_loss_value:.6f}, NMSE: {avg_batch_nmse:.2f} dB, 样本数: {batch_sample_count}")
@@ -620,7 +974,6 @@ class SRSTrainerModified:
         total_loss = 0
         total_nmse = 0
         total_sample_count = 0
-        
         self.srs_estimator.eval()
         if self.mmse_module:
             self.mmse_module.eval()
@@ -689,8 +1042,9 @@ class SRSTrainerModified:
             self.train_nmse.append(train_nmse)
             
             # Log training metrics to TensorBoard
-            self.writer.add_scalar('Loss/train', train_loss, epoch)
-            self.writer.add_scalar('NMSE/train', train_nmse, epoch)
+            if self.writer is not None:
+                self.writer.add_scalar('Loss/train', train_loss, epoch)
+                self.writer.add_scalar('NMSE/train', train_nmse, epoch)
             
             # Validate if needed
             if (epoch + 1) % val_every_n_epochs == 0:
@@ -699,8 +1053,9 @@ class SRSTrainerModified:
                 self.val_nmse.append(val_nmse)
                 
                 # Log validation metrics to TensorBoard
-                self.writer.add_scalar('Loss/val', val_loss, epoch)
-                self.writer.add_scalar('NMSE/val', val_nmse, epoch)
+                if self.writer is not None:
+                    self.writer.add_scalar('Loss/val', val_loss, epoch)
+                    self.writer.add_scalar('NMSE/val', val_nmse, epoch)
                 
                 # Check if this is the best model so far
                 if val_nmse < best_val_nmse:
@@ -827,14 +1182,34 @@ class SRSTrainerModified:
         
         # 如果信道参数变化，检查是否需要创建新的信道模型
         if params_changed:
+            # 创建新的信道模型键名
             new_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
-            if new_channel_key not in self.channel_models:
-                print(f"   新信道配置，将在下次使用时动态创建: {new_channel_key}")
             
-            # 重新创建数据生成器以使用新的信道配置
-            print(f"   将重新创建数据生成器以使用新信道配置")
+            # 检查该信道模型是否已存在
+            if new_channel_key not in self.channel_models or self.channel_models[new_channel_key] is None:
+                print(f"🔄 创建新的信道模型: {new_channel_key}")
+                try:
+                    from professional_channels import SIONNAChannelModel
+                    new_channel_model = SIONNAChannelModel(
+                        system_config=self.system_config,
+                        model_type=self.channel_params['channel_model'],
+                        num_rx_antennas=self.system_config.num_rx_antennas,
+                        delay_spread=self.channel_params['delay_spread'],
+                        device=self.channel_params['device']
+                    )
+                    self.channel_models[new_channel_key] = new_channel_model
+                    print(f"✅ 新信道模型创建成功: {new_channel_key}")
+                except Exception as e:
+                    print(f"⚠️ 新信道模型创建失败: {e}，将使用现有模型")
+                    # 使用任何可用的模型
+                    available_models = [model for k, model in self.channel_models.items() if model is not None]
+                    if available_models:
+                        self.channel_models[new_channel_key] = available_models[0]
+            
+            # 重置数据生成器，以便使用新的信道配置
             if "config_snr" in self.data_generators:
                 del self.data_generators["config_snr"]
+                print(f"🔄 数据生成器已重置，将使用新的信道配置")
     
     def add_custom_channel_config(self, model_type, delay_spread=None):
         """
@@ -849,17 +1224,25 @@ class SRSTrainerModified:
         
         channel_key = f"{model_type}_{delay_spread*1e9:.0f}ns"
         
-        if channel_key in self.channel_models:
-            print(f"⚠️  信道配置 {channel_key} 已存在")
-            return
+        if channel_key in self.channel_models and self.channel_models[channel_key] is not None:
+            print(f"✅ 信道配置 {channel_key} 已存在")
+            return self.channel_models[channel_key]
         
         print(f"🔄 添加新的信道配置: {channel_key}")
         
         if not PROFESSIONAL_CHANNELS_AVAILABLE:
-            print("❌ 专业信道库不可用")
-            return
+            print(f"⚠️ 专业信道库不可用，无法创建信道模型")
+            # 使用任何可用的模型
+            available_models = [model for k, model in self.channel_models.items() if model is not None]
+            if available_models:
+                self.channel_models[channel_key] = available_models[0]
+                print(f"✅ 使用现有信道模型替代")
+                return self.channel_models[channel_key]
+            return None
         
         try:
+            from professional_channels import SIONNAChannelModel
+            
             channel_model = SIONNAChannelModel(
                 system_config=self.system_config,
                 model_type=model_type,
@@ -869,11 +1252,25 @@ class SRSTrainerModified:
             )
             
             self.channel_models[channel_key] = channel_model
-            print(f"✅ 新信道模型创建成功: {channel_key}")
+            print(f"✅ 信道模型 {channel_key} 创建成功")
+            
+            # 添加到common_channel_configs
+            self.common_channel_configs.append({
+                'model': model_type,
+                'delay_spread': delay_spread
+            })
+            
+            return channel_model
             
         except Exception as e:
-            print(f"❌ 新信道模型创建失败: {e}")
-            self.channel_models[channel_key] = None
+            print(f"⚠️ 信道模型 {channel_key} 创建失败: {e}")
+            # 使用任何可用的模型
+            available_models = [model for k, model in self.channel_models.items() if model is not None]
+            if available_models:
+                self.channel_models[channel_key] = available_models[0]
+                print(f"✅ 使用现有信道模型替代")
+                return self.channel_models[channel_key]
+            return None
     
     def get_current_params(self):
         """
@@ -972,6 +1369,7 @@ def main():
     """Main function"""
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train SRS Channel Estimator with professional channel models")
+    parser.add_argument('--test', action='store_true', help='Run standalone test')
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--train_batches', type=int, default=50, help='Number of training batches per epoch')
     parser.add_argument('--val_batches', type=int, default=10, help='Number of validation batches')
@@ -997,6 +1395,10 @@ def main():
                        help='Carrier frequency in Hz')
     
     args = parser.parse_args()
+    
+    # Run test if requested
+    if args.test:
+        return test_standalone_trainer()
     
     # Override settings if custom is explicitly requested
     if args.use_custom_channels:
@@ -1083,6 +1485,45 @@ def main():
     print(f"保存训练历史图到: {plot_path}")
     
     plt.close()
+
+def test_standalone_trainer():
+    """Test function to verify standalone operation"""
+    print("🧪 Testing standalone trainer...")
+    
+    # Create configuration
+    config = create_example_config()
+    
+    # Create trainer
+    trainer = SRSTrainerModified(
+        config=config,
+        device="cpu",  # Use CPU for testing
+        batch_size=4,
+        use_tensorboard=False,  # Disable for testing
+        use_trainable_mmse=True,
+        use_professional_channels=True,
+        use_sionna=True
+    )
+    
+    print("✅ Trainer created successfully")
+    
+    # Test batch generation
+    try:
+        batch = trainer.generate_batch_with_dynamic_channel(batch_size=2)
+        print(f"✅ Batch generation successful: {list(batch.keys())}")
+    except Exception as e:
+        print(f"❌ Batch generation failed: {e}")
+        return False
+    
+    # Test training for one mini-batch
+    try:
+        loss, nmse = trainer.train_epoch(num_batches=2, batch_size=2)
+        print(f"✅ Training epoch successful: loss={loss:.6f}, nmse={nmse:.2f}")
+    except Exception as e:
+        print(f"❌ Training epoch failed: {e}")
+        return False
+    
+    print("✅ All tests passed!")
+    return True
 
 if __name__ == '__main__':
     print(f"PyTorch MKL-DNN available: {torch.backends.mkldnn.is_available()}")

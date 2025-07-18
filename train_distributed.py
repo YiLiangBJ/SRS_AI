@@ -172,7 +172,8 @@ class DistributedTrainer:
             learning_rate=1e-4,
             batch_size=batch_size,
             use_tensorboard=(self.rank == 0),  # Only rank 0 logs
-            log_dir=f"./logs/ddp_rank_{self.rank}" if self.use_ddp else "./logs"
+            log_dir=f"./logs/ddp_rank_{self.rank}" if self.use_ddp else "./logs",
+            save_dir=f"./checkpoints_modified"
         )
         
         if self.rank == 0:
@@ -205,9 +206,11 @@ class DistributedTrainer:
             # Run training
             self.trainer.train(
                 num_epochs=num_epochs,
-                validation_interval=5,
-                save_interval=10,
-                save_path=f"./checkpoints_ddp/rank_{self.rank}" if self.use_ddp else "./checkpoints_ddp"
+                num_batches=1000,  # Number of batches per epoch
+                batch_size=self.settings['batch_size_per_gpu'],
+                val_batches=200,   # Number of validation batches
+                val_every_n_epochs=5,
+                save_every_n_epochs=10
             )
             
             # Synchronize processes
