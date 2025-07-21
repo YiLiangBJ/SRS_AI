@@ -1,18 +1,19 @@
 """
 Distributed Training Script for SRS Channel Estimation
 
-This script provides distributed training capabilities with automatic platform detection
+This script provides NUMA-aware distributed training capabilities with automatic platform detection
 and configuration. It supports:
-- Single-process training (PC)
-- Multi-process DDP training (Server/GPU cluster)
-- Automatic batch size and worker configuration
+- Single-process training (Windows PC)
+- NUMA-aware multi-process DDP training (Linux servers with 2+ NUMA nodes)
+- Automatic NUMA node detection and process binding
+- Physical core binding for optimal performance
 - Cross-platform compatibility (Windows/Linux)
 
 Usage:
-    # Single process training
+    # Single process training (Windows/single NUMA node)
     python train_distributed.py
 
-    # Multi-process DDP training
+    # NUMA-aware DDP training (Linux servers)
     python train_distributed.py --enable-ddp
 
     # Manual configuration
@@ -34,6 +35,8 @@ import argparse
 import os
 import sys
 import time
+import platform
+import subprocess
 from typing import Optional, Dict, Any
 
 # Add project root to path
@@ -47,13 +50,132 @@ from model_AIpart import TrainableMMSEModule
 from trainMLPmmse import SRSTrainerModified
 
 
+def detect_numa_topology():
+    """
+    Detect NUMA topology and return NUMA node information
+    
+    Returns:
+        Dict containing:
+            - numa_nodes: number of NUMA nodes
+            - cores_per_node: physical cores per NUMA node
+            - total_cores: total physical cores
+            - platform: 'linux' or 'windows'
+    """
+    platform_name = platform.system().lower()
+    numa_info = {
+        'numa_nodes': 1,
+        'cores_per_node': os.cpu_count(),
+        'total_cores': os.cpu_count(),
+        'platform': platform_name
+    }
+    
+    if platform_name == 'linux':
+        # Try to detect NUMA nodes using lscpu
+        result = subprocess.run(['lscpu'], capture_output=True, text=True, check=True)
+        lines = result.stdout.split('\n')
+        
+        for line in lines:
+            if 'NUMA node(s):' in line:
+                numa_nodes = int(line.split()[-1])
+                numa_info['numa_nodes'] = numa_nodes
+            elif 'Core(s) per socket:' in line:
+                cores_per_socket = int(line.split()[-1])
+            elif 'Socket(s):' in line:
+                sockets = int(line.split()[-1])
+                # Assume each socket is a NUMA node
+                total_cores = cores_per_socket * sockets
+                numa_info['total_cores'] = total_cores
+                numa_info['cores_per_node'] = total_cores // numa_info['numa_nodes']
+    
+    print(f"🔍 NUMA Topology Detected:")
+    print(f"   - Platform: {numa_info['platform']}")
+    print(f"   - NUMA nodes: {numa_info['numa_nodes']}")
+    print(f"   - Total cores: {numa_info['total_cores']}")
+    print(f"   - Cores per NUMA node: {numa_info['cores_per_node']}")
+    
+    return numa_info
+
+
+def bind_process_to_numa_node(rank: int, numa_info: Dict):
+    """
+    Bind the current process to a specific NUMA node using taskset and PyTorch thread control
+    
+    Args:
+        rank: Process rank (also serves as NUMA node index)
+        numa_info: NUMA topology information
+    """
+    platform_name = numa_info['platform']
+    numa_nodes = numa_info['numa_nodes']
+    cores_per_node = numa_info['cores_per_node']
+    
+    if platform_name == 'linux' and numa_nodes > 1:
+        # Calculate NUMA node for this rank
+        numa_node = rank % numa_nodes
+        
+        # Calculate core range for this NUMA node
+        start_core = numa_node * cores_per_node
+        end_core = start_core + cores_per_node - 1
+        
+        # Set CPU affinity using taskset (external command)
+        pid = os.getpid()
+        core_list = f"{start_core}-{end_core}"
+        subprocess.run(['taskset', '-cp', core_list, str(pid)], check=True)
+        
+        # Set PyTorch thread count to physical cores on this NUMA node
+        torch.set_num_threads(cores_per_node)
+        
+        print(f"🎯 Process {rank} bound to NUMA node {numa_node}:")
+        print(f"   - CPU cores: {start_core}-{end_core}")
+        print(f"   - PyTorch threads: {cores_per_node}")
+        
+    elif platform_name == 'windows':
+        # On Windows, just set thread count to reasonable value
+        # Windows handles thread scheduling automatically
+        total_cores = numa_info['total_cores']
+        torch.set_num_threads(total_cores)
+        print(f"🖥️ Windows: PyTorch threads set to {total_cores}")
+    
+    else:
+        # Single NUMA node or unsupported platform
+        torch.set_num_threads(numa_info['cores_per_node'])
+        print(f"💻 Single NUMA node: PyTorch threads set to {numa_info['cores_per_node']}")
+
+
+def determine_optimal_world_size(numa_info: Dict, enable_ddp: bool) -> int:
+    """
+    Determine optimal world size based on NUMA topology
+    
+    Args:
+        numa_info: NUMA topology information
+        enable_ddp: Whether DDP is requested
+        
+    Returns:
+        Optimal world size
+    """
+    if not enable_ddp:
+        return 1
+    
+    platform_name = numa_info['platform']
+    numa_nodes = numa_info['numa_nodes']
+    
+    if platform_name == 'linux' and numa_nodes > 1:
+        # On Linux servers with multiple NUMA nodes, use one process per NUMA node
+        world_size = numa_nodes
+        print(f"🚀 Linux NUMA-aware training: world_size={world_size} (one process per NUMA node)")
+        return world_size
+    else:
+        # Windows PC or single NUMA node: use single process
+        print(f"🖥️ Single-process training (Windows or single NUMA node)")
+        return 1
+
+
 class DistributedTrainer:
-    """Distributed training wrapper for SRS Channel Estimation"""
+    """NUMA-aware distributed training wrapper for SRS Channel Estimation"""
     
     def __init__(self, config: SRSConfig, rank: int = 0, world_size: int = 1, 
-                 use_ddp: bool = False, settings: Dict[str, Any] = None):
+                 use_ddp: bool = False, settings: Dict[str, Any] = None, numa_info: Dict = None):
         """
-        Initialize distributed trainer
+        Initialize distributed trainer with NUMA awareness
         
         Args:
             config: SRS configuration
@@ -61,12 +183,18 @@ class DistributedTrainer:
             world_size: Total number of processes
             use_ddp: Whether to use DDP
             settings: System-specific settings
+            numa_info: NUMA topology information
         """
         self.config = config
         self.rank = rank
         self.world_size = world_size
         self.use_ddp = use_ddp
         self.settings = settings or {}
+        self.numa_info = numa_info or {}
+        
+        # Apply NUMA binding if available
+        if numa_info:
+            bind_process_to_numa_node(rank, numa_info)
         
         # Set device
         if torch.cuda.is_available():
@@ -129,18 +257,13 @@ class DistributedTrainer:
         
         # Create channel model
         from professional_channels import SIONNAChannelModel
-        try:
-            channel_model = SIONNAChannelModel(
-                system_config=system_config,
-                model_type="TDL-A",  # Default, can be made configurable
-                num_rx_antennas=system_config.num_rx_antennas,
-                delay_spread=300e-9,
-                device=self.device
-            )
-        except Exception as e:
-            if self.rank == 0:
-                print(f"⚠️  Failed to create SIONNA channel model: {e}")
-            channel_model = None
+        channel_model = SIONNAChannelModel(
+            system_config=system_config,
+            model_type="TDL-A",  # Default, can be made configurable
+            num_rx_antennas=system_config.num_rx_antennas,
+            delay_spread=300e-9,
+            device=self.device
+        )
         
         # Create data generator
         self.data_generator = SRSDataGenerator(
@@ -181,55 +304,46 @@ class DistributedTrainer:
     
     def train(self, num_epochs: int = 100):
         """
-        Run distributed training
+        Run NUMA-aware distributed training
         
         Args:
             num_epochs: Number of training epochs
         """
         if self.rank == 0:
-            print(f"\n🚀 Starting distributed training:")
+            print(f"\n🚀 Starting NUMA-aware distributed training:")
             print(f"   - Epochs: {num_epochs}")
             print(f"   - World size: {self.world_size}")
             print(f"   - DDP enabled: {self.use_ddp}")
             print(f"   - Device: {self.device}")
-        
-        # Adjust epochs for distributed training
-        if self.use_ddp and self.world_size > 1:
-            # With DDP, we can potentially train faster, so we might want to adjust epochs
-            # This is problem-specific, keeping the same for now
-            pass
+            if self.numa_info:
+                print(f"   - NUMA nodes: {self.numa_info.get('numa_nodes', 1)}")
+                print(f"   - Platform: {self.numa_info.get('platform', 'unknown')}")
         
         # Start training
         start_time = time.time()
         
-        try:
-            # Run training
-            self.trainer.train(
-                num_epochs=num_epochs,
-                num_batches=1000,  # Number of batches per epoch
-                batch_size=self.settings['batch_size_per_gpu'],
-                val_batches=200,   # Number of validation batches
-                val_every_n_epochs=5,
-                save_every_n_epochs=10
-            )
-            
-            # Synchronize processes
-            if self.use_ddp:
-                dist.barrier()
-            
-            training_time = time.time() - start_time
-            
-            if self.rank == 0:
-                print(f"\n✅ Training completed in {training_time:.2f} seconds")
-                print(f"   - Average time per epoch: {training_time/num_epochs:.2f} seconds")
-                
-                if self.use_ddp:
-                    print(f"   - Speedup factor: ~{self.world_size:.1f}x (theoretical)")
+        # Run training - let errors propagate without masking
+        self.trainer.train(
+            num_epochs=num_epochs,
+            num_batches=1000,  # Number of batches per epoch
+            batch_size=self.settings['batch_size_per_gpu'],
+            val_batches=200,   # Number of validation batches
+            val_every_n_epochs=5,
+            save_every_n_epochs=10
+        )
         
-        except Exception as e:
-            if self.rank == 0:
-                print(f"❌ Training failed: {e}")
-            raise
+        # Synchronize processes
+        if self.use_ddp:
+            dist.barrier()
+        
+        training_time = time.time() - start_time
+        
+        if self.rank == 0:
+            print(f"\n✅ Training completed in {training_time:.2f} seconds")
+            print(f"   - Average time per epoch: {training_time/num_epochs:.2f} seconds")
+            
+            if self.use_ddp:
+                print(f"   - Speedup factor: ~{self.world_size:.1f}x (theoretical)")
     
     def cleanup(self):
         """Clean up distributed resources"""
@@ -240,53 +354,50 @@ class DistributedTrainer:
             torch.cuda.empty_cache()
 
 
-def run_distributed_training(rank: int, world_size: int, args):
+def run_distributed_training(rank: int, world_size: int, args, numa_info: Dict):
     """
-    Run training on a single process
+    Run NUMA-aware training on a single process
     
     Args:
         rank: Process rank
         world_size: Total number of processes
         args: Command line arguments
+        numa_info: NUMA topology information
     """
-    try:
-        # Setup distributed training
-        ddp_enabled, settings = setup_distributed_training(
-            enable_ddp=args.enable_ddp,
-            rank=rank,
-            world_size=world_size
-        )
-        
-        # Create configuration
-        config = create_example_config()
-        
-        # Override batch size if specified
-        if args.batch_size:
-            settings['batch_size_per_gpu'] = args.batch_size // world_size
-        
-        # Create trainer
-        trainer = DistributedTrainer(
-            config=config,
-            rank=rank,
-            world_size=world_size,
-            use_ddp=ddp_enabled,
-            settings=settings
-        )
-        
-        # Run training
-        trainer.train(num_epochs=args.num_epochs)
-        
-        # Cleanup
-        trainer.cleanup()
-        
-    except Exception as e:
-        print(f"❌ Process {rank} failed: {e}")
-        raise
+    # Setup distributed training - let errors propagate
+    ddp_enabled, settings = setup_distributed_training(
+        enable_ddp=args.enable_ddp,
+        rank=rank,
+        world_size=world_size
+    )
+    
+    # Create configuration
+    config = create_example_config()
+    
+    # Override batch size if specified
+    if args.batch_size:
+        settings['batch_size_per_gpu'] = args.batch_size // world_size
+    
+    # Create trainer
+    trainer = DistributedTrainer(
+        config=config,
+        rank=rank,
+        world_size=world_size,
+        use_ddp=ddp_enabled,
+        settings=settings,
+        numa_info=numa_info
+    )
+    
+    # Run training - let errors propagate
+    trainer.train(num_epochs=args.num_epochs)
+    
+    # Cleanup
+    trainer.cleanup()
 
 
 def main():
-    """Main function"""
-    parser = argparse.ArgumentParser(description="Distributed SRS Channel Estimation Training")
+    """Main function with NUMA-aware distributed training"""
+    parser = argparse.ArgumentParser(description="NUMA-aware Distributed SRS Channel Estimation Training")
     
     # Training parameters
     parser.add_argument('--num-epochs', type=int, default=100, help='Number of training epochs')
@@ -295,7 +406,7 @@ def main():
     
     # Distributed training parameters
     parser.add_argument('--enable-ddp', action='store_true', help='Enable distributed data parallel')
-    parser.add_argument('--world-size', type=int, help='Number of processes (auto-detected if not specified)')
+    parser.add_argument('--world-size', type=int, help='Number of processes (auto-detected based on NUMA topology)')
     parser.add_argument('--backend', type=str, default='auto', choices=['auto', 'nccl', 'gloo'], 
                         help='DDP backend')
     
@@ -310,6 +421,9 @@ def main():
     
     args = parser.parse_args()
     
+    # Detect NUMA topology
+    numa_info = detect_numa_topology()
+    
     # System detection
     detector = SystemDetector()
     
@@ -317,41 +431,55 @@ def main():
     print("🔍 System Detection Results:")
     detector.print_system_info()
     
-    # Check if we should use DDP
-    if args.enable_ddp:
-        if not torch.cuda.is_available():
-            print("⚠️  CUDA not available, disabling DDP")
-            args.enable_ddp = False
-        elif detector.gpu_count < 2:
-            print("⚠️  Less than 2 GPUs detected, disabling DDP")
-            args.enable_ddp = False
+    # Determine world size based on NUMA topology
+    if args.world_size:
+        world_size = args.world_size
+        print(f"🎯 Using manual world_size: {world_size}")
+    else:
+        world_size = determine_optimal_world_size(numa_info, args.enable_ddp)
     
-    # Determine world size
-    world_size = args.world_size or detector.gpu_count if args.enable_ddp else 1
+    # Validate DDP configuration
+    if args.enable_ddp and world_size > 1:
+        if numa_info['platform'] != 'linux':
+            print("⚠️ DDP training is optimized for Linux servers with multiple NUMA nodes")
+            print("⚠️ On Windows, single-process training is recommended")
+            world_size = 1
+            args.enable_ddp = False
+        elif numa_info['numa_nodes'] < 2:
+            print("⚠️ Single NUMA node detected - using single-process training")
+            world_size = 1
+            args.enable_ddp = False
     
     # Run training
     if args.enable_ddp and world_size > 1:
-        # Multi-process training
-        print(f"\n🚀 Launching distributed training with {world_size} processes")
+        # Multi-process NUMA-aware training on Linux
+        print(f"\n🚀 Launching NUMA-aware distributed training:")
+        print(f"   - Platform: {numa_info['platform']}")
+        print(f"   - NUMA nodes: {numa_info['numa_nodes']}")
+        print(f"   - World size: {world_size}")
+        print(f"   - Cores per process: {numa_info['cores_per_node']}")
         
         # Check if we're launched by torchrun
         if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
             # We're launched by torchrun, use the provided rank and world_size
             rank = int(os.environ['RANK'])
             world_size = int(os.environ['WORLD_SIZE'])
-            run_distributed_training(rank, world_size, args)
+            run_distributed_training(rank, world_size, args, numa_info)
         else:
             # Launch processes manually
             mp.spawn(
                 run_distributed_training,
-                args=(world_size, args),
+                args=(world_size, args, numa_info),
                 nprocs=world_size,
                 join=True
             )
     else:
-        # Single-process training
-        print(f"\n🚀 Launching single-process training")
-        run_distributed_training(0, 1, args)
+        # Single-process training (Windows or single NUMA node)
+        print(f"\n🚀 Launching single-process training:")
+        print(f"   - Platform: {numa_info['platform']}")
+        print(f"   - Total cores: {numa_info['total_cores']}")
+        print(f"   - PyTorch threads: {numa_info['cores_per_node']}")
+        run_distributed_training(0, 1, args, numa_info)
 
 
 if __name__ == '__main__':
