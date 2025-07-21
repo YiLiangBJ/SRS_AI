@@ -11,12 +11,12 @@ import matplotlib.pyplot as plt
 
 import sionna
 SIONNA_AVAILABLE = True
-print("✅ SIONNA available - using professional 3GPP channel models")
+print("SIONNA available - using professional 3GPP channel models")
 
 
 from professional_channels import SIONNAChannelModel, SIONNAChannelGenerator, print_sionna_info
 PROFESSIONAL_CHANNELS_AVAILABLE = True
-print("✅ Professional channel wrapper available")
+print("Professional channel wrapper available")
 
 
 import argparse

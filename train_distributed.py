@@ -96,21 +96,28 @@ def detect_numa_topology():
     return numa_info
 
 
-def bind_process_to_numa_node(rank: int, numa_info: Dict):
+def bind_process_to_numa_node(rank: int, numa_info: Dict, force_single_numa: bool = False, numa_node_id: int = 0):
     """
     Bind the current process to a specific NUMA node using taskset and PyTorch thread control
     
     Args:
         rank: Process rank (also serves as NUMA node index)
         numa_info: NUMA topology information
+        force_single_numa: Force all processes to use the same NUMA node
+        numa_node_id: Specific NUMA node ID to use when force_single_numa is True
     """
     platform_name = numa_info['platform']
     numa_nodes = numa_info['numa_nodes']
     cores_per_node = numa_info['cores_per_node']
     
     if platform_name == 'linux' and numa_nodes > 1:
-        # Calculate NUMA node for this rank
-        numa_node = rank % numa_nodes
+        if force_single_numa:
+            # Force all processes to use the specified NUMA node
+            numa_node = numa_node_id
+            print(f"🔒 FORCE SINGLE NUMA: Process {rank} forced to NUMA node {numa_node}")
+        else:
+            # Calculate NUMA node for this rank (normal distributed mode)
+            numa_node = rank % numa_nodes
         
         # Calculate core range for this NUMA node
         start_core = numa_node * cores_per_node
@@ -119,14 +126,28 @@ def bind_process_to_numa_node(rank: int, numa_info: Dict):
         # Set CPU affinity using taskset (external command)
         pid = os.getpid()
         core_list = f"{start_core}-{end_core}"
-        subprocess.run(['taskset', '-cp', core_list, str(pid)], check=True)
+        try:
+            result = subprocess.run(['taskset', '-cp', core_list, str(pid)], 
+                                  capture_output=True, text=True, check=True)
+            print(f"🎯 Process {rank} bound to NUMA node {numa_node}:")
+            print(f"   - CPU cores: {start_core}-{end_core}")
+            print(f"   - taskset result: {result.stdout.strip()}")
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️ Failed to set CPU affinity: {e}")
+            print(f"   - Continuing without CPU binding...")
         
         # Set PyTorch thread count to physical cores on this NUMA node
         torch.set_num_threads(cores_per_node)
         
-        print(f"🎯 Process {rank} bound to NUMA node {numa_node}:")
-        print(f"   - CPU cores: {start_core}-{end_core}")
         print(f"   - PyTorch threads: {cores_per_node}")
+        
+        # Additional NUMA memory policy (optional)
+        try:
+            subprocess.run(['numactl', '--membind', str(numa_node), '--', 'echo', 'NUMA memory policy set'], 
+                         check=True, capture_output=True)
+            print(f"   - NUMA memory policy: membind to node {numa_node}")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print(f"   - NUMA memory policy: not available (numactl not found)")
         
     elif platform_name == 'windows':
         # On Windows, just set thread count to reasonable value
@@ -141,18 +162,23 @@ def bind_process_to_numa_node(rank: int, numa_info: Dict):
         print(f"💻 Single NUMA node: PyTorch threads set to {numa_info['cores_per_node']}")
 
 
-def determine_optimal_world_size(numa_info: Dict, enable_ddp: bool) -> int:
+def determine_optimal_world_size(numa_info: Dict, enable_ddp: bool, force_single_numa: bool = False) -> int:
     """
     Determine optimal world size based on NUMA topology
     
     Args:
         numa_info: NUMA topology information
         enable_ddp: Whether DDP is requested
+        force_single_numa: Force single NUMA node usage
         
     Returns:
         Optimal world size
     """
     if not enable_ddp:
+        return 1
+    
+    if force_single_numa:
+        print(f"🔒 FORCE SINGLE NUMA: Using single-process training on one NUMA node")
         return 1
     
     platform_name = numa_info['platform']
@@ -173,7 +199,8 @@ class DistributedTrainer:
     """NUMA-aware distributed training wrapper for SRS Channel Estimation"""
     
     def __init__(self, config: SRSConfig, rank: int = 0, world_size: int = 1, 
-                 use_ddp: bool = False, settings: Dict[str, Any] = None, numa_info: Dict = None):
+                 use_ddp: bool = False, settings: Dict[str, Any] = None, numa_info: Dict = None,
+                 force_single_numa: bool = False, numa_node_id: int = 0):
         """
         Initialize distributed trainer with NUMA awareness
         
@@ -184,6 +211,8 @@ class DistributedTrainer:
             use_ddp: Whether to use DDP
             settings: System-specific settings
             numa_info: NUMA topology information
+            force_single_numa: Force single NUMA node usage
+            numa_node_id: Specific NUMA node ID to use
         """
         self.config = config
         self.rank = rank
@@ -191,10 +220,12 @@ class DistributedTrainer:
         self.use_ddp = use_ddp
         self.settings = settings or {}
         self.numa_info = numa_info or {}
+        self.force_single_numa = force_single_numa
+        self.numa_node_id = numa_node_id
         
         # Apply NUMA binding if available
         if numa_info:
-            bind_process_to_numa_node(rank, numa_info)
+            bind_process_to_numa_node(rank, numa_info, force_single_numa, numa_node_id)
         
         # Set device
         if torch.cuda.is_available():
@@ -315,9 +346,13 @@ class DistributedTrainer:
             print(f"   - World size: {self.world_size}")
             print(f"   - DDP enabled: {self.use_ddp}")
             print(f"   - Device: {self.device}")
+            print(f"   - Force single NUMA: {self.force_single_numa}")
+            if self.force_single_numa:
+                print(f"   - Target NUMA node: {self.numa_node_id}")
             if self.numa_info:
                 print(f"   - NUMA nodes: {self.numa_info.get('numa_nodes', 1)}")
                 print(f"   - Platform: {self.numa_info.get('platform', 'unknown')}")
+                print(f"   - Cores per NUMA node: {self.numa_info.get('cores_per_node', 'unknown')}")
         
         # Start training
         start_time = time.time()
@@ -387,7 +422,9 @@ def run_distributed_training(rank: int, world_size: int, args, numa_info: Dict, 
         world_size=world_size,
         use_ddp=ddp_enabled,
         settings=settings,
-        numa_info=numa_info
+        numa_info=numa_info,
+        force_single_numa=getattr(args, 'force_single_numa', False),
+        numa_node_id=getattr(args, 'numa_node_id', 0)
     )
     
     # Run training - let errors propagate
@@ -416,6 +453,10 @@ def main():
     parser.add_argument('--platform-type', type=str, choices=['pc', 'server', 'gpu_cluster'], 
                         help='Override platform detection')
     parser.add_argument('--num-workers', type=int, help='Number of data loading workers')
+    parser.add_argument('--force-single-numa', action='store_true', 
+                        help='Force single NUMA node usage (test CPU utilization without cross-NUMA overhead)')
+    parser.add_argument('--numa-node-id', type=int, default=0,
+                        help='Specific NUMA node ID to use when --force-single-numa is enabled (default: 0)')
     
     # Debug parameters
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
@@ -438,7 +479,12 @@ def main():
         world_size = args.world_size
         print(f"🎯 Using manual world_size: {world_size}")
     else:
-        world_size = determine_optimal_world_size(numa_info, args.enable_ddp)
+        world_size = determine_optimal_world_size(numa_info, args.enable_ddp, args.force_single_numa)
+    
+    # Override world_size for force_single_numa mode
+    if args.force_single_numa:
+        world_size = 1
+        print(f"🔒 FORCE SINGLE NUMA: Overriding world_size to 1")
     
     # Validate DDP configuration
     if args.enable_ddp and world_size > 1:

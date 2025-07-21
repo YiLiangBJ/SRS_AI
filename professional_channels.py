@@ -33,7 +33,7 @@ from sionna.phy.channel.tr38901 import TDL
 from sionna.phy.channel import cir_to_ofdm_channel, subcarrier_frequencies
 import tensorflow as tf
 SIONNA_AVAILABLE = True
-print("✅ SIONNA professional channel library loaded successfully")
+print("SIONNA professional channel library loaded successfully")
 
 
 
@@ -182,7 +182,7 @@ class SIONNAChannelModel:
         if self.num_rx_antennas <= 0 or self.num_tx_antennas <= 0:
             raise ValueError(f"天线数量必须为正整数，RX: {self.num_rx_antennas}, TX: {self.num_tx_antennas}")
         
-        print("✅ TDL 参数验证通过")
+        print("TDL parameters validated")
     
     def validate_tdl_output(self, h, delays, batch_size, num_time_steps):
         """验证 TDL 输出的合理性"""
@@ -228,7 +228,7 @@ class SIONNAChannelModel:
         total_power = tf.reduce_mean(tf.square(h_magnitude))
         print(f"   平均信道功率: {total_power:.6f}")
         
-        print("✅ TDL 输出验证通过")
+        print("TDL output validated")
         return h, delays
     
     def debug_create_user_tdl(self, user_id, num_ports, batch_size=1, num_time_steps=1, sampling_frequency=None):
@@ -270,7 +270,7 @@ class SIONNAChannelModel:
                 num_tx_ant=num_ports,  # 关键：设置为用户的port数
                 precision='single'
             )
-            print(f"✅ 用户 {user_id} TDL实例创建成功")
+            print(f"User {user_id} TDL instance created successfully")
             
             # 测试TDL调用
             print(f"🎯 测试用户 {user_id} TDL调用:")
@@ -291,13 +291,13 @@ class SIONNAChannelModel:
             if h.shape[4] != num_ports:
                 print(f"⚠️  TX天线维度不匹配！")
             else:
-                print(f"✅ TX天线维度完美匹配")
+                print(f"TX antenna dimensions perfectly matched")
             
             # 清理TDL实例
             del user_channel
             print(f"🧹 用户 {user_id} TDL实例已清理")
             
-            print(f"✅ 用户 {user_id} TDL调试成功")
+            print(f"User {user_id} TDL debugging successful")
             return h, delays
             
         except Exception as e:
@@ -909,7 +909,7 @@ def print_sionna_info():
     print("=" * 40)
     
     if SIONNA_AVAILABLE:
-        print("✅ SIONNA - Professional 3GPP TR 38.901 models")
+        print("SIONNA - Professional 3GPP TR 38.901 models")
         print("   Features:")
         print("   - Complete 3GPP compliance")
         print("   - TDL models (A, B, C, D, E)")
