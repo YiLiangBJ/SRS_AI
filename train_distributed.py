@@ -283,7 +283,7 @@ class DistributedTrainer:
     def _setup_trainer(self):
         """Setup the trainer with distributed settings"""
         # Get batch size from settings
-        batch_size = self.settings.get('batch_size_per_gpu', 32)
+        batch_size = self.settings.get('batch_size_per_process', 32)
         
         # Create trainer
         self.trainer = SRSTrainerModified(
@@ -326,7 +326,7 @@ class DistributedTrainer:
         self.trainer.train(
             num_epochs=num_epochs,
             num_batches=1000,  # Number of batches per epoch
-            batch_size=self.settings['batch_size_per_gpu'],
+            batch_size=self.settings['batch_size_per_process'],
             val_batches=200,   # Number of validation batches
             val_every_n_epochs=5,
             save_every_n_epochs=10
@@ -354,7 +354,7 @@ class DistributedTrainer:
             torch.cuda.empty_cache()
 
 
-def run_distributed_training(rank: int, world_size: int, args, numa_info: Dict):
+def run_distributed_training(rank: int, world_size: int, args, numa_info: Dict, hw_detector: SystemDetector):
     """
     Run NUMA-aware training on a single process
     
@@ -363,12 +363,14 @@ def run_distributed_training(rank: int, world_size: int, args, numa_info: Dict):
         world_size: Total number of processes
         args: Command line arguments
         numa_info: NUMA topology information
+        hw_detector: Pre-initialized hardware detector
     """
     # Setup distributed training - let errors propagate
     ddp_enabled, settings = setup_distributed_training(
         enable_ddp=args.enable_ddp,
         rank=rank,
-        world_size=world_size
+        world_size=world_size,
+        system_detector=hw_detector
     )
     
     # Create configuration
@@ -376,7 +378,7 @@ def run_distributed_training(rank: int, world_size: int, args, numa_info: Dict):
     
     # Override batch size if specified
     if args.batch_size:
-        settings['batch_size_per_gpu'] = args.batch_size // world_size
+        settings['batch_size_per_process'] = args.batch_size // world_size
     
     # Create trainer
     trainer = DistributedTrainer(
@@ -424,12 +426,12 @@ def main():
     # Detect NUMA topology
     numa_info = detect_numa_topology()
     
-    # System detection
-    detector = SystemDetector()
+    # Initialize system detector (once)
+    hw_detector = SystemDetector()
     
     # Print system info
     print("🔍 System Detection Results:")
-    detector.print_system_info()
+    hw_detector.print_system_info()
     
     # Determine world size based on NUMA topology
     if args.world_size:
@@ -464,12 +466,12 @@ def main():
             # We're launched by torchrun, use the provided rank and world_size
             rank = int(os.environ['RANK'])
             world_size = int(os.environ['WORLD_SIZE'])
-            run_distributed_training(rank, world_size, args, numa_info)
+            run_distributed_training(rank, world_size, args, numa_info, hw_detector)
         else:
             # Launch processes manually
             mp.spawn(
                 run_distributed_training,
-                args=(world_size, args, numa_info),
+                args=(world_size, args, numa_info, hw_detector),
                 nprocs=world_size,
                 join=True
             )
@@ -479,7 +481,7 @@ def main():
         print(f"   - Platform: {numa_info['platform']}")
         print(f"   - Total cores: {numa_info['total_cores']}")
         print(f"   - PyTorch threads: {numa_info['cores_per_node']}")
-        run_distributed_training(0, 1, args, numa_info)
+        run_distributed_training(0, 1, args, numa_info, hw_detector)
 
 
 if __name__ == '__main__':

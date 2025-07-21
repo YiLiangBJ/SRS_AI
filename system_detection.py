@@ -149,29 +149,30 @@ class SystemDetector:
         settings = {
             'platform_type': platform_type,
             'use_ddp': False,
-            'num_workers': 0,
-            'batch_size_per_gpu': 32,
+            'num_workers': 0,  # For online data generation, no workers needed
+            'batch_size_per_process': 32,  # Batch size per process (CPU or GPU)
             'total_batch_size': 32,
-            'pin_memory': True,
+            'pin_memory': False,  # Not needed for online generation
             'persistent_workers': False,
-            'prefetch_factor': 2,
+            'prefetch_factor': 1,  # Minimal for online generation
             'world_size': 1,
             'backend': 'nccl' if self.has_cuda else 'gloo',
             'numa_nodes': numa_nodes
         }
         
         if platform_type == 'pc':
-            # Conservative settings for PC
+            # Optimized settings for PC with online data generation
             settings.update({
                 'use_ddp': False,
-                'num_workers': min(4, self.cpu_count),
-                'batch_size_per_gpu': 16 if self.gpu_count == 1 else 32,
-                'total_batch_size': 16 if self.gpu_count == 1 else 32,
+                'num_workers': 0,  # No workers needed for online generation
+                'batch_size_per_process': 32,  # Batch size per CPU process
+                'total_batch_size': 32,
+                'pin_memory': False,  # Not needed for online generation
                 'persistent_workers': False
             })
             
         elif platform_type == 'server':
-            # Optimized for multi-socket servers
+            # Optimized for multi-socket servers with online data generation
             # Enable DDP for multi-socket NUMA systems (even CPU-only)
             enable_ddp = self.gpu_count > 1 or numa_nodes > 1
             world_size = max(self.gpu_count, numa_nodes) if enable_ddp else 1
@@ -179,34 +180,37 @@ class SystemDetector:
             settings.update({
                 'use_ddp': enable_ddp,
                 'world_size': world_size,
-                'num_workers': min(8, self.cpu_count // max(1, world_size)),  # Distribute workers across processes
-                'batch_size_per_gpu': 32,
-                'total_batch_size': 32 * world_size,
-                'persistent_workers': True,
-                'prefetch_factor': 4
+                'num_workers': 0,  # No workers needed for online generation
+                'batch_size_per_process': 64,  # Servers can handle larger batches
+                'total_batch_size': 64 * world_size,
+                'pin_memory': False,  # Not needed for online generation
+                'persistent_workers': False,
+                'prefetch_factor': 1  # Minimal for online generation
             })
             
         elif platform_type == 'gpu_cluster':
-            # Aggressive settings for GPU clusters
+            # Settings for GPU clusters (if needed in future)
             settings.update({
                 'use_ddp': self.gpu_count > 1,
                 'world_size': self.gpu_count,
-                'num_workers': min(16, self.cpu_count),
-                'batch_size_per_gpu': 64,
-                'total_batch_size': 64 * self.gpu_count,
-                'persistent_workers': True,
-                'prefetch_factor': 8
+                'num_workers': 0,  # Even GPU clusters use online generation
+                'batch_size_per_process': 128,  # Larger batches for powerful hardware
+                'total_batch_size': 128 * self.gpu_count,
+                'pin_memory': False,  # Not needed for online generation
+                'persistent_workers': False,
+                'prefetch_factor': 1
             })
         
-        # Adjust batch size based on GPU memory
+        # Adjust batch size based on memory constraints (mainly for future GPU support)
+        # For CPU-only systems, we keep the configured batch sizes
         if self.has_cuda and self.gpu_memory_gb:
             min_gpu_memory = min(self.gpu_memory_gb)
             if min_gpu_memory < 8:
-                settings['batch_size_per_gpu'] = min(16, settings['batch_size_per_gpu'])
+                settings['batch_size_per_process'] = min(16, settings['batch_size_per_process'])
             elif min_gpu_memory < 16:
-                settings['batch_size_per_gpu'] = min(32, settings['batch_size_per_gpu'])
+                settings['batch_size_per_process'] = min(32, settings['batch_size_per_process'])
             
-            settings['total_batch_size'] = settings['batch_size_per_gpu'] * max(1, settings['world_size'])
+            settings['total_batch_size'] = settings['batch_size_per_process'] * max(1, settings['world_size'])
         
         return settings
     
@@ -292,7 +296,7 @@ def get_free_port() -> int:
 
 
 def setup_distributed_training(enable_ddp: bool = False, rank: int = 0, 
-                              world_size: int = 1) -> Tuple[bool, Dict]:
+                              world_size: int = 1, system_detector: SystemDetector = None) -> Tuple[bool, Dict]:
     """
     Setup distributed training with automatic configuration
     
@@ -300,16 +304,20 @@ def setup_distributed_training(enable_ddp: bool = False, rank: int = 0,
         enable_ddp: Whether to enable DDP (if None, auto-detect based on system)
         rank: Process rank (for multi-process)
         world_size: Total processes (for multi-process)
+        system_detector: Pre-initialized SystemDetector instance (optional)
         
     Returns:
         Tuple of (ddp_enabled, settings)
     """
-    detector = SystemDetector()
-    settings = detector.get_optimal_settings()
+    # Use provided detector or create new one
+    if system_detector is None:
+        system_detector = SystemDetector()
     
-    # Print system information
-    if rank == 0:
-        detector.print_system_info()
+    settings = system_detector.get_optimal_settings()
+    
+    # Print system information (only if not already printed)
+    if rank == 0 and system_detector is None:
+        system_detector.print_system_info()
     
     # Auto-detect DDP enablement if not explicitly set
     if enable_ddp is None:
@@ -317,7 +325,7 @@ def setup_distributed_training(enable_ddp: bool = False, rank: int = 0,
     
     # Setup DDP if requested and supported
     ddp_enabled = False
-    if enable_ddp and (detector.gpu_count > 1 or settings['numa_nodes'] > 1):
+    if enable_ddp and (system_detector.gpu_count > 1 or settings['numa_nodes'] > 1):
         if world_size == 1:
             world_size = settings['world_size']
         
@@ -325,10 +333,10 @@ def setup_distributed_training(enable_ddp: bool = False, rank: int = 0,
         
         # Choose backend based on hardware
         backend = settings['backend']
-        if not detector.has_cuda and settings['numa_nodes'] > 1:
+        if not system_detector.has_cuda and settings['numa_nodes'] > 1:
             backend = 'gloo'  # Use gloo for CPU-only NUMA systems
         
-        ddp_enabled = detector.setup_ddp_environment(
+        ddp_enabled = system_detector.setup_ddp_environment(
             rank=rank,
             world_size=world_size,
             backend=backend,
@@ -337,7 +345,7 @@ def setup_distributed_training(enable_ddp: bool = False, rank: int = 0,
         
         if ddp_enabled:
             # Set device for current process
-            if detector.has_cuda:
+            if system_detector.has_cuda:
                 torch.cuda.set_device(rank)
                 settings['device'] = f'cuda:{rank}'
             else:
@@ -348,14 +356,14 @@ def setup_distributed_training(enable_ddp: bool = False, rank: int = 0,
             settings['world_size'] = world_size
             
             # NUMA optimization for CPU-only systems
-            if not detector.has_cuda and settings['numa_nodes'] > 1:
+            if not system_detector.has_cuda and settings['numa_nodes'] > 1:
                 print(f"🔧 NUMA optimization: Process {rank} using NUMA node {rank % settings['numa_nodes']}")
                 # Set CPU affinity if possible
                 try:
                     import os
                     if hasattr(os, 'sched_setaffinity'):
                         # This is a simplified approach - in practice you'd want more sophisticated NUMA binding
-                        cores_per_node = detector.cpu_count // settings['numa_nodes']
+                        cores_per_node = system_detector.cpu_count // settings['numa_nodes']
                         start_core = rank * cores_per_node
                         end_core = start_core + cores_per_node
                         os.sched_setaffinity(0, range(start_core, end_core))
