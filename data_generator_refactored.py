@@ -113,7 +113,7 @@ class BaseSRSDataGenerator:
         num_rx_antennas: Optional[int] = None,
         sampling_rate: Optional[float] = None,
         # 其他参数
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str = "cpu",  # Force CPU-only execution
         **kwargs
     ):
         """
@@ -470,7 +470,7 @@ class SRSDataGenerator:
         channel_model: Optional[ChannelModelInterface] = None,
         num_rx_antennas: int = 4,
         sampling_rate: float = 122.88e6,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str = "cpu",  # Force CPU-only execution
         **kwargs
     ):
         """

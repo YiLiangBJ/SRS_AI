@@ -23,6 +23,14 @@ Usage:
     torchrun --nproc_per_node=4 train_distributed.py --enable-ddp
 """
 
+import os
+
+# Force CPU-only execution from the very beginning - disable all CUDA/GPU usage
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1' 
+os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow CUDA warnings
+
 import torch
 import torch.nn as nn
 import torch.distributed as dist
@@ -32,7 +40,6 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 import argparse
-import os
 import sys
 import time
 import platform
@@ -225,7 +232,10 @@ class DistributedTrainer:
         
         # Force CPU-only execution - disable all CUDA/GPU usage
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
-        print(f"🔒 CPU-ONLY MODE: Disabled CUDA/GPU (set CUDA_VISIBLE_DEVICES='')")
+        os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1'
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow CUDA warnings
+        print(f"🔒 CPU-ONLY MODE: Disabled CUDA/GPU and suppressed CUDA initialization")
         
         # Apply NUMA binding if available
         if numa_info:
@@ -435,6 +445,13 @@ def run_distributed_training(rank: int, world_size: int, args, numa_info: Dict, 
 
 def main():
     """Main function with NUMA-aware distributed training"""
+    # Force CPU-only execution from the very beginning - disable all CUDA/GPU usage
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    os.environ['CUDA_LAUNCH_BLOCKING'] = '1' 
+    os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1'
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow CUDA warnings
+    print(f"🔒 CPU-ONLY MODE: Environment configured for CPU-only execution")
+    
     parser = argparse.ArgumentParser(description="NUMA-aware Distributed SRS Channel Estimation Training")
     
     # Training parameters

@@ -38,15 +38,10 @@ class SystemDetector:
         self.logical_cpu_count = psutil.cpu_count(logical=True)  # Logical cores
         self.memory_gb = psutil.virtual_memory().total / (1024**3)
         
-        # GPU information
-        self.has_cuda = torch.cuda.is_available()
-        self.gpu_count = torch.cuda.device_count() if self.has_cuda else 0
+        # Force CPU-only mode - disable GPU detection
+        self.has_cuda = False
+        self.gpu_count = 0
         self.gpu_memory_gb = []
-        
-        if self.has_cuda:
-            for i in range(self.gpu_count):
-                gpu_memory = torch.cuda.get_device_properties(i).total_memory / (1024**3)
-                self.gpu_memory_gb.append(gpu_memory)
     
     def detect_platform_type(self) -> str:
         """

@@ -23,7 +23,7 @@ class SRSEvaluator:
         self,
         config: SRSConfig,
         checkpoint_path: str,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str = "cpu",  # Force CPU-only execution
         use_trainable_mmse: bool = True
     ):
         """

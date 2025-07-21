@@ -785,7 +785,7 @@ class SIONNAChannelGenerator:
         sampling_rate: Optional[float] = None,
         # 其他参数
         snr_range: Optional[Tuple[float, float]] = None,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str = "cpu",  # Force CPU-only execution
         **kwargs
     ):
         """

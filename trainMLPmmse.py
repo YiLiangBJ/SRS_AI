@@ -1,12 +1,30 @@
+"""
+Trainable MMSE Module and SRS Training Framework
+
+This module provides MLP-based MMSE filtering for SRS channel estimation.
+All computations are forced to run on CPU only.
+"""
+
 import os
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+# Force CPU-only execution - disable all CUDA/GPU usage
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
-from tqdm import tqdm
+from typing import Dict, List, Tuple, Optional, Any, Union
 import matplotlib.pyplot as plt
+from torch.utils.tensorboard import SummaryWriter
+import argparse
+from datetime import datetime
+import json
+from tqdm import tqdm
 
 
 import sionna
@@ -18,10 +36,6 @@ from professional_channels import SIONNAChannelModel, SIONNAChannelGenerator, pr
 PROFESSIONAL_CHANNELS_AVAILABLE = True
 print("Professional channel wrapper available")
 
-
-import argparse
-from typing import List, Dict, Optional, Tuple
-from torch.utils.tensorboard import SummaryWriter
 
 from config import SRSConfig, create_example_config
 from data_generator import SRSDataGenerator

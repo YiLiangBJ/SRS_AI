@@ -1,3 +1,18 @@
+"""
+SRS Channel Estimation Models using AI-enhanced methods
+
+This module provides traditional MMSE filtering with AI enhancements for SRS channel estimation.
+All computations are forced to run on CPU only.
+"""
+
+import os
+
+# Force CPU-only execution - disable all CUDA/GPU usage
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import torch
 import torch.nn as nn
 import numpy as np
