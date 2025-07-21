@@ -223,16 +223,17 @@ class DistributedTrainer:
         self.force_single_numa = force_single_numa
         self.numa_node_id = numa_node_id
         
+        # Force CPU-only execution - disable all CUDA/GPU usage
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        print(f"🔒 CPU-ONLY MODE: Disabled CUDA/GPU (set CUDA_VISIBLE_DEVICES='')")
+        
         # Apply NUMA binding if available
         if numa_info:
             bind_process_to_numa_node(rank, numa_info, force_single_numa, numa_node_id)
         
-        # Set device
-        if torch.cuda.is_available():
-            self.device = f'cuda:{rank}' if use_ddp else 'cuda'
-            torch.cuda.set_device(rank if use_ddp else 0)
-        else:
-            self.device = 'cpu'
+        # Set device - always use CPU
+        self.device = 'cpu'
+        print(f"🔒 CPU-ONLY MODE: Using CPU device for all computations")
         
         # Initialize models
         self._setup_models()
@@ -263,12 +264,10 @@ class DistributedTrainer:
             mmse_module=self.mmse_module
         ).to(self.device)
         
-        # Wrap with DDP if enabled
+        # Wrap with DDP if enabled (CPU-only, no device_ids needed)
         if self.use_ddp:
             self.mmse_module = DDP(
                 self.mmse_module,
-                device_ids=[self.rank],
-                output_device=self.rank,
                 find_unused_parameters=True
             )
             
@@ -385,8 +384,8 @@ class DistributedTrainer:
         if self.use_ddp and dist.is_initialized():
             dist.destroy_process_group()
         
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        # CPU-only mode - no CUDA cleanup needed
+        print("✅ Distributed training cleanup completed")
 
 
 def run_distributed_training(rank: int, world_size: int, args, numa_info: Dict, hw_detector: SystemDetector):

@@ -39,7 +39,7 @@ class SRSChannelEstimator(nn.Module):
         max_users: int = 8,
         max_ports_per_user: int = 4,
         mmse_block_size: int = 12,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str = "cpu",  # Force CPU-only execution
         mmse_module = None
     ):
         """
@@ -416,9 +416,22 @@ class SRSChannelEstimator(nn.Module):
         # Calculate group size (Locc) based on input and target length
         group_size = target_length // len(h_avg)
         
+        # Handle edge cases
+        if group_size == 0:
+            # If target_length < len(h_avg), just truncate or use simple interpolation
+            if target_length <= len(h_avg):
+                # Simple linear interpolation between available points
+                orig_indices = np.linspace(0, len(h_avg) - 1, len(h_avg))
+            else:
+                group_size = 1  # Fallback to avoid division by zero
+        
         # Create properly positioned input indices (at the center of each group)
         # For example, if group_size=4, the centers would be at indices 1.5, 5.5, 9.5, etc.
-        orig_indices = np.array([np.mean(np.arange(group_size)) + i * group_size for i in range(len(h_avg))])
+        if group_size > 0:
+            orig_indices = np.array([np.mean(np.arange(group_size)) + i * group_size for i in range(len(h_avg))])
+        else:
+            # Fallback: evenly spaced indices
+            orig_indices = np.linspace(0, target_length - 1, len(h_avg))
         
         # Create output indices (all integer positions from 0 to target_length-1)
         new_indices = np.arange(target_length)

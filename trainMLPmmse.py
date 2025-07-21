@@ -40,7 +40,7 @@ class SRSTrainerModified:
         mmse_module: TrainableMMSEModule = None,
         config: SRSConfig = None,
         data_generator: SRSDataGenerator = None,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str = "cpu",  # Force CPU-only execution
         learning_rate: float = 1e-4,
         batch_size: int = 32,
         use_tensorboard: bool = True,
@@ -1429,7 +1429,7 @@ def main():
     # Create trainer
     trainer = SRSTrainerModified(
         srs_config=srs_config,
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        device="cpu",  # Force CPU-only execution
         save_dir=args.save_dir,
         use_trainable_mmse=not args.no_mmse,
         enable_plotting=args.enable_plotting,

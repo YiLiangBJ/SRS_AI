@@ -74,7 +74,7 @@ class SIONNAChannelModel:
         num_rx_antennas: Optional[int] = None,
         delay_spread: Optional[float] = None,  # in seconds
         k_factor: Optional[float] = None,  # Ricean K-factor (linear scale)
-        device: str = "cuda" if torch.cuda.is_available() else "cpu"
+        device: str = "cpu"  # Force CPU-only execution
     ):
         """
         Initialize SIONNA channel model

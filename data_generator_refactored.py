@@ -187,9 +187,8 @@ class BaseSRSDataGenerator:
                     self.config.K
                 )
                 
-                # 转换为张量并移动到设备
-                seq_tensor = torch.tensor(
-                    shifted_seq, 
+                # 转换为张量并移动到设备 (使用推荐的 clone 方法而不是 torch.tensor)
+                seq_tensor = shifted_seq.detach().clone().to(
                     dtype=torch.complex64, 
                     device=self.device
                 )
