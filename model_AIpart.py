@@ -38,14 +38,14 @@ class TrainableMMSEModule(nn.Module):
         
         # Calculate parameter counts for Cholesky factors (lower triangular matrices)
         n = mmse_block_size
-        # 对角线元素 (只有实部) = n
-        # 严格下三角元素 (实部+虚部) = n*(n-1)/2
-        diag_size = n  # 对角线元素数量
-        off_diag_size = n * (n - 1) // 2  # 严格下三角元素数量
+        # Diagonal elements (real part only) = n
+        # Strictly lower triangular elements (real + imaginary parts) = n*(n-1)/2
+        diag_size = n  # Number of diagonal elements
+        off_diag_size = n * (n - 1) // 2  # Number of strictly lower triangular elements
         
-        # 实部参数 = 对角线元素 + 严格下三角元素
+        # Real parameters = diagonal elements + strictly lower triangular elements
         real_params = diag_size + off_diag_size
-        # 虚部参数 = 只有严格下三角元素有虚部
+        # Imaginary parameters = only strictly lower triangular elements have imaginary parts
         imag_params = off_diag_size
         
         # 总参数量

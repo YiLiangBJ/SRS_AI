@@ -1,13 +1,13 @@
 """
-重构后的SRS数据生成架构
+Refactored SRS Data Generation Architecture
 
-将数据生成和信道建模完全分离：
-1. BaseSRSDataGenerator: 纯数据生成，不包含信道
-2. ChannelModelInterface: 统一的信道接口
-3. SRSDataGenerator: 组合数据生成器+信道模型的高级接口
+Complete separation of data generation and channel modeling:
+1. BaseSRSDataGenerator: Pure data generation without channel
+2. ChannelModelInterface: Unified channel interface
+3. SRSDataGenerator: High-level interface combining data generator + channel model
 
-系统级物理层参数 (采样率、载波频率等) 从 SystemConfig 获取，确保全系统一致性。
-用户级SRS参数 (用户数量、循环移位等) 从 SRSConfig 获取。
+System-level physical layer parameters (sampling rate, carrier frequency, etc.) are obtained from SystemConfig to ensure system-wide consistency.
+User-level SRS parameters (number of users, cyclic shifts, etc.) are obtained from SRSConfig.
 
 这样的设计更清晰，避免了循环依赖和重复调用的问题。
 """

@@ -54,7 +54,7 @@ class SRSTrainerModified:
         mmse_module: TrainableMMSEModule = None,
         config: SRSConfig = None,
         data_generator: SRSDataGenerator = None,
-        device: str = "cpu",  # Force CPU-only execution
+        device: str = "cpu",  # Default to CPU, can be overridden to "cuda"
         learning_rate: float = 1e-4,
         batch_size: int = 32,
         use_tensorboard: bool = True,
@@ -195,7 +195,7 @@ class SRSTrainerModified:
             max_ports_per_user=max(self.config.ports_per_user),
             mmse_block_size=self.config.mmse_block_size,
             device=self.device,
-            mmse_module=self.mmse_module if use_trainable_mmse else None  # 传入 MMSE 模块
+            mmse_module=self.mmse_module if use_trainable_mmse else None  # Pass MMSE module
         ).to(self.device)
 
         # Make sure all model parameters require gradients
@@ -210,26 +210,26 @@ class SRSTrainerModified:
         
         # Create optimizer
         model_params = []
-        # 添加SRSChannelEstimator的参数
+        # Add SRSChannelEstimator parameters
         for name, param in self.srs_estimator.named_parameters():
             if param.requires_grad:
                 print(f"Adding trainable parameter: {name}, shape: {param.shape}")
                 model_params.append(param)
         
-        # 添加MMSE模块的参数
+        # Add MMSE module parameters
         if self.mmse_module:
             for name, param in self.mmse_module.named_parameters():
                 if param.requires_grad:
                     print(f"Adding trainable MMSE parameter: {name}, shape: {param.shape}")
                     model_params.append(param)
         
-        # 确保模型有可训练参数
+        # Ensure model has trainable parameters
         if len(model_params) == 0:
             raise ValueError("No trainable parameters found in the model!")
           
         # Print number of trainable parameters
         total_params = sum(p.numel() for p in model_params)
-        print(f"总共有 {total_params} 个可训练参数")
+        print(f"Total trainable parameters: {total_params}")
         
         self.optimizer = optim.Adam(model_params, lr=0.01)
         
@@ -316,30 +316,30 @@ class SRSTrainerModified:
         """Initialize the data generator"""
         from data_generator_refactored import SRSDataGenerator
         
-        # 首先检查是否有预初始化的数据生成器可以直接使用
+        # First check if there's a pre-initialized data generator available for direct use
         snr_key = "config_snr"
         if hasattr(self, 'data_generators') and snr_key in self.data_generators and self.data_generators[snr_key] is not None:
             self.data_generator = self.data_generators[snr_key]
             print(f"✅ Using pre-initialized data generator (using_channel={self.data_generator.using_channel})")
             return
             
-        # 检查是否有预初始化的信道模型可以使用
+        # Check if there's a pre-initialized channel model available for use
         channel_model = None
         if hasattr(self, 'channel_models') and self.channel_models:
-            # 尝试获取与默认配置匹配的信道模型
+            # Try to get channel model matching default configuration
             default_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
             if default_channel_key in self.channel_models and self.channel_models[default_channel_key] is not None:
                 channel_model = self.channel_models[default_channel_key]
                 print(f"✅ Using pre-initialized channel model: {default_channel_key}")
             else:
-                # 使用任何可用的信道模型
+                # Use any available channel model
                 available_models = [model for model in self.channel_models.values() if model is not None]
                 if available_models:
                     channel_model = available_models[0]
                     found_key = [k for k, v in self.channel_models.items() if v == channel_model][0]
                     print(f"✅ Using alternative channel model: {found_key}")
         
-        # 如果没有预初始化的信道模型，则创建一个新的
+        # If there's no pre-initialized channel model, create a new one
         if channel_model is None and self.channel_params['use_professional_channels']:
             try:
                 from professional_channels import SIONNAChannelModel
@@ -353,7 +353,7 @@ class SRSTrainerModified:
                 )
                 print(f"✅ Created new SIONNA channel model: {self.channel_params['channel_model']}")
                 
-                # 缓存这个新创建的模型，如果channel_models字典存在
+                # Cache this newly created model if channel_models dict exists
                 if hasattr(self, 'channel_models'):
                     channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
                     self.channel_models[channel_key] = channel_model
@@ -1399,6 +1399,9 @@ def main():
     parser.add_argument('--channel_model', type=str, default='TDL-C', 
                        choices=['TDL-A', 'TDL-B', 'TDL-C', 'TDL-D', 'TDL-E'],
                        help='Channel model type')
+    parser.add_argument('--device', type=str, default='cpu',
+                       choices=['cpu', 'cuda'],
+                       help='Device to use for training (cpu or cuda, default: cpu)')
     parser.add_argument('--use_sionna', action='store_true', default=True,
                        help='Use SIONNA professional channel models (default: True)')
     parser.add_argument('--use_custom_channels', action='store_true',
@@ -1409,6 +1412,26 @@ def main():
                        help='Carrier frequency in Hz')
     
     args = parser.parse_args()
+    
+    # Validate and configure device
+    if args.device == 'cuda':
+        if not torch.cuda.is_available():
+            print("⚠️ CUDA requested but not available, falling back to CPU")
+            args.device = 'cpu'
+        else:
+            # Enable CUDA by clearing the CPU-only environment variables
+            if 'CUDA_VISIBLE_DEVICES' in os.environ:
+                del os.environ['CUDA_VISIBLE_DEVICES']
+            if 'CUDA_LAUNCH_BLOCKING' in os.environ:
+                del os.environ['CUDA_LAUNCH_BLOCKING']
+            if 'XLA_FLAGS' in os.environ:
+                del os.environ['XLA_FLAGS']
+            print(f"🎯 CUDA enabled: {torch.cuda.get_device_name()}")
+            print(f"   GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+    else:
+        # Ensure CPU-only mode
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        print("🔒 CPU-only mode enabled")
     
     # Run test if requested
     if args.test:
@@ -1431,6 +1454,10 @@ def main():
     print("\n" + "="*60)
     print("🔧 TRAINING CONFIGURATION")
     print("="*60)
+    print(f"Device: {args.device}")
+    if args.device == 'cuda':
+        print(f"GPU: {torch.cuda.get_device_name()}")
+        print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     print(f"Channel Model: {args.channel_model}")
     print(f"Use SIONNA: {args.use_sionna and SIONNA_AVAILABLE}")
     print(f"Delay Spread: {args.delay_spread*1e9:.1f} ns (from {'system config' if args.delay_spread else 'command line'})")
@@ -1443,7 +1470,7 @@ def main():
     # Create trainer
     trainer = SRSTrainerModified(
         srs_config=srs_config,
-        device="cpu",  # Force CPU-only execution
+        device=args.device,  # Use device from command line argument
         save_dir=args.save_dir,
         use_trainable_mmse=not args.no_mmse,
         enable_plotting=args.enable_plotting,

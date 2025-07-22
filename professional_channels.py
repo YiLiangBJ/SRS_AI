@@ -2,11 +2,11 @@
 SIONNA Professional Channel Models for SRS Channel Estimation
 
 This module provides SIONN        print(f"🚀 Initializing SIONNA {self.model_type} channel model")
-        print(f"   系统配置参数:")
-        print(f"   - 采样率: {self.sampling_rate/1e6:.2f} MHz (= {self.subcarrier_spacing/1e3:.0f} kHz × {self.ifft_size})")
-        print(f"   - 载波频率: {self.carrier_frequency/1e9:.1f} GHz")
-        print(f"   - 子载波间隔: {self.subcarrier_spacing/1e3:.0f} kHz")
-        print(f"   - IFFT大小: {self.ifft_size}")
+        print(f"   System configuration parameters:")
+        print(f"   - Sampling rate: {self.sampling_rate/1e6:.2f} MHz (= {self.subcarrier_spacing/1e3:.0f} kHz × {self.ifft_size})")
+        print(f"   - Carrier frequency: {self.carrier_frequency/1e9:.1f} GHz")
+        print(f"   - Subcarrier spacing: {self.subcarrier_spacing/1e3:.0f} kHz")
+        print(f"   - IFFT size: {self.ifft_size}")
         self._init_sionna()based professional 3GPP channel models.
 SIONNA is the industry standard for wireless communication simulation.
 
@@ -41,13 +41,13 @@ class SIONNAChannelModel:
     """
     SIONNA-based professional 3GPP channel model with per-UE TDL instantiation.
     
-    🔧 架构设计 (Physically Meaningful TDL Usage):
+    🔧 Architecture Design (Physically Meaningful TDL Usage):
     
     1. **Per-UE TDL Strategy**:
-       - 不在初始化时创建全局TDL实例
-       - 运行时为每个UE单独创建TDL实例
-       - 每个UE的TDL: num_tx_ant = 该UE的port数量
-       - 更符合物理现实：每个UE有独立的信道环境
+       - No global TDL instance created at initialization
+       - Individual TDL instance created for each UE at runtime
+       - Each UE's TDL: num_tx_ant = number of ports for that UE
+       - More physically realistic: each UE has independent channel environment
     
     2. **Framework Usage**:
        - 输入：PyTorch张量

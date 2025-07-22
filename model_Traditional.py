@@ -82,23 +82,23 @@ class SRSChannelEstimator(nn.Module):
         self.R_matrix = None
         
         # Initialize h_with_residual/phasor for use in MMSE matrix generation
-        # 存储每个用户/端口的h_with_residual_phasor
+        # Store h_with_residual_phasor for each user/port
         self.current_h_with_residual_phasors = {}
-        # 保留单个变量作为向后兼容
+        # Keep single variable for backward compatibility
         self.current_h_with_residual_phasor = None
 
     def forward(
         self, 
-        ls_estimates: List[torch.Tensor],  # 修改类型注解
+        ls_estimates: List[torch.Tensor],  # Modified type annotation
         user_config,
         true_channels_dict: Optional[List[Dict[Tuple[int, int],torch.tensor]]] = None, # Debug purpose
-        delay_search_range: Tuple[int, int] = (-30, 30)) -> List[Dict[Tuple[int, int], torch.Tensor]]:  # 修改返回类型
+        delay_search_range: Tuple[int, int] = (-30, 30)) -> List[Dict[Tuple[int, int], torch.Tensor]]:  # Modified return type
 
-        # 从用户配置获取循环移位信息
+        # Get cyclic shift information from user configuration
         cyclic_shifts = user_config.cyclic_shifts
         batch_size = len(ls_estimates)
         
-        # 初始化结果列表
+        # Initialize results list
         channel_estimates_list = []
         
         # 遍历每个batch样本
