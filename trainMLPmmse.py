@@ -264,14 +264,8 @@ class SRSTrainerModified:
         if not hasattr(self, 'channel_params'):
             self._init_legacy_attributes(use_professional_channels=True, use_sionna=True)
         
-        # Execute complete initialization
-        try:
-            self._initialize_all_instances()
-        except Exception as e:
-            print(f"⚠️ Instance initialization failed, continuing with basic configuration: {e}")
-            # Ensure basic data generator is available
-            if not hasattr(self, 'data_generator') or self.data_generator is None:
-                self._init_data_generator()
+        # Execute complete initialization - no try/except for strict error handling
+        self._initialize_all_instances()
             
     def _init_legacy_attributes(self, use_professional_channels: bool, use_sionna: bool):
         """
@@ -341,26 +335,22 @@ class SRSTrainerModified:
         
         # If there's no pre-initialized channel model, create a new one
         if channel_model is None and self.channel_params['use_professional_channels']:
-            try:
-                from professional_channels import SIONNAChannelModel
-                
-                channel_model = SIONNAChannelModel(
-                    system_config=self.system_config,
-                    model_type=self.channel_params['channel_model'],
-                    num_rx_antennas=self.system_config.num_rx_antennas,
-                    delay_spread=self.channel_params['delay_spread'],
-                    device=self.device
-                )
-                print(f"✅ Created new SIONNA channel model: {self.channel_params['channel_model']}")
-                
-                # Cache this newly created model if channel_models dict exists
-                if hasattr(self, 'channel_models'):
-                    channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
-                    self.channel_models[channel_key] = channel_model
-                    print(f"✅ Cached new channel model: {channel_key}")
-            except Exception as e:
-                print(f"⚠️ Failed to create SIONNA channel model: {e}")
-                channel_model = None
+            from professional_channels import SIONNAChannelModel
+            
+            channel_model = SIONNAChannelModel(
+                system_config=self.system_config,
+                model_type=self.channel_params['channel_model'],
+                num_rx_antennas=self.system_config.num_rx_antennas,
+                delay_spread=self.channel_params['delay_spread'],
+                device=self.device
+            )
+            print(f"✅ Created new SIONNA channel model: {self.channel_params['channel_model']}")
+            
+            # Cache this newly created model if channel_models dict exists
+            if hasattr(self, 'channel_models'):
+                channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
+                self.channel_models[channel_key] = channel_model
+                print(f"✅ Cached new channel model: {channel_key}")
         
         # Create data generator
         self.data_generator = SRSDataGenerator(
@@ -390,39 +380,34 @@ class SRSTrainerModified:
         
         This way during training we only need to look up dictionaries, no repeated instantiation
         """
-        try:
-            print(f"🚀 Starting complete instantiation...")
-            
-            # ========================================
-            # 1. Initialize channel model instances (organized by configuration parameters)
-            # ========================================
-            print(f"📡 Initializing channel model instances...")
-            self._initialize_channel_models()
-            
-            # ========================================
-            # 2. Initialize data generator instances (organized by SNR range)
-            # ========================================
-            print(f"📊 Initializing data generator instances...")
-            self._initialize_data_generators()
-            
-            # ========================================
-            # 3. Initialize per-UE dedicated instances (if needed)
-            # ========================================
-            print(f"👥 Initializing per-UE dedicated instances...")
-            self._initialize_per_ue_instances()
-            
-            # ========================================
-            # 4. Initialize per-port dedicated instances (if needed)
-            # ========================================
-            print(f"📋 Initializing per-port dedicated instances...")
-            self._initialize_per_port_instances()
-            
-            print(f"✅ All instances initialization completed!")
-            self._print_instance_summary()
-            
-        except Exception as e:
-            print(f"❌ Instance initialization failed: {e}")
-            raise RuntimeError(f"Failed to initialize instances: {e}")
+        print(f"🚀 Starting complete instantiation...")
+        
+        # ========================================
+        # 1. Initialize channel model instances (organized by configuration parameters)
+        # ========================================
+        print(f"📡 Initializing channel model instances...")
+        self._initialize_channel_models()
+        
+        # ========================================
+        # 2. Initialize data generator instances (organized by SNR range)
+        # ========================================
+        print(f"📊 Initializing data generator instances...")
+        self._initialize_data_generators()
+        
+        # ========================================
+        # 3. Initialize per-UE dedicated instances (if needed)
+        # ========================================
+        print(f"👥 Initializing per-UE dedicated instances...")
+        self._initialize_per_ue_instances()
+        
+        # ========================================
+        # 4. Initialize per-port dedicated instances (if needed)
+        # ========================================
+        print(f"📋 Initializing per-port dedicated instances...")
+        self._initialize_per_port_instances()
+        
+        print(f"✅ All instances initialization completed!")
+        self._print_instance_summary()
     
     def _initialize_channel_models(self):
         """Initialize all common channel model instances"""
@@ -480,31 +465,19 @@ class SRSTrainerModified:
                 successful_model = self.channel_models[config_key]  # Record a successful model
                 continue
                 
-            try:
-                print(f"   🔧 Creating channel model: {config_key}")
-                channel_model = SIONNAChannelModel(
-                    system_config=self.system_config,
-                    model_type=config['model'],
-                    num_rx_antennas=self.system_config.num_rx_antennas,
-                    delay_spread=config['delay_spread'],
-                    device=self.channel_params['device']
-                )
-                self.channel_models[config_key] = channel_model
-                print(f"   ✅ {config_key} created successfully")
-                successful_model = channel_model  # Record a successful model
-                
-            except Exception as e:
-                print(f"   ⚠️ {config_key} creation failed: {e}, will retry later")
+            print(f"   🔧 Creating channel model: {config_key}")
+            channel_model = SIONNAChannelModel(
+                system_config=self.system_config,
+                model_type=config['model'],
+                num_rx_antennas=self.system_config.num_rx_antennas,
+                delay_spread=config['delay_spread'],
+                device=self.channel_params['device']
+            )
+            self.channel_models[config_key] = channel_model
+            print(f"   ✅ {config_key} created successfully")
+            successful_model = channel_model  # Record a successful model
         
-        # Ensure all configured channel models are successfully created
-        if successful_model is not None:
-            for config in self.common_channel_configs:
-                config_key = f"{config['model']}_{config['delay_spread']*1e9:.0f}ns"
-                
-                # If certain channel model creation failed, use the successful model as replacement
-                if config_key not in self.channel_models or self.channel_models[config_key] is None:
-                    print(f"   🔄 Using successfully created model to replace {config_key}")
-                    self.channel_models[config_key] = successful_model
+        # All channel models should be created successfully, no need for fallback logic
                 
         # Check and report initialization results
         success_count = sum(1 for model in self.channel_models.values() if model is not None)
@@ -571,36 +544,16 @@ class SRSTrainerModified:
             print(f"   ⏩ Data generator {snr_key} already exists, skipping initialization")
             return
         
-        try:
-            print(f"   🔧 Creating data generator: {snr_key} (SNR range: {config_snr_range})")
-            data_generator = SRSDataGenerator(
-                config=self.signal_gen_params['srs_config'],
-                channel_model=default_channel_model,
-                num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
-                sampling_rate=self.signal_gen_params['sampling_rate'],
-                device=self.signal_gen_params['device']
-            )
-            self.data_generators[snr_key] = data_generator
-            print(f"   ✅ {snr_key} created successfully (using_channel={data_generator.using_channel})")
-            
-        except Exception as e:
-            print(f"   ❌ {snr_key} creation failed: {e}")
-            self.data_generators[snr_key] = None
-            # Try to create data generator without channel model as backup
-            try:
-                print(f"   🔄 Trying to create backup data generator without channel")
-                backup_generator = SRSDataGenerator(
-                    config=self.signal_gen_params['srs_config'],
-                    channel_model=None,  # Do not use channel model
-                    num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
-                    sampling_rate=self.signal_gen_params['sampling_rate'],
-                    device=self.signal_gen_params['device']
-                )
-                self.data_generators[snr_key] = backup_generator
-                print(f"   ✅ Backup data generator created successfully (using_channel=False)")
-            except Exception as backup_err:
-                print(f"   ❌ Backup data generator creation failed: {backup_err}")
-                # At this point we really cannot create data generator, subsequent code needs to handle this case
+        print(f"   🔧 Creating data generator: {snr_key} (SNR range: {config_snr_range})")
+        data_generator = SRSDataGenerator(
+            config=self.signal_gen_params['srs_config'],
+            channel_model=default_channel_model,
+            num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
+            sampling_rate=self.signal_gen_params['sampling_rate'],
+            device=self.signal_gen_params['device']
+        )
+        self.data_generators[snr_key] = data_generator
+        print(f"   ✅ {snr_key} created successfully (using_channel={data_generator.using_channel})")
     
     def _initialize_per_ue_instances(self):
         """Initialize dedicated instances for each UE (if needed)"""
@@ -608,10 +561,7 @@ class SRSTrainerModified:
         # If future needs per-UE special processing, can add here
         
         # 🔧 Add configuration validation to prevent index out of bounds
-        try:
-            self.srs_config.validate_config()
-        except Exception as e:
-            raise RuntimeError(f"SRS configuration validation failed: {e}")
+        self.srs_config.validate_config()
         
         for user_id in range(self.srs_config.num_users):
             # 🔧 Add boundary check
@@ -1413,21 +1363,20 @@ def main():
     
     args = parser.parse_args()
     
-    # Validate and configure device
+    # Enforce strict device requirements
     if args.device == 'cuda':
         if not torch.cuda.is_available():
-            print("⚠️ CUDA requested but not available, falling back to CPU")
-            args.device = 'cpu'
-        else:
-            # Enable CUDA by clearing the CPU-only environment variables
-            if 'CUDA_VISIBLE_DEVICES' in os.environ:
-                del os.environ['CUDA_VISIBLE_DEVICES']
-            if 'CUDA_LAUNCH_BLOCKING' in os.environ:
-                del os.environ['CUDA_LAUNCH_BLOCKING']
-            if 'XLA_FLAGS' in os.environ:
-                del os.environ['XLA_FLAGS']
-            print(f"🎯 CUDA enabled: {torch.cuda.get_device_name()}")
-            print(f"   GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+            raise RuntimeError("CUDA was specified but no CUDA-capable GPU is available. Please specify 'cpu' if CPU execution is intended.")
+        
+        # Enable CUDA by clearing the CPU-only environment variables
+        if 'CUDA_VISIBLE_DEVICES' in os.environ:
+            del os.environ['CUDA_VISIBLE_DEVICES']
+        if 'CUDA_LAUNCH_BLOCKING' in os.environ:
+            del os.environ['CUDA_LAUNCH_BLOCKING']
+        if 'XLA_FLAGS' in os.environ:
+            del os.environ['XLA_FLAGS']
+        print(f"🎯 CUDA enabled: {torch.cuda.get_device_name()}")
+        print(f"   GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     else:
         # Ensure CPU-only mode
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -1534,10 +1483,10 @@ def test_standalone_trainer():
     # Create configuration
     config = create_example_config()
     
-    # Create trainer
+    # Create trainer with explicit parameters
     trainer = SRSTrainerModified(
         config=config,
-        device="cpu",  # Use CPU for testing
+        device="cpu",  # Explicitly use CPU for testing
         batch_size=4,
         use_tensorboard=False,  # Disable for testing
         use_trainable_mmse=True,

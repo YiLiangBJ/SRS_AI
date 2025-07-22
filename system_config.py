@@ -219,16 +219,20 @@ class SystemConfig:
 
 def create_default_system_config() -> SystemConfig:
     """
-    创建默认系统配置
+    Create default system configuration
     
-    使用5G NR标准参数：
-    - 30 kHz子载波间隔
-    - 4096点IFFT
-    - 3.5 GHz载波频率
-    - TDL-A信道模型
+    Uses 5G NR standard parameters:
+    - 30 kHz subcarrier spacing
+    - 4096-point IFFT
+    - 3.5 GHz carrier frequency
+    - TDL-A channel model
+    
+    WARNING: This function is provided for testing and examples only.
+    In production code, always create and configure a SystemConfig 
+    explicitly rather than relying on defaults.
     
     Returns:
-        SystemConfig对象
+        SystemConfig object
     """
     config = SystemConfig()
     config.validate_config()

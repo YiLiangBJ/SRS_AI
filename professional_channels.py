@@ -88,17 +88,30 @@ class SIONNAChannelModel:
             k_factor: Ricean K-factor (如果为None则从system_config获取)
             device: PyTorch device
         """
-        # 使用系统配置或创建默认配置
+        # Enforce required parameters
         if system_config is None:
-            system_config = create_default_system_config()
+            raise ValueError("system_config must be provided and cannot be None")
         self.system_config = system_config
         
-        # 从系统配置或参数获取值
-        self.model_type = model_type if model_type is not None else system_config.channel_model_type
-        self.num_rx_antennas = num_rx_antennas if num_rx_antennas is not None else system_config.num_rx_antennas
-        self.delay_spread = delay_spread if delay_spread is not None else system_config.delay_spread
-        self.k_factor = k_factor if k_factor is not None else system_config.k_factor
+        # Enforce strict parameter requirements
+        if model_type is None:
+            raise ValueError("model_type must be provided and cannot be None")
+        if num_rx_antennas is None:
+            raise ValueError("num_rx_antennas must be provided and cannot be None")
+        if delay_spread is None:
+            raise ValueError("delay_spread must be provided and cannot be None")
+        if k_factor is None:
+            raise ValueError("k_factor must be provided and cannot be None")
+        
+        self.model_type = model_type
+        self.num_rx_antennas = num_rx_antennas
+        self.delay_spread = delay_spread
+        self.k_factor = k_factor
+        
+        # Enforce strict device usage
         self.device = device
+        if device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("CUDA was specified as device but no CUDA-capable GPU is available. Please specify 'cpu' if CPU execution is intended.")
         
         # 从系统配置获取统一的参数
         self.carrier_frequency = system_config.carrier_frequency
@@ -109,12 +122,12 @@ class SIONNAChannelModel:
         self._init_sionna()
     
     def _init_sionna(self):
-        # 预处理K-factor for LOS models
+        # Process K-factor for LOS models
         if self.model_type in ["TDL-D", "TDL-E"]:
-            # LOS models - use provided K-factor or default
+            # For LOS models, k_factor must be properly defined
             if self.k_factor == 0.0:
-                self.k_factor = 13.3  # Default K-factor for LOS models (dB converted to linear)
-                self.k_factor = 10**(self.k_factor/10)  # Convert dB to linear   
+                # No automatic defaults - if 0.0 was provided, alert the user
+                raise ValueError(f"K-factor must be non-zero for LOS models ({self.model_type}). Please specify a valid K-factor value.")
     
     def apply_channel(
         self,
@@ -602,8 +615,10 @@ class SIONNAChannelModel:
             
             # 2.2 生成该用户的信道
             try:
-                with tf.device('/CPU:0'):
-                    # 创建用户专用TDL
+                # Use TensorFlow device corresponding to PyTorch device setting
+                tf_device = '/CPU:0' if self.device == 'cpu' else '/GPU:0'
+                with tf.device(tf_device):
+                    # Create user-specific TDL
                     model_letter = self.model_type.split("-")[1]
                     user_channel = TDL(
                         model=model_letter,
@@ -806,43 +821,55 @@ class SIONNAChannelGenerator:
         Returns:
             SRSDataGenerator实例
         """
-        # 使用系统配置或创建默认配置
+        # Enforce required parameters
         if system_config is None:
-            system_config = create_default_system_config()
+            raise ValueError("system_config must be provided and cannot be None")
+        if srs_config is None:
+            raise ValueError("srs_config must be provided and cannot be None")
         
-
-        # 导入重构后的数据生成器
+        # Import refactored data generator
         from data_generator_refactored import SRSDataGenerator, BaseSRSDataGenerator
         
-        # 根据配置选择信道模型
+        # Enforce all required parameters
+        if num_rx_antennas is None:
+            raise ValueError("num_rx_antennas must be provided and cannot be None")
+        if channel_model is None:
+            raise ValueError("channel_model must be provided and cannot be None")
+        if delay_spread is None:
+            raise ValueError("delay_spread must be provided and cannot be None")
+        if carrier_frequency is None:
+            raise ValueError("carrier_frequency must be provided and cannot be None")
+        if sampling_rate is None:
+            raise ValueError("sampling_rate must be provided and cannot be None")
+        if snr_range is None:
+            raise ValueError("snr_range must be provided and cannot be None")
+        
+        # Enforce device constraints
+        if device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("CUDA was specified as device but no CUDA-capable GPU is available")
+            
+        # Use the provided parameters directly without fallbacks
         channel_model_instance = None
         
-        # 从system_config获取默认值
-        final_num_rx_antennas = num_rx_antennas if num_rx_antennas is not None else system_config.num_rx_antennas
-        final_channel_model = channel_model if channel_model is not None else system_config.channel_model_type
-        final_delay_spread = delay_spread if delay_spread is not None else system_config.delay_spread
-        final_carrier_frequency = carrier_frequency if carrier_frequency is not None else system_config.carrier_frequency
-        final_sampling_rate = sampling_rate if sampling_rate is not None else system_config.sampling_rate
-        final_snr_range = snr_range if snr_range is not None else srs_config.snr_range
-        
         if use_channel:
-
+            # Enforce SIONNA availability if requested
+            if not SIONNA_AVAILABLE:
+                raise RuntimeError("SIONNA is required but not available. Please install SIONNA and TensorFlow.")
+                
             channel_model_instance = SIONNAChannelModel(
-                system_config=system_config,  # 传入系统配置
-                model_type=final_channel_model,
-                num_rx_antennas=final_num_rx_antennas,
-                delay_spread=final_delay_spread,
+                system_config=system_config,
+                model_type=channel_model,
+                num_rx_antennas=num_rx_antennas,
+                delay_spread=delay_spread,
                 device=device
             )
 
-
-
         generator = SRSDataGenerator(
-            config=srs_config,  # 使用用户SRS配置
+            config=srs_config,
             channel_model=channel_model_instance,
-            num_rx_antennas=final_num_rx_antennas,
-            snr_range=final_snr_range,
-            sampling_rate=final_sampling_rate,
+            num_rx_antennas=num_rx_antennas,
+            snr_range=snr_range,
+            sampling_rate=sampling_rate,
             device=device,
             **kwargs
         )
