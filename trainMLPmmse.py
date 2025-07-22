@@ -19,7 +19,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Any, Union
-import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 import argparse
 from datetime import datetime
@@ -63,7 +62,6 @@ class SRSTrainerModified:
         srs_config: SRSConfig = None,
         save_dir: str = "./checkpoints_modified",
         use_trainable_mmse: bool = True,
-        enable_plotting: bool = False,
         use_professional_channels: bool = True,
         use_sionna: bool = True
     ):
@@ -85,7 +83,6 @@ class SRSTrainerModified:
             srs_config: Legacy parameter name for config
             save_dir: Directory for saving checkpoints
             use_trainable_mmse: Whether to use trainable MMSE
-            enable_plotting: Whether to enable plotting
             use_professional_channels: Whether to use professional channels
             use_sionna: Whether to use SIONNA
         """
@@ -103,7 +100,6 @@ class SRSTrainerModified:
         self.use_tensorboard = use_tensorboard
         self.log_dir = log_dir
         self.save_dir = save_dir
-        self.enable_plotting = enable_plotting
         
         # Initialize data structures for multi-generator support
         # 🔧 Create these dictionaries first to ensure other methods can add items to them
@@ -1392,35 +1388,28 @@ def main():
     """Main function"""
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train SRS Channel Estimator with professional channel models")
-    parser.add_argument('--test', action='store_true', help='Run standalone test')
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
     parser.add_argument('--train_batches', type=int, default=50, help='Number of training batches per epoch')
     parser.add_argument('--val_batches', type=int, default=10, help='Number of validation batches')
     parser.add_argument('--batch_size', type=int, default=10, help='Batch size')
     parser.add_argument('--val_every', type=int, default=1, help='Validate every n epochs')
     parser.add_argument('--save_every', type=int, default=5, help='Save checkpoint every n epochs')
-    parser.add_argument('--no_mmse', action='store_true', help='Disable trainable MMSE')
-    parser.add_argument('--enable_plotting', action='store_true', help='Enable plotting')
     parser.add_argument('--save_dir', type=str, default='./checkpoints_modified', help='Save directory')
     parser.add_argument('--load_checkpoint', type=str, default='', help='Load checkpoint file')
     
-    # Channel model arguments
-    parser.add_argument('--channel_model', type=str, default='TDL-C', 
-                       choices=['TDL-A', 'TDL-B', 'TDL-C', 'TDL-D', 'TDL-E'],
-                       help='Channel model type')
+    # Device argument
     parser.add_argument('--device', type=str, default='cpu',
                        choices=['cpu', 'cuda'],
                        help='Device to use for training (cpu or cuda, default: cpu)')
-    parser.add_argument('--use_sionna', action='store_true', default=True,
-                       help='Use SIONNA professional channel models (default: True)')
-    parser.add_argument('--use_custom_channels', action='store_true',
-                       help='Force use of custom channel implementation')
-    parser.add_argument('--delay_spread', type=float, default=300e-9,
-                       help='Channel delay spread in seconds (default: use system config)')
-    parser.add_argument('--carrier_frequency', type=float, default=3.5e9,
-                       help='Carrier frequency in Hz')
     
     args = parser.parse_args()
+    
+    # Force SIONNA availability check - no fallback
+    if not SIONNA_AVAILABLE:
+        raise RuntimeError("SIONNA is required but not available. Please install SIONNA to proceed.")
+    
+    if not PROFESSIONAL_CHANNELS_AVAILABLE:
+        raise RuntimeError("Professional channel wrapper is required but not available.")
     
     # Enforce strict device requirements
     if args.device == 'cuda':
@@ -1441,22 +1430,10 @@ def main():
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
         print("🔒 CPU-only mode enabled")
     
-    # Run test if requested
-    if args.test:
-        return test_standalone_trainer()
-    
-    # Override settings if custom is explicitly requested
-    if args.use_custom_channels:
-        args.use_sionna = False
-    
-    # Create configuration
+    # Create configuration and system config
     srs_config = create_example_config()
-    
-    # 如果delay_spread为None，使用系统配置的默认值
-    if args.delay_spread is None:
-        from system_config import create_default_system_config
-        system_config = create_default_system_config()
-        args.delay_spread = system_config.delay_spread
+    from system_config import create_default_system_config
+    system_config = create_default_system_config()
     
     # Print configuration summary
     print("\n" + "="*60)
@@ -1466,11 +1443,11 @@ def main():
     if args.device == 'cuda':
         print(f"GPU: {torch.cuda.get_device_name()}")
         print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
-    print(f"Channel Model: {args.channel_model}")
-    print(f"Use SIONNA: {args.use_sionna and SIONNA_AVAILABLE}")
-    print(f"Delay Spread: {args.delay_spread*1e9:.1f} ns (from {'system config' if args.delay_spread else 'command line'})")
-    print(f"Carrier Frequency: {args.carrier_frequency/1e9:.1f} GHz")
-    print(f"Trainable MMSE: {not args.no_mmse}")
+    print(f"Channel Model: Using SRS config randomization")
+    print(f"Use SIONNA: {SIONNA_AVAILABLE} (enforced)")
+    print(f"Delay Spread: Using system config ({system_config.delay_spread*1e9:.1f} ns)")
+    print(f"Carrier Frequency: Using system config ({system_config.carrier_frequency/1e9:.1f} GHz)")
+    print(f"Trainable MMSE: True (default)")
     print(f"Epochs: {args.epochs}")
     print(f"Batch Size: {args.batch_size}")
     print("="*60 + "\n")
@@ -1480,10 +1457,9 @@ def main():
         srs_config=srs_config,
         device=args.device,  # Use device from command line argument
         save_dir=args.save_dir,
-        use_trainable_mmse=not args.no_mmse,
-        enable_plotting=args.enable_plotting,
+        use_trainable_mmse=True,  # Always True in this version
         use_professional_channels=True,
-        use_sionna=args.use_sionna
+        use_sionna=True  # Always True (SIONNA is enforced)
     )
     
     # Load checkpoint if specified
@@ -1501,40 +1477,6 @@ def main():
         save_every_n_epochs=args.save_every
     )
     
-    # Plot training history
-    plt.figure(figsize=(15, 5))
-    
-    # Plot losses
-    plt.subplot(1, 2, 1)
-    plt.plot(history['train_loss'], label='Train')
-    if history['val_loss']:
-        plt.plot(range(0, len(history['val_loss']) * args.val_every, args.val_every), 
-                 history['val_loss'], label='Validation')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss')
-    plt.legend()
-    
-    # Plot NMSE
-    plt.subplot(1, 2, 2)
-    plt.plot(history['train_nmse'], label='Train')
-    if history['val_nmse']:
-        plt.plot(range(0, len(history['val_nmse']) * args.val_every, args.val_every), 
-                 history['val_nmse'], label='Validation')
-    plt.xlabel('Epoch')
-    plt.ylabel('NMSE (dB)')
-    plt.title('Training and Validation NMSE')
-    plt.legend()
-    
-    plt.tight_layout()
-    
-    # Save plot
-    plot_path = os.path.join(args.save_dir, 'training_history.png')
-    plt.savefig(plot_path)
-    print(f"保存训练历史图到: {plot_path}")
-    
-    plt.close()
-
 if __name__ == '__main__':
     print(f"PyTorch MKL-DNN available: {torch.backends.mkldnn.is_available()}")
     print(f"PyTorch using MKL-DNN: {torch.backends.mkldnn.enabled}")
