@@ -17,14 +17,14 @@ class TrainableMMSEModule(nn.Module):
     """
     def __init__(self, seq_length: int, mmse_block_size: int = 12, hidden_dim: int = 64, use_complex_input: bool = False):
         """
-        Initialize the trainable MMSE module with Cholesky factor construction.
+        Initialize the hybrid CNN-MLP MMSE module.
         
-        This is the ONLY supported MMSE method. All traditional C/R calculation methods 
-        are obsolete and have been removed in favor of this MLP-based approach.
+        This module uses a CNN to extract global features from the full sequence,
+        then processes chunks of the sequence along with these features using an MLP.
         
         Args:
-            seq_length: Length of sequence (L)
-            mmse_block_size: Size of blocks for MMSE filtering
+            seq_length: Length of sequence (L) - will be chunked into blocks of mmse_block_size
+            mmse_block_size: Size of blocks for MMSE filtering (default: 12)
             hidden_dim: Hidden dimension for the neural network
             use_complex_input: Whether to use complex input (real + imaginary parts)
         """
@@ -33,8 +33,37 @@ class TrainableMMSEModule(nn.Module):
         self.mmse_block_size = mmse_block_size
         self.use_complex_input = use_complex_input
         
-        # Input dimension depends on whether we use complex input
-        input_dim = seq_length * 2 if use_complex_input else seq_length
+        # Calculate number of chunks
+        self.num_chunks = seq_length // mmse_block_size
+        if seq_length % mmse_block_size != 0:
+            self.num_chunks += 1  # Add one more chunk for remainder
+        
+        # CNN feature extractor: full sequence -> 12-point complex feature
+        # Input: [seq_length] (complex) or [seq_length*2] (real+imag)
+        # Output: [mmse_block_size] (complex) = [mmse_block_size*2] (real+imag)
+        cnn_input_channels = 2 if use_complex_input else 1  # Real+Imag or magnitude only
+        self.cnn_feature_extractor = nn.Sequential(
+            # 1D CNN to extract global features
+            nn.Conv1d(cnn_input_channels, 32, kernel_size=7, padding=3),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.Conv1d(32, 64, kernel_size=5, padding=2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Conv1d(64, 32, kernel_size=3, padding=1),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            # Adaptive pooling to get exactly mmse_block_size output
+            nn.AdaptiveAvgPool1d(mmse_block_size),
+            # Final conv to get 2 channels (real + imaginary parts)
+            nn.Conv1d(32, 2, kernel_size=1)
+        )
+        
+        # MLP input dimension: 
+        # - mmse_block_size chunk (complex) = mmse_block_size * 2 (real+imag)
+        # - CNN features (complex) = mmse_block_size * 2 (real+imag)
+        # Total = mmse_block_size * 4
+        mlp_input_dim = mmse_block_size * 4
         
         # Calculate parameter counts for Cholesky factors (lower triangular matrices)
         n = mmse_block_size
@@ -51,13 +80,14 @@ class TrainableMMSEModule(nn.Module):
         # 总参数量
         c_matrix_size = real_params + imag_params
         r_matrix_size = real_params + imag_params
-          # Networks to generate Cholesky factors (L matrices) for C and R
-        # Initialize with Xavier/Glorot initialization for better random initialization
+        
+        # MLP networks to generate Cholesky factors
+        # Input: chunk (12*2) + CNN features (12*2) = 48 dimensions
         self.C_factor_generator = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim * 2),  # 增加神经元数量
-            nn.LayerNorm(hidden_dim * 2),         # 添加批标准化
-            nn.LeakyReLU(0.1),                     # 使用LeakyReLU
-            nn.Dropout(0.2),                       # 添加Dropout防止过拟合
+            nn.Linear(mlp_input_dim, hidden_dim * 2),
+            nn.LayerNorm(hidden_dim * 2),
+            nn.LeakyReLU(0.1),
+            nn.Dropout(0.2),
             nn.Linear(hidden_dim * 2, hidden_dim * 2),
             nn.LayerNorm(hidden_dim * 2), 
             nn.LeakyReLU(0.1),
@@ -67,12 +97,11 @@ class TrainableMMSEModule(nn.Module):
             nn.Linear(hidden_dim, c_matrix_size)
         )
         
-        # R矩阵的Cholesky因子生成器，也使用完整的频域样本作为输入
         self.R_factor_generator = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim * 2),  # 增加神经元数量
-            nn.LayerNorm(hidden_dim * 2),         # 添加批标准化
-            nn.LeakyReLU(0.1),                     # 使用LeakyReLU
-            nn.Dropout(0.2),                       # 添加Dropout防止过拟合
+            nn.Linear(mlp_input_dim, hidden_dim * 2),
+            nn.LayerNorm(hidden_dim * 2),
+            nn.LeakyReLU(0.1),
+            nn.Dropout(0.2),
             nn.Linear(hidden_dim * 2, hidden_dim * 2),
             nn.LayerNorm(hidden_dim * 2), 
             nn.LeakyReLU(0.1),
@@ -101,185 +130,216 @@ class TrainableMMSEModule(nn.Module):
     
     def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:        
         """
-        Generate C and R matrices for specified block size using Cholesky factor construction
+        Forward pass of the hybrid CNN-MLP MMSE module.
+        
+        Process:
+        1. Extract global features from full sequence using CNN
+        2. Split sequence into chunks of mmse_block_size
+        3. For each chunk, combine with CNN features and process through MLP
+        4. Accumulate gradients across all chunks
         
         Args:
-            channel_stats: Channel statistics (can be frequency domain samples)
-               - If use_complex_input=False: magnitude of frequency domain samples (shape [L])
-               - If use_complex_input=True: concatenated real and imag parts (shape [2*L]) or complex tensor
+            channel_stats: Channel statistics tensor [seq_length] (complex)
             noise_power: Estimated noise power (not used directly anymore, kept for API compatibility)
             
         Returns:
             C: Channel correlation matrix (mmse_block_size x mmse_block_size)
             R: Noise and interference correlation matrix (mmse_block_size x mmse_block_size)
         """
-        # Process input based on configuration
+        device = channel_stats.device
+        seq_length = channel_stats.shape[0]
+        
+        # Step 1: Extract global features using CNN
+        cnn_features = self._extract_cnn_features(channel_stats)  # [mmse_block_size] complex
+        
+        # Step 2: Split sequence into chunks and process each with MLP
+        # Initialize accumulated Cholesky factors
+        accumulated_C_factors = None
+        accumulated_R_factors = None
+        num_processed_chunks = 0
+        
+        for chunk_idx in range(self.num_chunks):
+            start_idx = chunk_idx * self.mmse_block_size
+            end_idx = min(start_idx + self.mmse_block_size, seq_length)
+            
+            # Extract chunk
+            chunk = channel_stats[start_idx:end_idx]
+            
+            # Pad chunk if it's smaller than mmse_block_size
+            if chunk.shape[0] < self.mmse_block_size:
+                padding_size = self.mmse_block_size - chunk.shape[0]
+                padding = torch.zeros(padding_size, dtype=chunk.dtype, device=device)
+                chunk = torch.cat([chunk, padding])
+            
+            # Process chunk with CNN features
+            C_factors, R_factors = self._process_chunk_with_features(chunk, cnn_features)
+            
+            # Accumulate factors
+            if accumulated_C_factors is None:
+                accumulated_C_factors = C_factors
+                accumulated_R_factors = R_factors
+            else:
+                accumulated_C_factors += C_factors
+                accumulated_R_factors += R_factors
+            
+            num_processed_chunks += 1
+        
+        # Average the accumulated factors
+        if num_processed_chunks > 0:
+            accumulated_C_factors /= num_processed_chunks
+            accumulated_R_factors /= num_processed_chunks
+        
+        # Step 3: Construct matrices from averaged Cholesky factors
+        C_matrix = self._construct_matrix_from_cholesky_params(accumulated_C_factors, self.mmse_block_size)
+        R_matrix = self._construct_matrix_from_cholesky_params(accumulated_R_factors, self.mmse_block_size)
+        
+        return C_matrix, R_matrix
+    
+    def _extract_cnn_features(self, channel_stats: torch.Tensor) -> torch.Tensor:
+        """
+        Extract global features from the full sequence using CNN.
+        
+        Args:
+            channel_stats: Full sequence [seq_length] (complex)
+            
+        Returns:
+            CNN features [mmse_block_size] (complex)
+        """
+        # Prepare input for CNN
         if self.use_complex_input and channel_stats.is_complex():
-            # Split complex input into real and imaginary parts and concatenate
-            input_tensor = torch.cat([torch.real(channel_stats), torch.imag(channel_stats)])
+            # Split complex into real and imaginary parts: [2, seq_length]
+            cnn_input = torch.stack([torch.real(channel_stats), torch.imag(channel_stats)], dim=0)
         else:
-            # Use input as-is (should be magnitude if use_complex_input=False)
-            input_tensor = channel_stats
+            # Use magnitude only: [1, seq_length]
+            if channel_stats.is_complex():
+                cnn_input = torch.abs(channel_stats).unsqueeze(0)
+            else:
+                cnn_input = channel_stats.unsqueeze(0)
         
-        n = self.mmse_block_size        # 使用Cholesky因子构造法确保C矩阵为正定Hermitian
-        # 直接生成下三角矩阵L，然后通过C = L @ L^H构造正定Hermitian矩阵
-          # 生成C矩阵对应的下三角Cholesky因子L的元素
-        C_flat = self.C_factor_generator(input_tensor)
+        # Add batch dimension: [1, channels, seq_length]
+        cnn_input = cnn_input.unsqueeze(0)
         
-        # 计算实部和虚部的参数数量
+        # Extract features using CNN: [1, 2, mmse_block_size]
+        cnn_output = self.cnn_feature_extractor(cnn_input)
+        
+        # Remove batch dimension and convert back to complex: [mmse_block_size]
+        cnn_output = cnn_output.squeeze(0)  # [2, mmse_block_size]
+        real_part = cnn_output[0, :]  # [mmse_block_size]
+        imag_part = cnn_output[1, :]  # [mmse_block_size]
+        
+        return torch.complex(real_part, imag_part)
+    
+    def _process_chunk_with_features(self, chunk: torch.Tensor, cnn_features: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Process a chunk along with CNN features through MLP.
+        
+        Args:
+            chunk: Channel chunk [mmse_block_size] (complex)
+            cnn_features: CNN extracted features [mmse_block_size] (complex)
+            
+        Returns:
+            Tuple of (C_factors, R_factors) for Cholesky decomposition
+        """
+        # Combine chunk and CNN features
+        # Convert complex tensors to real representation
+        chunk_real = torch.cat([torch.real(chunk), torch.imag(chunk)])  # [mmse_block_size * 2]
+        features_real = torch.cat([torch.real(cnn_features), torch.imag(cnn_features)])  # [mmse_block_size * 2]
+        
+        # Concatenate: [mmse_block_size * 4]
+        mlp_input = torch.cat([chunk_real, features_real])
+        
+        # Add batch dimension for linear layers
+        if mlp_input.dim() == 1:
+            mlp_input = mlp_input.unsqueeze(0)  # [1, mmse_block_size * 4]
+        
+        # Generate Cholesky factors
+        C_factors = self.C_factor_generator(mlp_input).squeeze(0)  # Remove batch dimension
+        R_factors = self.R_factor_generator(mlp_input).squeeze(0)  # Remove batch dimension
+        
+        return C_factors, R_factors
+    
+    def _construct_matrix_from_cholesky_params(self, factors: torch.Tensor, matrix_size: int) -> torch.Tensor:
+        """
+        Construct Hermitian positive definite matrix from Cholesky factors.
+        
+        Args:
+            factors: Flattened Cholesky factors
+            matrix_size: Size of the output matrix (n x n)
+            
+        Returns:
+            Hermitian positive definite matrix (matrix_size x matrix_size)
+        """
+        n = matrix_size
+        device = factors.device
+        
+        # Calculate parameter counts
         diag_size = n  # 对角线元素数量
         off_diag_size = n * (n - 1) // 2  # 严格下三角元素数量
         real_size = diag_size + off_diag_size
         imag_size = off_diag_size
         
-        # 分割网络输出为实部和虚部
-        L_real_flat = C_flat[:real_size]
-        L_imag_flat = C_flat[real_size:real_size + imag_size]
+        # Split factors into real and imaginary parts
+        L_real_flat = factors[:real_size]
+        L_imag_flat = factors[real_size:real_size + imag_size]
         
-        # 创建零矩阵
-        L_real = torch.zeros((n, n), device=C_flat.device)
-        L_imag = torch.zeros((n, n), device=C_flat.device)
+        # Create zero matrices
+        L_real = torch.zeros((n, n), device=device)
+        L_imag = torch.zeros((n, n), device=device)
         
-        # 填充下三角矩阵的实部
+        # Fill lower triangular matrix (real part)
         idx = 0
         for i in range(n):
-            for j in range(i + 1):  # j <= i 表示下三角
-                if i == j:  # 对角线元素只有实部，并且必须为正
+            for j in range(i + 1):  # j <= i for lower triangular
+                if i == j:  # Diagonal elements only have real part and must be positive
                     L_real[i, j] = torch.nn.functional.softplus(L_real_flat[idx])
                 else:
                     L_real[i, j] = L_real_flat[idx]
                 idx += 1
         
-        # 填充下三角矩阵的虚部（对角线元素没有虚部）
+        # Fill lower triangular matrix (imaginary part, only off-diagonal)
         idx = 0
         for i in range(n):
-            for j in range(i):  # j < i 表示严格下三角
+            for j in range(i):  # j < i for strictly lower triangular
                 L_imag[i, j] = L_imag_flat[idx]
                 idx += 1
                 
-        # 组合成复数下三角矩阵L
+        # Combine into complex lower triangular matrix L
         L = torch.complex(L_real, L_imag)
         
-        # 计算C = L @ L^H (L^H是L的共轭转置)
-        # 这样构造的矩阵自然是厄米特正定的
-        C = L @ L.conj().transpose(0, 1)
-          # 对R矩阵执行相同的操作 - 生成其对应的Cholesky因子
-        R_flat = self.R_factor_generator(input_tensor)
+        # Calculate matrix = L @ L^H (L^H is conjugate transpose of L)
+        # This naturally creates a Hermitian positive definite matrix
+        matrix = L @ L.conj().transpose(0, 1)
         
-        # 分割网络输出为实部和虚部
-        L_real_flat = R_flat[:real_size]
-        L_imag_flat = R_flat[real_size:real_size + imag_size]
-        
-        # 创建零矩阵
-        L_real = torch.zeros((n, n), device=R_flat.device)
-        L_imag = torch.zeros((n, n), device=R_flat.device)
-        
-        # 填充下三角矩阵的实部
-        idx = 0
-        for i in range(n):
-            for j in range(i + 1):  # j <= i 表示下三角
-                if i == j:  # 对角线元素只有实部，并且必须为正
-                    L_real[i, j] = torch.nn.functional.softplus(L_real_flat[idx])
-                else:
-                    L_real[i, j] = L_real_flat[idx]
-                idx += 1
-        
-        # 填充下三角矩阵的虚部（对角线元素没有虚部）
-        idx = 0
-        for i in range(n):
-            for j in range(i):  # j < i 表示严格下三角
-                L_imag[i, j] = L_imag_flat[idx]
-                idx += 1
-                
-        # 组合成复数下三角矩阵L
-        L = torch.complex(L_real, L_imag)
-        
-        # 计算R = L @ L^H
-        R = L @ L.conj().transpose(0, 1)
-          # 为了数值稳定性，添加一个很小的对角加载
+        # Add small diagonal loading for numerical stability
         epsilon = 1e-6
-        C = C + torch.eye(n, device=C.device) * epsilon
-        R = R + torch.eye(n, device=R.device) * epsilon
+        matrix = matrix + torch.eye(n, device=device) * epsilon
         
-        return C, R
+        return matrix
     
-    def forward_chunked(self, channel_stats: torch.Tensor, chunk_size: int = 12) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward_chunked(self, channel_stats: torch.Tensor, chunk_size: int = 12) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
-        Process a variable-length sequence in fixed-size chunks and concatenate the results
+        Process a variable-length sequence in fixed-size chunks using hybrid CNN-MLP approach.
         
-        This method handles variable sequence lengths by:
-        1. Breaking the input sequence into chunks of size chunk_size (default 12)
-        2. Processing each chunk independently through the MLP
-        3. Concatenating the C and R matrices for each chunk
+        This method is compatible with the old chunked processing interface.
+        It uses the new CNN-MLP hybrid approach internally.
         
         Args:
             channel_stats: Channel statistics - can be any length (not restricted to self.seq_length)
             chunk_size: Size of chunks to process (default: 12)
             
         Returns:
-            C: List of channel correlation matrices for each chunk
-            R: List of noise correlation matrices for each chunk
+            C_matrices: List of channel correlation matrices for each chunk
+            R_matrices: List of noise correlation matrices for each chunk
         """
-        # Get sequence length from input
-        if self.use_complex_input and channel_stats.is_complex():
-            actual_length = channel_stats.shape[0]
-        else:
-            actual_length = channel_stats.shape[0] // 2 if self.use_complex_input else channel_stats.shape[0]
-            
-        # Calculate number of chunks needed
-        num_chunks = (actual_length + chunk_size - 1) // chunk_size
+        # Use the new forward method internally to get the optimized matrices
+        C_matrix, R_matrix = self.forward(channel_stats)
         
-        # Lists to store C and R matrices for each chunk
-        C_matrices = []
-        R_matrices = []
+        # Calculate how many chunks we need to support
+        seq_length = channel_stats.shape[0]
+        num_chunks = (seq_length + chunk_size - 1) // chunk_size  # Ceiling division
         
-        # Process each chunk
-        for i in range(num_chunks):
-            # Extract chunk
-            start_idx = i * chunk_size
-            end_idx = min(start_idx + chunk_size, actual_length)
-            
-            if self.use_complex_input and channel_stats.is_complex():
-                chunk = channel_stats[start_idx:end_idx]
-                # Pad if necessary
-                if end_idx - start_idx < chunk_size:
-                    padding_size = chunk_size - (end_idx - start_idx)
-                    zeros = torch.zeros(padding_size, device=chunk.device, dtype=chunk.dtype)
-                    chunk = torch.cat([chunk, zeros])
-            else:
-                # For concatenated real/imag or real-only inputs
-                if self.use_complex_input:
-                    # For concatenated real/imag
-                    real_start = start_idx
-                    real_end = min(start_idx + chunk_size, actual_length)
-                    imag_start = actual_length + start_idx
-                    imag_end = min(actual_length + start_idx + chunk_size, 2 * actual_length)
-                    
-                    chunk_real = channel_stats[real_start:real_end]
-                    chunk_imag = channel_stats[imag_start:imag_end]
-                    
-                    # Pad if necessary
-                    if real_end - real_start < chunk_size:
-                        padding_size = chunk_size - (real_end - real_start)
-                        zeros = torch.zeros(padding_size, device=chunk_real.device, dtype=chunk_real.dtype)
-                        chunk_real = torch.cat([chunk_real, zeros])
-                        chunk_imag = torch.cat([chunk_imag, zeros])
-                        
-                    chunk = torch.cat([chunk_real, chunk_imag])
-                else:
-                    # For real-only inputs
-                    chunk = channel_stats[start_idx:end_idx]
-                    # Pad if necessary
-                    if end_idx - start_idx < chunk_size:
-                        padding_size = chunk_size - (end_idx - start_idx)
-                        zeros = torch.zeros(padding_size, device=chunk.device, dtype=chunk.dtype)
-                        chunk = torch.cat([chunk, zeros])
-            
-            # Process chunk through MLP
-            C_chunk, R_chunk = self.forward(chunk)
-            
-            # Store matrices
-            C_matrices.append(C_chunk)
-            R_matrices.append(R_chunk)
+        # Return the same matrices for all chunks (since our hybrid approach optimizes globally)
+        C_matrices = [C_matrix for _ in range(num_chunks)]
+        R_matrices = [R_matrix for _ in range(num_chunks)]
         
         return C_matrices, R_matrices

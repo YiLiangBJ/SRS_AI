@@ -95,7 +95,7 @@ class SRSChannelEstimator(nn.Module):
         delay_search_range: Tuple[int, int] = (-30, 30)) -> List[Dict[Tuple[int, int], torch.Tensor]]:  # Modified return type
 
         # Get cyclic shift information from user configuration
-        cyclic_shifts = user_config.cyclic_shifts
+        cyclic_shifts = user_config.current_cyclic_shifts
         batch_size = len(ls_estimates)
         
         # Initialize results list
@@ -114,6 +114,10 @@ class SRSChannelEstimator(nn.Module):
             h_time = torch.fft.ifft(sample_ls_estimates, dim=-1)
             # Calculate sum of power across all antennas [seq_length]
             h_power_sum = torch.sum(torch.abs(h_time)**2, dim=0)
+            
+            # Get current sequence length from the input data
+            current_seq_length = sample_ls_estimates.shape[1]
+            
             # Get all (user_id, port_id) combinations from user config
             for user_id in range(user_config.num_users):
                 for port_id in range(user_config.ports_per_user[user_id]):
@@ -134,9 +138,12 @@ class SRSChannelEstimator(nn.Module):
                         # Calculate cyclic shift amount
                         m_value = timing_offset + ideal_peak
                         
+                        # Get current sequence length from the input data
+                        current_seq_length = sample_ls_estimates.shape[1]
+                        
                         # Generate phase factors [seq_length]
-                        phasor_m = self._generate_phasor(m_value)
-                        phasor_T = self._generate_phasor(timing_offset)
+                        phasor_m = self._generate_phasor(m_value, current_seq_length)
+                        phasor_T = self._generate_phasor(timing_offset, current_seq_length)
                         
                         # Shift channel to align peak to position 0 [num_rx_ant, seq_length]
                         h_shifted = sample_ls_estimates * phasor_m.unsqueeze(0)  # Broadcast to antenna dimension
@@ -146,7 +153,7 @@ class SRSChannelEstimator(nn.Module):
                         h_avg = self._apply_occ_demux_single(h_shifted, Locc)
                         
                         # Linear interpolation back to full length [num_rx_ant, seq_length]
-                        h_interpolated = self._linear_interpolation_single(h_avg, self.seq_length)
+                        h_interpolated = self._linear_interpolation_single(h_avg, current_seq_length)
                         
                         # Store preprocessing results
                         preprocessed_data[(user_id, port_id)] = {
@@ -158,7 +165,7 @@ class SRSChannelEstimator(nn.Module):
                         }
                 
             # Phase 2: Calculate global residual for current sample
-            total_reconstructed_signal = torch.zeros(num_rx_ant, self.seq_length, 
+            total_reconstructed_signal = torch.zeros(num_rx_ant, current_seq_length, 
                                                 dtype=torch.complex64, device=self.device)
             
             for (user_id, port_id), data in preprocessed_data.items():
@@ -321,22 +328,25 @@ class SRSChannelEstimator(nn.Module):
         """Apply DFT to convert from time domain to frequency domain"""
         return torch.fft.fft(time_domain, dim=0)
     
-    def _generate_phasor_batch(self, m_values: torch.Tensor) -> torch.Tensor:
+    def _generate_phasor_batch(self, m_values: torch.Tensor, seq_length: int = None) -> torch.Tensor:
         """
         Generate phase factors in batch mode
         
         Args:
             m_values: Shift amounts [batch_size]
+            seq_length: Sequence length to use (if None, uses self.seq_length)
             
         Returns:
             phasors: Phase factors [batch_size, seq_length]
         """
+        if seq_length is None:
+            seq_length = self.seq_length
         batch_size = m_values.shape[0]
-        n = torch.arange(self.seq_length, device=self.device).unsqueeze(0)  # [1, seq_length]
+        n = torch.arange(seq_length, device=self.device).unsqueeze(0)  # [1, seq_length]
         m_expanded = m_values.unsqueeze(1)  # [batch_size, 1]
         
         # 广播计算 [batch_size, seq_length]
-        phasors = torch.exp(1j * 2 * np.pi * m_expanded * n / self.seq_length)
+        phasors = torch.exp(1j * 2 * np.pi * m_expanded * n / seq_length)
         return phasors
     
     def _apply_occ_demux_batch(self, h: torch.Tensor, Locc: int) -> torch.Tensor:
@@ -456,18 +466,21 @@ class SRSChannelEstimator(nn.Module):
         
         return h_mmse
     
-    def _generate_phasor(self, m: int) -> torch.Tensor:
+    def _generate_phasor(self, m: int, seq_length: int = None) -> torch.Tensor:
         """
         Generate phasor for cyclic shifting in frequency domain
         
         Args:
             m: Shifting amount
+            seq_length: Sequence length to use (if None, uses self.seq_length)
             
         Returns:
             Phasor vector of length L
         """
-        n = torch.arange(self.seq_length, device=self.device)
-        return torch.exp(1j * 2 * np.pi * m * n / self.seq_length)
+        if seq_length is None:
+            seq_length = self.seq_length
+        n = torch.arange(seq_length, device=self.device)
+        return torch.exp(1j * 2 * np.pi * m * n / seq_length)
     
     def _apply_occ_demux(self, h: torch.Tensor, Locc: int) -> torch.Tensor:
         """

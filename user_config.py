@@ -90,31 +90,36 @@ class SRSConfig:
         # Select random ktc
         self._current_ktc = random.choice(self.ktc_options)
         
-        # Select random cyclic shifts configuration
-        # Keep trying until we find a compatible configuration
-        max_attempts = 10
-        for _ in range(max_attempts):
-            self._current_cyclic_shifts = random.choice(self.cyclic_shifts_configs)
-            
-            # Check if cyclic shifts are compatible with the current ktc
-            current_K = 12 if self._current_ktc == 4 else 8
+        # Calculate K based on selected ktc
+        current_K = 12 if self._current_ktc == 4 else 8
+        
+        # Find compatible cyclic shift configurations
+        compatible_configs = []
+        for config in self.cyclic_shifts_configs:
             is_compatible = True
-            
-            for user_shifts in self._current_cyclic_shifts:
+            for user_shifts in config:
                 for shift in user_shifts:
                     if shift >= current_K:
                         is_compatible = False
                         break
                 if not is_compatible:
                     break
-            
             if is_compatible:
-                break
+                compatible_configs.append(config)
         
-        # If no compatible configuration was found, use one that's guaranteed to work
-        if not is_compatible:
-            # Create a safe configuration with just one user and one port with cyclic shift 0
-            self._current_cyclic_shifts = [[0]]
+        # If no compatible configs found, create a default one
+        if not compatible_configs:
+            # Create a simple default configuration compatible with current K
+            max_users = len(self.cyclic_shifts_configs[0]) if self.cyclic_shifts_configs else 2
+            default_config = []
+            for user_id in range(max_users):
+                # Assign non-overlapping shifts within the valid range
+                base_shift = user_id % current_K
+                default_config.append([base_shift])
+            compatible_configs = [default_config]
+        
+        # Select random compatible configuration
+        self._current_cyclic_shifts = random.choice(compatible_configs)
         
         # Select random channel model
         self._current_channel_model = random.choice(self.channel_models)
@@ -456,8 +461,8 @@ def create_example_config() -> SRSConfig:
         SRSConfig object with randomized parameters
     """
     return SRSConfig(
-        seq_length=[720, 816, 1200],  # Multiple sequence length options
-        ktc_options=[2, 4],  # Support both K=8 and K=12
+        seq_length=list(range(12, 816+1, 12)),  # Create list from 12 to 816 with step 12
+        ktc_options=[4],  # Support both K=8 and K=12
         cyclic_shifts_configs=[
             # Configuration 1: 2 users with 2 ports each (compatible with K=12)
             [

@@ -105,6 +105,14 @@ class SRSTrainerModified:
         self.save_dir = save_dir
         self.enable_plotting = enable_plotting
         
+        # Initialize data structures for multi-generator support
+        # 🔧 Create these dictionaries first to ensure other methods can add items to them
+        # Create these before _init_models_legacy to avoid AttributeError
+        self.data_generators = {}  # Data generators organized by SNR
+        self.channel_models = {}   # Channel models organized by channel type and delay parameters
+        self.per_ue_channels = {}  # Dedicated channel instances organized by UE ID
+        self.per_port_generators = {}  # Dedicated generator instances organized by port ID
+        
         # Initialize models if not provided (for backward compatibility)
         if srs_estimator is None or mmse_module is None:
             self._init_models_legacy(use_trainable_mmse)
@@ -118,14 +126,6 @@ class SRSTrainerModified:
         # Then handle the data generator
         if data_generator is not None:
             self.data_generator = data_generator
-        
-        # Initialize data structures for multi-generator support
-        # 🔧 Create these dictionaries first to ensure other methods can add items to them
-        # Create these before _init_models_legacy to avoid AttributeError
-        self.data_generators = {}  # Data generators organized by SNR
-        self.channel_models = {}   # Channel models organized by channel type and delay parameters
-        self.per_ue_channels = {}  # Dedicated channel instances organized by UE ID
-        self.per_port_generators = {}  # Dedicated generator instances organized by port ID
         
         # Initialize common channel configs (needed for all instances)
         self.common_channel_configs = [
@@ -439,6 +439,10 @@ class SRSTrainerModified:
             print("⚠️ Professional channel library is not available, skipping channel model initialization")
             return
         
+        # Ensure channel_models dict exists
+        if not hasattr(self, 'channel_models'):
+            self.channel_models = {}
+        
         # Ensure common_channel_configs contains all needed channel configurations
         if not hasattr(self, 'common_channel_configs') or not self.common_channel_configs:
             self.common_channel_configs = [
@@ -510,6 +514,14 @@ class SRSTrainerModified:
     def _initialize_data_generators(self):
         """Initialize unique data generator (using SNR range from configuration file)"""
         from data_generator_refactored import SRSDataGenerator
+        
+        # Ensure data_generators dict exists
+        if not hasattr(self, 'data_generators'):
+            self.data_generators = {}
+        
+        # Ensure channel_models dict exists
+        if not hasattr(self, 'channel_models'):
+            self.channel_models = {}
         
         # Get default channel model
         default_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
@@ -591,8 +603,8 @@ class SRSTrainerModified:
             # 🔧 Add boundary check
             if user_id >= len(self.srs_config.ports_per_user):
                 raise RuntimeError(f"User {user_id} exceeds ports_per_user range (length={len(self.srs_config.ports_per_user)})")
-            if user_id >= len(self.srs_config.cyclic_shifts):
-                raise RuntimeError(f"User {user_id} exceeds cyclic_shifts range (length={len(self.srs_config.cyclic_shifts)})")
+            if user_id >= len(self.srs_config.current_cyclic_shifts):
+                raise RuntimeError(f"User {user_id} exceeds cyclic_shifts range (length={len(self.srs_config.current_cyclic_shifts)})")
                 
             num_ports = self.srs_config.ports_per_user[user_id]
             print(f"   UE {user_id}: {num_ports} ports")
@@ -600,7 +612,7 @@ class SRSTrainerModified:
             # Reserve: can create dedicated processing instances for each UE
             self.per_ue_channels[user_id] = {
                 'num_ports': num_ports,
-                'cyclic_shifts': self.srs_config.cyclic_shifts[user_id],
+                'cyclic_shifts': self.srs_config.current_cyclic_shifts[user_id],
                 # 'dedicated_channel': None,  # If need per-UE channel instance
                 # 'dedicated_generator': None,  # If need per-UE generator
             }
@@ -617,13 +629,13 @@ class SRSTrainerModified:
                 
             for port_id in range(self.srs_config.ports_per_user[user_id]):
                 # 🔧 Check cyclic_shifts boundary
-                if (user_id >= len(self.srs_config.cyclic_shifts) or 
-                    port_id >= len(self.srs_config.cyclic_shifts[user_id])):
+                if (user_id >= len(self.srs_config.current_cyclic_shifts) or 
+                    port_id >= len(self.srs_config.current_cyclic_shifts[user_id])):
                     print(f"   ⚠️ Port {user_id}:{port_id} cyclic shift configuration missing, skipping")
                     continue
                     
                 port_key = f"ue_{user_id}_port_{port_id}"
-                cyclic_shift = self.srs_config.cyclic_shifts[user_id][port_id]
+                cyclic_shift = self.srs_config.current_cyclic_shifts[user_id][port_id]
                 
                 print(f"   Port {port_key}: cyclic shift {cyclic_shift}")
                 
@@ -1522,45 +1534,6 @@ def main():
     print(f"保存训练历史图到: {plot_path}")
     
     plt.close()
-
-def test_standalone_trainer():
-    """Test function to verify standalone operation"""
-    print("🧪 Testing standalone trainer...")
-    
-    # Create configuration
-    config = create_example_config()
-    
-    # Create trainer with explicit parameters
-    trainer = SRSTrainerModified(
-        config=config,
-        device="cpu",  # Explicitly use CPU for testing
-        batch_size=4,
-        use_tensorboard=False,  # Disable for testing
-        use_trainable_mmse=True,
-        use_professional_channels=True,
-        use_sionna=True
-    )
-    
-    print("✅ Trainer created successfully")
-    
-    # Test batch generation
-    try:
-        batch = trainer.generate_batch_with_dynamic_channel(batch_size=2)
-        print(f"✅ Batch generation successful: {list(batch.keys())}")
-    except Exception as e:
-        print(f"❌ Batch generation failed: {e}")
-        return False
-    
-    # Test training for one mini-batch
-    try:
-        loss, nmse = trainer.train_epoch(num_batches=2, batch_size=2)
-        print(f"✅ Training epoch successful: loss={loss:.6f}, nmse={nmse:.2f}")
-    except Exception as e:
-        print(f"❌ Training epoch failed: {e}")
-        return False
-    
-    print("✅ All tests passed!")
-    return True
 
 if __name__ == '__main__':
     print(f"PyTorch MKL-DNN available: {torch.backends.mkldnn.is_available()}")

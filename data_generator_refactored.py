@@ -233,7 +233,23 @@ class BaseSRSDataGenerator:
         ktc = self.config.current_ktc  # Comb spacing
         
         # 简化映射：从索引0开始，步长为ktc
+        # 确保映射索引不超出ifft_size范围
+        max_possible_index = (seq_length - 1) * ktc
+        if max_possible_index >= ifft_size:
+            # 调整seq_length以适应ifft_size
+            max_seq_length = ifft_size // ktc
+            if seq_length > max_seq_length:
+                print(f"⚠️ Warning: seq_length ({seq_length}) too large for ifft_size ({ifft_size}) with ktc ({ktc})")
+                print(f"   Reducing seq_length to {max_seq_length}")
+                seq_length = max_seq_length
+        
         mapping_indices = torch.arange(seq_length, dtype=torch.long, device=self.device) * ktc
+        
+        # 验证映射索引的有效性
+        max_index = mapping_indices.max().item() if len(mapping_indices) > 0 else -1
+        if max_index >= ifft_size:
+            raise ValueError(f"Mapping index {max_index} exceeds ifft_size {ifft_size}. "
+                           f"seq_length={seq_length}, ktc={ktc}")
         
         # 为每个端口创建独立的频域网格
         mapped_signals = {}
@@ -242,9 +258,15 @@ class BaseSRSDataGenerator:
             # 创建完整的频域网格
             freq_grid = torch.zeros(ifft_size, dtype=torch.complex64, device=self.device)
             
-            # 映射序列到指定子载波
+            # 映射序列到指定子载波 - 添加额外的安全检查
             actual_length = min(len(sequence), len(mapping_indices))
-            freq_grid[mapping_indices[:actual_length]] = sequence[:actual_length]
+            if actual_length > 0:
+                # 确保映射索引在有效范围内
+                valid_indices = mapping_indices[:actual_length]
+                if valid_indices.max() < ifft_size:
+                    freq_grid[valid_indices] = sequence[:actual_length]
+                else:
+                    raise IndexError(f"Mapping indices out of bounds: max={valid_indices.max()}, ifft_size={ifft_size}")
             
             mapped_signals[(user_id, port_id)] = freq_grid
         
