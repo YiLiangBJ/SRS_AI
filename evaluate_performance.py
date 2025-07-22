@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Tuple, Literal
 import pandas as pd
 from tqdm import tqdm
 
-from config import SRSConfig, create_example_config
+from user_config import SRSConfig, create_example_config
 from data_generator_refactored import SRSDataGenerator
 from model_Traditional import SRSChannelEstimator
 from model_AIpart import TrainableMMSEModule

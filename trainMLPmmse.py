@@ -37,7 +37,7 @@ PROFESSIONAL_CHANNELS_AVAILABLE = True
 print("Professional channel wrapper available")
 
 
-from config import SRSConfig, create_example_config
+from user_config import SRSConfig, create_example_config
 from data_generator import SRSDataGenerator
 from model_Traditional import SRSChannelEstimator
 from model_AIpart import TrainableMMSEModule
@@ -121,6 +121,7 @@ class SRSTrainerModified:
         
         # Initialize data structures for multi-generator support
         # 🔧 Create these dictionaries first to ensure other methods can add items to them
+        # Create these before _init_models_legacy to avoid AttributeError
         self.data_generators = {}  # Data generators organized by SNR
         self.channel_models = {}   # Channel models organized by channel type and delay parameters
         self.per_ue_channels = {}  # Dedicated channel instances organized by UE ID
@@ -179,8 +180,23 @@ class SRSTrainerModified:
         """Initialize models for backward compatibility"""
         # Create trainable MMSE module if needed
         if use_trainable_mmse:
+            # Get the current active sequence length from the new SRSConfig structure
+            if hasattr(self.config, 'current_seq_length'):
+                # Use the current active sequence length
+                seq_length = self.config.current_seq_length
+            elif hasattr(self.config, '_current_seq_length'):
+                # Use the private current sequence length
+                seq_length = self.config._current_seq_length
+            else:
+                # Fallback to the first value in the seq_length list
+                seq_length = self.config.seq_length[0] if isinstance(self.config.seq_length, list) else self.config.seq_length
+            
+            # Ensure seq_length is an integer, not a list
+            if isinstance(seq_length, list):
+                seq_length = seq_length[0]
+                
             self.mmse_module = TrainableMMSEModule(
-                seq_length=self.config.seq_length,
+                seq_length=seq_length,
                 mmse_block_size=self.config.mmse_block_size,
                 use_complex_input=True
             ).to(self.device)
@@ -188,9 +204,17 @@ class SRSTrainerModified:
             self.mmse_module = None
             
         # Create models
+        # Ensure we use an integer for seq_length parameter
+        seq_length_for_estimator = seq_length if use_trainable_mmse else (
+            self.config.seq_length[0] if isinstance(self.config.seq_length, list) else self.config.seq_length
+        )
+        
+        # Use the current ktc from the config
+        ktc_for_estimator = self.config.current_ktc if hasattr(self.config, 'current_ktc') else self.config.ktc_options[0]
+        
         self.srs_estimator = SRSChannelEstimator(
-            seq_length=self.config.seq_length,
-            ktc=self.config.ktc,
+            seq_length=seq_length_for_estimator,
+            ktc=ktc_for_estimator,
             max_users=self.config.num_users,
             max_ports_per_user=max(self.config.ports_per_user),
             mmse_block_size=self.config.mmse_block_size,
@@ -647,13 +671,22 @@ class SRSTrainerModified:
         if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
             return self.data_generators[snr_key]
         
-        # 如果没有找到预创建的生成器，首先检查是否有与请求配置匹配的信道模型
+        # If no pre-created generator is found, first check if there's a channel model matching the requested config
         if channel_config is None:
-            # 使用默认配置
-            channel_config = self.common_channel_configs[0] if hasattr(self, 'common_channel_configs') and self.common_channel_configs else {
-                'model': 'TDL-A',
-                'delay_spread': self.system_config.delay_spread if hasattr(self, 'system_config') else 300e-9
-            }
+            # If config has a current_channel_model, use it
+            if hasattr(self.config, 'current_channel_model') and self.config.current_channel_model:
+                model_type, delay_spread = self.config.parse_channel_model()
+                channel_config = {
+                    'model': model_type,
+                    'delay_spread': delay_spread
+                }
+                print(f"📊 Using randomized channel configuration: {model_type}, {delay_spread*1e9:.1f}ns")
+            else:
+                # Use default configuration
+                channel_config = self.common_channel_configs[0] if hasattr(self, 'common_channel_configs') and self.common_channel_configs else {
+                    'model': 'TDL-A',
+                    'delay_spread': self.system_config.delay_spread if hasattr(self, 'system_config') else 300e-9
+                }
 
         # 构建信道模型的键名
         channel_key = f"{channel_config['model']}_{channel_config['delay_spread']*1e9:.0f}ns"
@@ -802,26 +835,40 @@ class SRSTrainerModified:
             
     def generate_batch_with_dynamic_channel(self, batch_size: int, enable_debug: bool = False, channel_config=None):
         """
-        动态生成批次数据，包含完整的信号生成、信道应用和LS估计流程
+        Generate batch data with dynamic randomized configuration for each sample
         
-        🎯 优化设计：优先使用已初始化的数据生成器，避免重复创建
+        🎯 Design optimization: prioritize using pre-initialized data generator, avoid repeated creation
         
         Args:
-            batch_size: 批次大小
-            enable_debug: 是否启用调试
-            channel_config: 信道配置，格式：{'model': 'TDL-A', 'delay_spread': 300e-9}
+            batch_size: Batch size
+            enable_debug: Whether to enable debugging
+            channel_config: Channel configuration, format: {'model': 'TDL-A', 'delay_spread': 300e-9}
         """
-        # 检查是否有预初始化的生成器
+        # First, randomize the SRS configuration for this batch
+        self.config.randomize_configuration()
+        
+        # If channel_config is None, use the newly randomized channel model from config
+        if channel_config is None and hasattr(self.config, 'current_channel_model'):
+            model_type, delay_spread = self.config.parse_channel_model()
+            channel_config = {
+                'model': model_type,
+                'delay_spread': delay_spread
+            }
+            if enable_debug:
+                print(f"📊 Using randomized channel configuration: {model_type}, {delay_spread*1e9:.1f}ns")
+        
+        # Check for pre-initialized generators
         snr_key = "config_snr"
         if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
             data_generator = self.data_generators[snr_key]
-            print(f"🔄 使用预初始化的数据生成器: {snr_key}") if enable_debug else None
+            print(f"🔄 Using pre-initialized data generator: {snr_key}") if enable_debug else None
         else:
-            # 如果没有找到预初始化的生成器，则创建一个
+            # If no pre-initialized generator is found, create one
             data_generator = self.get_data_generator(channel_config=channel_config)
-            print(f"🆕 创建新的数据生成器") if enable_debug else None
+            print(f"🆕 Creating new data generator") if enable_debug else None
         
-        # 生成完整批次（包含ls_estimates, true_channels等）
+        # Generate complete batch (including ls_estimates, true_channels, etc.)
+        # Each sample in the batch will have its own randomized configuration
         batch = data_generator.generate_batch(batch_size, enable_debug=enable_debug)
         
         return batch

@@ -101,54 +101,54 @@ class SRSChannelEstimator(nn.Module):
         # Initialize results list
         channel_estimates_list = []
         
-        # 遍历每个batch样本
+        # Iterate through each batch sample
         for batch_idx in range(batch_size):
-            sample_ls_estimates = ls_estimates[batch_idx]  # 当前样本的张量
+            sample_ls_estimates = ls_estimates[batch_idx]  # Current sample tensor
             num_rx_ant, seq_length = sample_ls_estimates.shape
 
-            sample_channel_estimates = {}  # 当前样本的结果
+            sample_channel_estimates = {}  # Current sample results
             
-            # 第一阶段：预处理当前样本的所有用户/端口
+            # Phase 1: Preprocess all users/ports for the current sample
             preprocessed_data = {}
-            # 转换到时域 [num_rx_ant, seq_length]
+            # Convert to time domain [num_rx_ant, seq_length]
             h_time = torch.fft.ifft(sample_ls_estimates, dim=-1)
-            # 计算所有天线的功率和 [seq_length]
+            # Calculate sum of power across all antennas [seq_length]
             h_power_sum = torch.sum(torch.abs(h_time)**2, dim=0)
-            # 从用户配置中获取所有(user_id, port_id)组合
+            # Get all (user_id, port_id) combinations from user config
             for user_id in range(user_config.num_users):
                 for port_id in range(user_config.ports_per_user[user_id]):
 
-                    # 获取该端口的循环移位
+                    # Get cyclic shift for this port
                     n_u_p = cyclic_shifts[user_id][port_id]
                     
-                    # 计算理想峰值位置
+                    # Calculate ideal peak position
                     ideal_peak = (self.K - n_u_p) % self.K * self.seq_length // self.K
 
-                    # 估计时间偏移
+                    # Estimate timing offset
                     with torch.no_grad():
-                        # 估计timing offset
+                        # Estimate timing offset
                         timing_offset = self._estimate_timing_offset(
                             h_power_sum, ideal_peak, delay_search_range
                         )
                         
-                        # 计算循环移位量
+                        # Calculate cyclic shift amount
                         m_value = timing_offset + ideal_peak
                         
-                        # 生成相位因子 [seq_length]
+                        # Generate phase factors [seq_length]
                         phasor_m = self._generate_phasor(m_value)
                         phasor_T = self._generate_phasor(timing_offset)
                         
-                        # 移位信道以将峰值对齐到位置0 [num_rx_ant, seq_length]
-                        h_shifted = sample_ls_estimates * phasor_m.unsqueeze(0)  # 广播到天线维度
+                        # Shift channel to align peak to position 0 [num_rx_ant, seq_length]
+                        h_shifted = sample_ls_estimates * phasor_m.unsqueeze(0)  # Broadcast to antenna dimension
                         
-                        # 应用OCC去复用 [num_rx_ant, seq_length//Locc]
+                        # Apply OCC demultiplexing [num_rx_ant, seq_length//Locc]
                         Locc = self._compute_locc([[n_u_p]])
                         h_avg = self._apply_occ_demux_single(h_shifted, Locc)
                         
-                        # 线性插值回完整长度 [num_rx_ant, seq_length]
+                        # Linear interpolation back to full length [num_rx_ant, seq_length]
                         h_interpolated = self._linear_interpolation_single(h_avg, self.seq_length)
                         
-                        # 保存预处理结果
+                        # Store preprocessing results
                         preprocessed_data[(user_id, port_id)] = {
                             'h_interpolated': h_interpolated,
                             'timing_offset': timing_offset,
@@ -157,47 +157,46 @@ class SRSChannelEstimator(nn.Module):
                             'n_u_p': n_u_p
                         }
                 
-            # 第二阶段：计算当前样本的全局残差
+            # Phase 2: Calculate global residual for current sample
             total_reconstructed_signal = torch.zeros(num_rx_ant, self.seq_length, 
                                                 dtype=torch.complex64, device=self.device)
             
             for (user_id, port_id), data in preprocessed_data.items():
                 h_interpolated = data['h_interpolated']
                 phasor_m = data['phasor_m']
-                # 恢复时延信息
+                # Restore timing information
                 h_with_timing = h_interpolated * torch.conj(phasor_m).unsqueeze(0)
                 total_reconstructed_signal += h_with_timing
             
-            # 计算全局残差
+            # Calculate global residual
             global_residual = sample_ls_estimates - total_reconstructed_signal
             
-            # 第三阶段：应用残差校正和MMSE滤波
+            # Phase 3: Apply residual correction and MMSE filtering
             for (user_id, port_id), data in preprocessed_data.items():
                 h_interpolated = data['h_interpolated']
                 phasor_m = data['phasor_m']
                 phasor_T = data['phasor_T']
                 
-                # 添加全局残差
+                # Add global residual
                 h_with_residual = h_interpolated + global_residual * phasor_m.unsqueeze(0)
                 
-                # MMSE滤波 - 使用能量最大的天线来计算C和R矩阵
-                # 计算每个天线的总能量 [num_rx_ant]
+                # MMSE filtering - Use the antenna with maximum energy to calculate C and R matrices
+                # Calculate total energy per antenna [num_rx_ant]
                 antenna_energies = torch.sum(torch.abs(h_with_residual)**2, dim=1)  # [num_rx_ant]
-                # 找到能量最大的天线索引
+                # Find the index of the antenna with maximum energy
                 max_energy_antenna_idx = torch.argmax(antenna_energies).item()
-                # 使用能量最大的天线计算C和R
+                # Use the antenna with maximum energy to calculate C and R
                 reference_antenna_signal = h_with_residual[max_energy_antenna_idx, :]  # [seq_length]
-                C, R = self.mmse_module(reference_antenna_signal)
-                self.set_mmse_matrices(C=C, R=R, user_port=(user_id, port_id))
                 
-                h_mmse_aligned = self._apply_mmse_filter_single(h_with_residual, user_port=(user_id, port_id))
+                # Use chunked processing for variable-length sequences
+                h_mmse_aligned = self._apply_mmse_filter_chunked(h_with_residual, user_port=(user_id, port_id))
                 
-                # 恢复时延信息
+                # Restore timing information
                 final_estimates = h_mmse_aligned * torch.conj(phasor_T).unsqueeze(0)
                 
                 sample_channel_estimates[(user_id, port_id)] = final_estimates
             
-            # 添加当前样本的结果到批次结果
+            # Add current sample results to batch results
             channel_estimates_list.append(sample_channel_estimates)
         
         return channel_estimates_list
@@ -220,16 +219,89 @@ class SRSChannelEstimator(nn.Module):
         
         return h_interp
 
-    def _apply_mmse_filter_single(self, h: torch.Tensor, user_port: Tuple[int, int] = None) -> torch.Tensor:
+    def _apply_mmse_filter_single(self, h_input: torch.Tensor, user_port: Optional[Tuple[int, int]] = None):
         """单样本版本的MMSE滤波"""
         if self.mmse_module is None:
-            return h
+            return h_input
         
         # 添加batch维度，调用batch版本，然后移除batch维度
-        h_batch = h.unsqueeze(0)
+        h_batch = h_input.unsqueeze(0)
         h_filtered_batch = self._apply_mmse_filter_batch(h_batch, user_port)
         return h_filtered_batch.squeeze(0)
 
+    def _apply_mmse_filter_chunked(self, h_input: torch.Tensor, user_port: Optional[Tuple[int, int]] = None):
+        """
+        Apply MMSE filtering using chunked processing for variable sequence lengths
+        
+        This method handles variable-length sequences by:
+        1. Using the MLP to generate C and R matrices for each chunk
+        2. Applying MMSE filtering to each chunk separately
+        3. Concatenating the results to form the full-length filtered output
+        
+        Args:
+            h_input: Input channel estimates [num_rx_ant, seq_length]
+            user_port: Optional user/port tuple for per-user matrices
+            
+        Returns:
+            Filtered channel estimates [num_rx_ant, seq_length]
+        """
+        num_rx_ant, seq_length = h_input.shape
+        
+        # Get chunk size from MMSE block size
+        chunk_size = self.mmse_block_size
+        
+        # Calculate number of chunks needed
+        num_chunks = (seq_length + chunk_size - 1) // chunk_size
+        
+        # Prepare output tensor
+        h_mmse = torch.zeros_like(h_input)
+        
+        # For the reference antenna, use the most significant one
+        antenna_energies = torch.sum(torch.abs(h_input)**2, dim=1)
+        max_energy_antenna_idx = torch.argmax(antenna_energies).item()
+        reference_antenna_signal = h_input[max_energy_antenna_idx]
+        
+        # Generate C and R matrices for all chunks using the MMSE module
+        if self.mmse_module is not None:
+            C_matrices, R_matrices = self.mmse_module.forward_chunked(
+                reference_antenna_signal, chunk_size=chunk_size)
+        else:
+            raise ValueError("MMSE module not available. Cannot perform MMSE filtering.")
+        
+        # Process each chunk separately
+        for i in range(num_chunks):
+            # Calculate chunk indices
+            start_idx = i * chunk_size
+            end_idx = min((i + 1) * chunk_size, seq_length)
+            
+            # Get chunk data
+            chunk_data = h_input[:, start_idx:end_idx]
+            
+            # Reshape for MMSE filtering [num_rx_ant, chunk_actual_size] -> [num_rx_ant*chunk_actual_size]
+            chunk_actual_size = end_idx - start_idx
+            h_chunk_flat = chunk_data.reshape(-1)
+            
+            # Get C and R matrices for this chunk
+            C = C_matrices[i]  # [mmse_block_size, mmse_block_size]
+            R = R_matrices[i]  # [mmse_block_size, mmse_block_size]
+            
+            # If chunk is smaller than mmse_block_size, resize matrices
+            if chunk_actual_size < chunk_size:
+                C = C[:chunk_actual_size, :chunk_actual_size]
+                R = R[:chunk_actual_size, :chunk_actual_size]
+            
+            # Perform MMSE filtering on the chunk
+            # Calculate W = C / (C + R)
+            W = torch.linalg.solve(C + R, C)
+            
+            # Apply filter to each antenna independently
+            for ant in range(num_rx_ant):
+                ant_chunk = chunk_data[ant]  # [chunk_actual_size]
+                # Apply MMSE filter
+                h_mmse[ant, start_idx:end_idx] = torch.mv(W, ant_chunk)
+        
+        return h_mmse
+    
     def _compute_locc(self, cyclic_shifts: List[List[int]]) -> int:
         """
         Compute Locc based on user configuration
@@ -251,13 +323,13 @@ class SRSChannelEstimator(nn.Module):
     
     def _generate_phasor_batch(self, m_values: torch.Tensor) -> torch.Tensor:
         """
-        批处理生成相位因子
+        Generate phase factors in batch mode
         
         Args:
-            m_values: 移位量 [batch_size]
+            m_values: Shift amounts [batch_size]
             
         Returns:
-            phasors: 相位因子 [batch_size, seq_length]
+            phasors: Phase factors [batch_size, seq_length]
         """
         batch_size = m_values.shape[0]
         n = torch.arange(self.seq_length, device=self.device).unsqueeze(0)  # [1, seq_length]
@@ -269,14 +341,14 @@ class SRSChannelEstimator(nn.Module):
     
     def _apply_occ_demux_batch(self, h: torch.Tensor, Locc: int) -> torch.Tensor:
         """
-        批处理应用OCC去复用
+        Apply OCC demultiplexing in batch mode
         
         Args:
-            h: 输入序列 [batch_size, num_rx_ant, seq_length]
-            Locc: OCC长度
+            h: Input sequence [batch_size, num_rx_ant, seq_length]
+            Locc: OCC length
             
         Returns:
-            h_avg: 平均后的序列 [batch_size, num_rx_ant, seq_length//Locc]
+            h_avg: Averaged sequence [batch_size, num_rx_ant, seq_length//Locc]
         """
         batch_size, num_rx_ant, L = h.shape
         # 重塑为 [batch_size, num_rx_ant, L//Locc, Locc]
@@ -287,14 +359,14 @@ class SRSChannelEstimator(nn.Module):
     
     def _linear_interpolation_batch(self, h_avg: torch.Tensor, target_length: int) -> torch.Tensor:
         """
-        批处理线性插值
+        Linear interpolation in batch mode
         
         Args:
-            h_avg: 输入序列 [batch_size, num_rx_ant, reduced_length]
-            target_length: 目标长度
+            h_avg: Input sequence [batch_size, num_rx_ant, reduced_length]
+            target_length: Target length
             
         Returns:
-            h_interp: 插值后的序列 [batch_size, num_rx_ant, target_length]
+            h_interp: Interpolated sequence [batch_size, num_rx_ant, target_length]
         """
         batch_size, num_rx_ant, reduced_length = h_avg.shape
         
@@ -306,7 +378,7 @@ class SRSChannelEstimator(nn.Module):
                                    for i in range(reduced_length)], device=self.device)
         new_indices = torch.arange(target_length, dtype=torch.float32, device=self.device)
         
-        # 批处理插值
+        # Batch interpolation
         h_real = torch.real(h_avg)  # [batch_size, num_rx_ant, reduced_length]
         h_imag = torch.imag(h_avg)  # [batch_size, num_rx_ant, reduced_length]
         
@@ -330,13 +402,13 @@ class SRSChannelEstimator(nn.Module):
     
     def _estimate_noise_power_batch(self, h: torch.Tensor) -> torch.Tensor:
         """
-        批处理估计噪声功率
+        Estimate noise power in batch mode
         
         Args:
-            h: 频域信道估计 [batch_size, num_rx_ant, seq_length]
+            h: Frequency domain channel estimates [batch_size, num_rx_ant, seq_length]
             
         Returns:
-            noise_powers: 噪声功率 [batch_size]
+            noise_powers: Noise powers [batch_size]
         """
         # 计算相邻样本差分 [batch_size, num_rx_ant, seq_length-1]
         diff = h[..., 1:] - h[..., :-1]

@@ -66,7 +66,7 @@ except Exception as e:
 # Test model initialization
 print("\n🏗️ Testing model initialization...")
 try:
-    from config import create_example_config
+    from user_config import create_example_config
     config = create_example_config()
     
     # Test SRS estimator

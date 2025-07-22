@@ -132,10 +132,10 @@ def generate_batch_with_timing_info(self, batch_size):
 
 ### 3. Configuration Integration
 
-Add timing estimation parameters to `config.py`:
+Add timing estimation parameters to `user_config.py`:
 
 ```python
-# In config.py
+# In user_config.py
 TIMING_ESTIMATION_CONFIG = {
     'enable_timing_estimation': True,
     'sampling_period': 1e-6,

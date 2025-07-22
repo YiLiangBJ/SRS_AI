@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import argparse
 from typing import List, Dict, Optional, Tuple
 
-from config import SRSConfig, create_example_config
+from user_config import SRSConfig, create_example_config
 from data_generator import SRSDataGenerator
 from model_Traditional import SRSChannelEstimator
 from utils import calculate_nmse

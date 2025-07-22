@@ -101,12 +101,15 @@ class SIONNAChannelModel:
         if delay_spread is None:
             raise ValueError("delay_spread must be provided and cannot be None")
         if k_factor is None:
-            raise ValueError("k_factor must be provided and cannot be None")
+            # Default K-factor value
+            self.k_factor = 0.0  # For non-LOS models
+        else:
+            self.k_factor = k_factor
         
         self.model_type = model_type
         self.num_rx_antennas = num_rx_antennas
         self.delay_spread = delay_spread
-        self.k_factor = k_factor
+        # k_factor is already set in the condition check above
         
         # Enforce strict device usage
         self.device = device

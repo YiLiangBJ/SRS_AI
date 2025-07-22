@@ -2,7 +2,7 @@
 ⚠️  已弃用：此文件为旧版数据生成器，保留用于兼容性
 ✅ 新版本：请使用 data_generator_refactored.py 中的模块化设计
 📝 新版本特点：
-   - 统一使用config.py中的SNR和timing_offset配置
+   - Uniformly use SNR and timing_offset configuration from user_config.py
    - 模块化架构，支持动态信道切换
    - 更好的PyTorch/TensorFlow边界管理
 """
@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, Optional, Union, Literal
 import random
 import math
 
-from config import SRSConfig
+from user_config import SRSConfig
 from utils import generate_base_sequence, apply_cyclic_shift
 import matplotlib.pyplot as plt
 

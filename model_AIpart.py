@@ -202,3 +202,84 @@ class TrainableMMSEModule(nn.Module):
         R = R + torch.eye(n, device=R.device) * epsilon
         
         return C, R
+    
+    def forward_chunked(self, channel_stats: torch.Tensor, chunk_size: int = 12) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Process a variable-length sequence in fixed-size chunks and concatenate the results
+        
+        This method handles variable sequence lengths by:
+        1. Breaking the input sequence into chunks of size chunk_size (default 12)
+        2. Processing each chunk independently through the MLP
+        3. Concatenating the C and R matrices for each chunk
+        
+        Args:
+            channel_stats: Channel statistics - can be any length (not restricted to self.seq_length)
+            chunk_size: Size of chunks to process (default: 12)
+            
+        Returns:
+            C: List of channel correlation matrices for each chunk
+            R: List of noise correlation matrices for each chunk
+        """
+        # Get sequence length from input
+        if self.use_complex_input and channel_stats.is_complex():
+            actual_length = channel_stats.shape[0]
+        else:
+            actual_length = channel_stats.shape[0] // 2 if self.use_complex_input else channel_stats.shape[0]
+            
+        # Calculate number of chunks needed
+        num_chunks = (actual_length + chunk_size - 1) // chunk_size
+        
+        # Lists to store C and R matrices for each chunk
+        C_matrices = []
+        R_matrices = []
+        
+        # Process each chunk
+        for i in range(num_chunks):
+            # Extract chunk
+            start_idx = i * chunk_size
+            end_idx = min(start_idx + chunk_size, actual_length)
+            
+            if self.use_complex_input and channel_stats.is_complex():
+                chunk = channel_stats[start_idx:end_idx]
+                # Pad if necessary
+                if end_idx - start_idx < chunk_size:
+                    padding_size = chunk_size - (end_idx - start_idx)
+                    zeros = torch.zeros(padding_size, device=chunk.device, dtype=chunk.dtype)
+                    chunk = torch.cat([chunk, zeros])
+            else:
+                # For concatenated real/imag or real-only inputs
+                if self.use_complex_input:
+                    # For concatenated real/imag
+                    real_start = start_idx
+                    real_end = min(start_idx + chunk_size, actual_length)
+                    imag_start = actual_length + start_idx
+                    imag_end = min(actual_length + start_idx + chunk_size, 2 * actual_length)
+                    
+                    chunk_real = channel_stats[real_start:real_end]
+                    chunk_imag = channel_stats[imag_start:imag_end]
+                    
+                    # Pad if necessary
+                    if real_end - real_start < chunk_size:
+                        padding_size = chunk_size - (real_end - real_start)
+                        zeros = torch.zeros(padding_size, device=chunk_real.device, dtype=chunk_real.dtype)
+                        chunk_real = torch.cat([chunk_real, zeros])
+                        chunk_imag = torch.cat([chunk_imag, zeros])
+                        
+                    chunk = torch.cat([chunk_real, chunk_imag])
+                else:
+                    # For real-only inputs
+                    chunk = channel_stats[start_idx:end_idx]
+                    # Pad if necessary
+                    if end_idx - start_idx < chunk_size:
+                        padding_size = chunk_size - (end_idx - start_idx)
+                        zeros = torch.zeros(padding_size, device=chunk.device, dtype=chunk.dtype)
+                        chunk = torch.cat([chunk, zeros])
+            
+            # Process chunk through MLP
+            C_chunk, R_chunk = self.forward(chunk)
+            
+            # Store matrices
+            C_matrices.append(C_chunk)
+            R_matrices.append(R_chunk)
+        
+        return C_matrices, R_matrices

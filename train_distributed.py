@@ -49,7 +49,7 @@ from typing import Optional, Dict, Any
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from config import SRSConfig, create_example_config
+from user_config import SRSConfig, create_example_config
 from system_detection import SystemDetector, setup_distributed_training
 from data_generator_refactored import SRSDataGenerator
 from model_Traditional import SRSChannelEstimator

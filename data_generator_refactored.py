@@ -17,7 +17,7 @@ import numpy as np
 from typing import List, Tuple, Dict, Optional, Union, Literal, Protocol
 from abc import ABC, abstractmethod
 
-from config import SRSConfig
+from user_config import SRSConfig
 from system_config import SystemConfig, create_default_system_config
 from utils import generate_base_sequence, apply_cyclic_shift
 
@@ -146,8 +146,13 @@ class BaseSRSDataGenerator:
         # 调试信息存储
         self.debug_data = {}
         
-        # 预生成基础序列，避免每次重复计算
-        self.base_seq = generate_base_sequence(length=self.config.seq_length)
+        # Generate base sequence based on current configuration
+        self._update_base_sequence()
+        
+    def _update_base_sequence(self):
+        """Update the base sequence when configuration changes"""
+        # Use the current sequence length from the configuration
+        self.base_seq = generate_base_sequence(length=self.config.current_seq_length)
     
     def generate_srs_sequences(
         self, 
@@ -170,21 +175,21 @@ class BaseSRSDataGenerator:
         base_seq = self.base_seq
         
         for user_id in user_indices:
-            # 确保用户ID有效
+            # Ensure user ID is valid
             if user_id >= self.config.num_users:
                 raise ValueError(f"User ID {user_id} exceeds configured users {self.config.num_users}")
             
-            # 为该用户的每个端口生成序列
+            # Generate sequence for each port of this user
             num_ports = self.config.ports_per_user[user_id]
             for port_id in range(num_ports):
-                # 获取该端口的循环移位
-                cyclic_shift = self.config.cyclic_shifts[user_id][port_id]
+                # Get cyclic shift for this port from current configuration
+                cyclic_shift = self.config.current_cyclic_shifts[user_id][port_id]
                 
-                # 应用循环移位
+                # Apply cyclic shift using current K value
                 shifted_seq = apply_cyclic_shift(
                     base_seq, 
                     cyclic_shift,
-                    self.config.K
+                    self.config.K  # This now uses the current K property based on current_ktc
                 )
                 
                 # 转换为张量并移动到设备 (使用推荐的 clone 方法而不是 torch.tensor)
@@ -222,9 +227,10 @@ class BaseSRSDataGenerator:
         if ifft_size is None:
             ifft_size = self.ifft_size
         
-        # 生成梳状(comb)映射索引 - 每ktc个子载波放置一个序列元素
-        seq_length = self.config.seq_length
-        ktc = self.config.ktc  # 梳状间隔
+        # Generate comb mapping indices - place one sequence element every ktc subcarriers
+        # Use current values from the active configuration
+        seq_length = self.config.current_seq_length
+        ktc = self.config.current_ktc  # Comb spacing
         
         # 简化映射：从索引0开始，步长为ktc
         mapping_indices = torch.arange(seq_length, dtype=torch.long, device=self.device) * ktc
@@ -330,15 +336,17 @@ class BaseSRSDataGenerator:
         ifft_size: Optional[int] = None
     ) -> Dict[str, torch.Tensor]:
         """
-        生成纯数据样本（不包含信道和噪声）
+        Generate pure data sample (without channel and noise)
         
         Args:
-            user_indices: 用户索引列表
-            ifft_size: IFFT大小 (如果为None则使用系统配置)
+            user_indices: User index list
+            ifft_size: IFFT size (if None, use system config)
             
         Returns:
-            包含所有数据的字典（不包含SNR信息）
+            Dictionary containing all data (without SNR information)
         """
+        # Update base sequence to match current configuration
+        self._update_base_sequence()
         # 1. 生成SRS序列（每个用户每个端口）
         sequences = self.generate_srs_sequences(user_indices)
         
@@ -502,30 +510,37 @@ class SRSDataGenerator:
         **kwargs
     ) -> Dict[str, torch.Tensor]:
         """
-        生成一个完整的训练样本
+        Generate a complete training sample with randomized configuration
         
         Args:
-            user_indices: 用户索引列表（如果为None则使用config中定义的所有用户）
-            snr_db: 信噪比
-            ifft_size: IFFT大小 (如果为None则使用系统配置)
+            user_indices: User index list (if None, use all users defined in config)
+            snr_db: Signal-to-noise ratio (if None, randomly selected from config)
+            ifft_size: IFFT size (if None, use system configuration)
             
         Returns:
-            完整的数据样本
+            Complete data sample
         """
-        # 使用系统配置的IFFT大小
+        # Randomize configuration for this sample
+        self.base_generator.config.randomize_configuration()
+        
+        # Use system config's IFFT size
         if ifft_size is None:
             ifft_size = self.base_generator.ifft_size
-        # 确定用户列表 - 从config获取，不再随机生成
+            
+        # Determine user list - get from config, no longer randomly generated
         if user_indices is None:
-            # 使用config中定义的所有用户
+            # Use all users defined in config
             user_indices = list(range(self.base_generator.config.num_users))
         
-        # 1. 生成纯数据（不含信道）
+        # Generate pure data (without channel)
         data_sample = self.base_generator.generate_pure_data_sample(
             user_indices, ifft_size
         )
         
-
+        # If SNR is not explicitly provided, get it from the config
+        if snr_db is None:
+            snr_db = self.base_generator.config.get_snr_db()
+        
         debug_dict = {}
         
         # 应用信道
@@ -563,10 +578,11 @@ class SRSDataGenerator:
         return batch
     
     def generate_batch(self, batch_size: int, **kwargs) -> Dict[str, torch.Tensor]:
-        """生成一批训练样本"""
+        """Generate a batch of training samples with randomized configurations for each sample"""
         batch_samples = []
         
         for i in range(batch_size):
+            # Each sample will have its own randomized configuration
             sample = self.generate_sample(**kwargs)
             batch_samples.append(sample)
         
