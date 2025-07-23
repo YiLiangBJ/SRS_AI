@@ -14,6 +14,8 @@ os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import torch
+import torch.multiprocessing as mp
+import os
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -1388,21 +1390,29 @@ def main():
     """Main function"""
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train SRS Channel Estimator with professional channel models")
-    parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
-    parser.add_argument('--train_batches', type=int, default=50, help='Number of training batches per epoch')
+    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
+    parser.add_argument('--train_batches', type=int, default=100, help='Number of training batches per epoch')
     parser.add_argument('--val_batches', type=int, default=10, help='Number of validation batches')
-    parser.add_argument('--batch_size', type=int, default=10, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
     parser.add_argument('--val_every', type=int, default=1, help='Validate every n epochs')
     parser.add_argument('--save_every', type=int, default=5, help='Save checkpoint every n epochs')
     parser.add_argument('--save_dir', type=str, default='./checkpoints_modified', help='Save directory')
     parser.add_argument('--load_checkpoint', type=str, default='', help='Load checkpoint file')
-    
+    parser.add_argument('--num_threads', type=int, default=os.cpu_count(), help='Number of CPU threads for PyTorch (default: all cores)')
     # Device argument
     parser.add_argument('--device', type=str, default='cpu',
                        choices=['cpu', 'cuda'],
                        help='Device to use for training (cpu or cuda, default: cpu)')
     
     args = parser.parse_args()
+
+    # 设置PyTorch多进程启动方式（推荐spawn，避免fork导致的死锁和内存问题）
+    mp.set_start_method('spawn', force=True)
+
+    # 设置PyTorch线程数（并行计算核心数）
+    torch.set_num_threads(args.num_threads)
+    torch.set_num_interop_threads(1)
+    print(f"PyTorch CPU线程数设置为: {args.num_threads}")
     
     # Force SIONNA availability check - no fallback
     if not SIONNA_AVAILABLE:
