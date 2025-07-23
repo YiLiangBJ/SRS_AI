@@ -128,23 +128,25 @@ class TrainableMMSEModule(nn.Module):
                         # Small random bias initialization
                         nn.init.uniform_(layer.bias, -0.1, 0.1)
     
-    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:        
+    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:        
         """
         Forward pass of the hybrid CNN-MLP MMSE module.
+        
+        NEW APPROACH: Generate different C and R matrices for each chunk to preserve local characteristics.
         
         Process:
         1. Extract global features from full sequence using CNN
         2. Split sequence into chunks of mmse_block_size
         3. For each chunk, combine with CNN features and process through MLP
-        4. Accumulate gradients across all chunks
+        4. Generate unique C and R matrices for each chunk
         
         Args:
             channel_stats: Channel statistics tensor [seq_length] (complex)
             noise_power: Estimated noise power (not used directly anymore, kept for API compatibility)
             
         Returns:
-            C: Channel correlation matrix (mmse_block_size x mmse_block_size)
-            R: Noise and interference correlation matrix (mmse_block_size x mmse_block_size)
+            C_matrices: List of channel correlation matrices for each chunk
+            R_matrices: List of noise correlation matrices for each chunk
         """
         device = channel_stats.device
         seq_length = channel_stats.shape[0]
@@ -152,13 +154,14 @@ class TrainableMMSEModule(nn.Module):
         # Step 1: Extract global features using CNN
         cnn_features = self._extract_cnn_features(channel_stats)  # [mmse_block_size] complex
         
-        # Step 2: Split sequence into chunks and process each with MLP
-        # Initialize accumulated Cholesky factors
-        accumulated_C_factors = None
-        accumulated_R_factors = None
-        num_processed_chunks = 0
+        # Step 2: Split sequence into chunks and generate unique matrices for each
+        C_matrices = []
+        R_matrices = []
         
-        for chunk_idx in range(self.num_chunks):
+        # Calculate actual number of chunks needed for this sequence
+        actual_num_chunks = (seq_length + self.mmse_block_size - 1) // self.mmse_block_size
+        
+        for chunk_idx in range(actual_num_chunks):
             start_idx = chunk_idx * self.mmse_block_size
             end_idx = min(start_idx + self.mmse_block_size, seq_length)
             
@@ -171,29 +174,18 @@ class TrainableMMSEModule(nn.Module):
                 padding = torch.zeros(padding_size, dtype=chunk.dtype, device=device)
                 chunk = torch.cat([chunk, padding])
             
-            # Process chunk with CNN features
+            # Process chunk with CNN features to get unique Cholesky factors
             C_factors, R_factors = self._process_chunk_with_features(chunk, cnn_features)
             
-            # Accumulate factors
-            if accumulated_C_factors is None:
-                accumulated_C_factors = C_factors
-                accumulated_R_factors = R_factors
-            else:
-                accumulated_C_factors += C_factors
-                accumulated_R_factors += R_factors
+            # Construct unique matrices for this chunk
+            C_matrix = self._construct_matrix_from_cholesky_params(C_factors, self.mmse_block_size)
+            R_matrix = self._construct_matrix_from_cholesky_params(R_factors, self.mmse_block_size)
             
-            num_processed_chunks += 1
+            # Store the unique matrices
+            C_matrices.append(C_matrix)
+            R_matrices.append(R_matrix)
         
-        # Average the accumulated factors
-        if num_processed_chunks > 0:
-            accumulated_C_factors /= num_processed_chunks
-            accumulated_R_factors /= num_processed_chunks
-        
-        # Step 3: Construct matrices from averaged Cholesky factors
-        C_matrix = self._construct_matrix_from_cholesky_params(accumulated_C_factors, self.mmse_block_size)
-        R_matrix = self._construct_matrix_from_cholesky_params(accumulated_R_factors, self.mmse_block_size)
-        
-        return C_matrix, R_matrix
+        return C_matrices, R_matrices
     
     def _extract_cnn_features(self, channel_stats: torch.Tensor) -> torch.Tensor:
         """
@@ -320,26 +312,19 @@ class TrainableMMSEModule(nn.Module):
         """
         Process a variable-length sequence in fixed-size chunks using hybrid CNN-MLP approach.
         
-        This method is compatible with the old chunked processing interface.
-        It uses the new CNN-MLP hybrid approach internally.
+        This method now generates unique C and R matrices for each chunk, preserving local characteristics.
         
         Args:
             channel_stats: Channel statistics - can be any length (not restricted to self.seq_length)
-            chunk_size: Size of chunks to process (default: 12)
+            chunk_size: Size of chunks to process (default: 12, should match mmse_block_size)
             
         Returns:
-            C_matrices: List of channel correlation matrices for each chunk
-            R_matrices: List of noise correlation matrices for each chunk
+            C_matrices: List of channel correlation matrices for each chunk (each is unique)
+            R_matrices: List of noise correlation matrices for each chunk (each is unique)
         """
-        # Use the new forward method internally to get the optimized matrices
-        C_matrix, R_matrix = self.forward(channel_stats)
+        # Ensure chunk_size matches our mmse_block_size for consistency
+        if chunk_size != self.mmse_block_size:
+            print(f"Warning: chunk_size ({chunk_size}) != mmse_block_size ({self.mmse_block_size}). Using mmse_block_size.")
         
-        # Calculate how many chunks we need to support
-        seq_length = channel_stats.shape[0]
-        num_chunks = (seq_length + chunk_size - 1) // chunk_size  # Ceiling division
-        
-        # Return the same matrices for all chunks (since our hybrid approach optimizes globally)
-        C_matrices = [C_matrix for _ in range(num_chunks)]
-        R_matrices = [R_matrix for _ in range(num_chunks)]
-        
-        return C_matrices, R_matrices
+        # Use the new forward method that generates unique matrices for each chunk
+        return self.forward(channel_stats)
