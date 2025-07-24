@@ -843,20 +843,11 @@ class SRSTrainerModified:
         return backup_model
             
             
-    def generate_batch_with_dynamic_channel(self, batch_size: int, enable_debug: bool = False, channel_config=None):
-        """
-        Generate batch data with dynamic randomized configuration for each sample
-        
-        🎯 Design optimization: prioritize using pre-initialized data generator, avoid repeated creation
-        
-        Args:
-            batch_size: Batch size
-            enable_debug: Whether to enable debugging
-            channel_config: Channel configuration, format: {'model': 'TDL-A', 'delay_spread': 300e-9}
-        """
+    def generate_batch_with_dynamic_channel(self, batch_size: int, channel_config=None) -> tuple[torch.Tensor, torch.Tensor]:
+
         # First, randomize the SRS configuration for this batch
         self.config.randomize_configuration()
-        
+
         # If channel_config is None, use the newly randomized channel model from config
         if channel_config is None and hasattr(self.config, 'current_channel_model'):
             model_type, delay_spread = self.config.parse_channel_model()
@@ -864,24 +855,19 @@ class SRSTrainerModified:
                 'model': model_type,
                 'delay_spread': delay_spread
             }
-            if enable_debug:
-                print(f"📊 Using randomized channel configuration: {model_type}, {delay_spread*1e9:.1f}ns")
-        
+
         # Check for pre-initialized generators
         snr_key = "config_snr"
         if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
             data_generator = self.data_generators[snr_key]
-            print(f"🔄 Using pre-initialized data generator: {snr_key}") if enable_debug else None
         else:
             # If no pre-initialized generator is found, create one
             data_generator = self.get_data_generator(channel_config=channel_config)
-            print(f"🆕 Creating new data generator") if enable_debug else None
-        
-        # Generate complete batch (including ls_estimates, true_channels, etc.)
-        # Each sample in the batch will have its own randomized configuration
-        batch = data_generator.generate_batch(batch_size, enable_debug=enable_debug)
-        
-        return batch
+
+        # Generate batch as before
+        ls_estimates_tensor, true_channel_tensor = data_generator.generate_batch(batch_size)
+
+        return ls_estimates_tensor, true_channel_tensor
     
     def train_epoch(self, num_batches: int, batch_size: int) -> Tuple[float, float]:
         """
@@ -904,74 +890,51 @@ class SRSTrainerModified:
             self.mmse_module.train()
         
         for batch_idx in tqdm(range(num_batches), desc="Training"):
-            # Generate batch with dynamic channel - use pre-initialized data generator
+            # Generate batch with dynamic channel
             with torch.no_grad():
-                # Directly use pre-created instances in data_generators, don't specify specific channel config
-                batch = self.generate_batch_with_dynamic_channel(
-                    batch_size, 
-                    enable_debug=True
-                )
+                ls_estimates_tensor, true_channel_tensor = self.generate_batch_with_dynamic_channel(batch_size)
 
-            # Get batch data - now in list format
-            ls_estimates = batch['ls_estimates']
-            true_channels_dict = batch['true_channels']
-            
             # Clear gradients
             self.optimizer.zero_grad()
-            
-            # Process all user ports in the entire batch at once
-            estimated_channels_dict = self.srs_estimator(
-                ls_estimates=ls_estimates,
-                user_config=self.srs_config,
-                true_channels_dict=true_channels_dict # for debug purpose
+
+            # Model forward: tensor batch input, output shape (batch_size, num_user_ports, ...)
+            estimated_channels = self.srs_estimator(
+                ls_estimates=ls_estimates_tensor,
+                user_config=self.srs_config
             )
-            
-            # Batch processing computation of loss and NMSE
+
+            # Vectorized loss and NMSE calculation
+            # Assume compute_batch_loss_and_nmse supports tensor input
             batch_loss, batch_nmse, batch_sample_count = self.compute_batch_loss_and_nmse(
-                estimated_channels_dict, 
-                true_channels_dict,
-                is_training=True  # Training mode
+                estimated_channels,
+                true_channel_tensor,
+                is_training=True
             )
-            
+
             # Backpropagation and optimization
             if batch_loss.requires_grad:
                 batch_loss.backward()
-                
-                # Gradient information debugging
+                # Gradient info
                 for name, param in self.srs_estimator.named_parameters():
-                    if param.requires_grad:
-                        if param.grad is None:
-                            print(f"SRS parameter {name} has no gradient")
-                        elif param.grad.abs().mean().item() == 0:
-                            print(f"SRS parameter {name} has zero gradients")
-                        else:
-                            grad_norm = param.grad.abs().mean().item()
-                            if self.writer is not None:
-                                self.writer.add_scalar(f'Gradients/SRS_{name}', grad_norm, self.global_step)
-                
-                # Execute gradient update
+                    if param.requires_grad and param.grad is not None:
+                        grad_norm = param.grad.abs().mean().item()
+                        if self.writer is not None:
+                            self.writer.add_scalar(f'Gradients/SRS_{name}', grad_norm, self.global_step)
                 self.optimizer.step()
             else:
                 print(f"Warning: Batch {batch_idx} loss does not require gradients. Skipping backpropagation.")
-            
+
             # Update totals
             with torch.no_grad():
                 batch_loss_value = batch_loss.item()
                 total_loss += batch_loss_value
                 total_nmse += batch_nmse
                 total_sample_count += batch_sample_count
-                
-                # Calculate average NMSE
                 avg_batch_nmse = batch_nmse / batch_sample_count if batch_sample_count > 0 else 0
-                  
-                # Log batch-level metrics to TensorBoard
                 if self.writer is not None:
                     self.writer.add_scalar('Loss/batch', batch_loss_value, self.global_step)
                     self.writer.add_scalar('NMSE/batch', avg_batch_nmse, self.global_step)
-                  
-                # Print loss information to console for immediate feedback
                 print(f"\nBatch [{batch_idx+1:03d}/{num_batches:03d}] - Loss: {batch_loss_value:.6f}, NMSE: {avg_batch_nmse:.2f} dB, Samples: {batch_sample_count}")
-                
                 self.global_step += 1
         
         # Calculate averages

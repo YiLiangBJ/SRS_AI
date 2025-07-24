@@ -248,7 +248,7 @@ class SRSDataGenerator:
                 torch.cuda.manual_seed(seed)
                 torch.cuda.manual_seed_all(seed)
 
-    def generate_sample(self, fixed_snr: Optional[float] = None, enable_debug: bool = False) -> Dict:
+    def generate_sample(self, fixed_snr: Optional[float] = None) -> Dict:
         """
         Generate a single training/testing sample
         
@@ -269,33 +269,6 @@ class SRSDataGenerator:
         L = self.config.seq_length
         K = self.config.K
         num_users = self.config.num_users
-        
-        # Initialize unified debug dictionary for all intermediate signals
-        debug_info = {} if enable_debug else None
-        
-        if enable_debug:
-            debug_info.update({
-                # Basic configuration info
-                'seq_length': L,
-                'K': K,
-                'num_users': num_users,
-                'num_rx_antennas': self.num_rx_antennas,
-                'base_sequence': self.base_sequence.clone(),
-                'mapping_indices': self.mapping_indices.clone(),
-                'ifft_size': self.ifft_size,
-                'cp_length': self.cp_length,
-                'sampling_rate': self.sampling_rate,
-                'delay_offset_range': self.delay_offset_range,
-                
-                # Initialize storage for per-user data
-                'user_signals_before_channel': {},  # [user][port] -> signal
-                'user_signals_after_channel': {},   # [user][rx_ant] -> signal  
-                'user_snrs': {},                    # [user] -> SNR
-                'user_delay_offsets': {},           # [user] -> delay_offset_samples
-                'user_scale_factors': {},           # [user] -> scale_factor
-                'user_powers': {},                  # [user] -> signal_power
-                'channel_debug': {},                # [user] -> TDL channel debug info
-            })
         
         # Initialize received signal for each receive antenna at the basestation
         y_freq_rx_antennas = {
@@ -323,8 +296,6 @@ class SRSDataGenerator:
             # Store the UE's SNR using dictionary structure
             user_snrs[u] = ue_snr_db
             
-            if enable_debug:
-                debug_info['user_snrs'][u] = ue_snr_db
             
             # Account for multiple ports: the power is divided among ports
             num_ports = self.config.ports_per_user[u]
@@ -340,13 +311,6 @@ class SRSDataGenerator:
             delay_offset_seconds = random.uniform(*self.delay_offset_range)
             delay_offset_samples = int(delay_offset_seconds * self.sampling_rate)
             
-            if enable_debug:
-                debug_info['user_delay_offsets'][u] = {
-                    'delay_offset_seconds': delay_offset_seconds,
-                    'delay_offset_samples': delay_offset_samples
-                }
-                debug_info['user_signals_before_channel'][u] = {}
-                debug_info['user_signals_after_channel'][u] = {}
             
             # Initialize true channels dictionary for this user with correct structure: [user][rx_ant][tx_ant]
             true_channels[u] = {}
@@ -378,28 +342,15 @@ class SRSDataGenerator:
                 
                 tx_signals[p] = x_with_cp
                 
-                if enable_debug:
-                    debug_info['user_signals_before_channel'][u][p] = {
-                        'cyclic_shift': n_u_p,
-                        'x_u_p_freq': x_u_p_freq.clone(),
-                        'x_port_mapped': x_port_mapped.clone(),
-                        'x_time': x_time.clone(),
-                        'x_with_cp': x_with_cp.clone(),
-                        'signal_energy': x_with_cp.abs().pow(2).sum().item()
-                    }
             
             # Apply TDL channel: multiple transmit antennas to multiple receive antennas
-            channel_debug = {} if enable_debug else None
             y_time_with_cp_shifted, h_freq_channels = self.tdl_model.apply_channel(
                 tx_signals,  # Dictionary of signals from each port (transmit antenna)
                 delay_offset_samples=delay_offset_samples,
                 mapping_indices=self.mapping_indices,
                 ifft_size=self.ifft_size,
-                debug_dict=channel_debug
             )  # Shape: [num_rx_antennas, signal_length], [num_rx_antennas, num_tx_antennas, L]
             
-            if enable_debug:
-                debug_info['channel_debug'][u] = channel_debug
             
             # Process each receive antenna separately
             for rx_ant in range(self.num_rx_antennas):
@@ -415,14 +366,6 @@ class SRSDataGenerator:
                 # Store user's combined signal after channel
                 user_signals[u][rx_ant] = y_user_combined
                 
-                if enable_debug:
-                    debug_info['user_signals_after_channel'][u][rx_ant] = {
-                        'y_time_with_cp': y_time_with_cp_shifted[rx_ant].clone(),
-                        'y_time': y_time.clone(),
-                        'y_freq': y_freq.clone(),
-                        'y_user_combined': y_user_combined.clone(),
-                        'signal_energy': y_user_combined.abs().pow(2).sum().item()
-                    }
                 
                 # Store channel information for each transmit antenna (port)
                 for tx_ant in range(num_ports):
@@ -432,12 +375,6 @@ class SRSDataGenerator:
         # Fixed noise power (nominal value)
         nominal_noise_power = 1e-3
         
-        if enable_debug:
-            debug_info['nominal_noise_power'] = nominal_noise_power
-            debug_info['y_freq_rx_antennas_before_scaling'] = {
-                rx_ant: torch.zeros_like(y_freq_rx_antennas[rx_ant])
-                for rx_ant in range(self.num_rx_antennas)
-            }
         
         # Calculate user-specific signal powers and scale factors
         user_powers = {}
@@ -467,10 +404,6 @@ class SRSDataGenerator:
             actual_snr = 10 * math.log10(user_power * (scale_factor ** 2) / nominal_noise_power) if user_power > 0 else -float('inf')
             actual_snrs[u] = actual_snr
             
-            if enable_debug:
-                debug_info['user_powers'][u] = user_power
-                debug_info['user_scale_factors'][u] = scale_factor
-                debug_info['actual_snrs'] = actual_snrs
         
         # Scale each user's signals to achieve desired SNR and combine at receiver
         for u in range(num_users):
@@ -480,18 +413,6 @@ class SRSDataGenerator:
                 scaled_signal = user_signals[u][rx_ant] * scale_factor
                 y_freq_rx_antennas[rx_ant] += scaled_signal
                 
-                if enable_debug:
-                    debug_info['y_freq_rx_antennas_before_scaling'][rx_ant] += user_signals[u][rx_ant]
-        
-        if enable_debug:
-            debug_info['y_freq_rx_antennas_after_scaling'] = {
-                rx_ant: y_freq_rx_antennas[rx_ant].clone()
-                for rx_ant in range(self.num_rx_antennas)
-            }
-            debug_info['combined_signal_energy_before_noise'] = sum([
-                y_freq_rx_antennas[rx_ant].abs().pow(2).sum().item()
-                for rx_ant in range(self.num_rx_antennas)
-            ])
         
         # Add noise to each receive antenna
         y_noisy = {}
@@ -505,17 +426,6 @@ class SRSDataGenerator:
             # Add noise to the combined signal
             y_noisy[rx_ant] = y_freq_rx_antennas[rx_ant] + noise
             
-            if enable_debug:
-                if 'noise_signals' not in debug_info:
-                    debug_info['noise_signals'] = {}
-                debug_info['noise_signals'][rx_ant] = noise.clone()
-        
-        if enable_debug:
-            debug_info['y_noisy'] = {rx_ant: y_noisy[rx_ant].clone() for rx_ant in range(self.num_rx_antennas)}
-            debug_info['total_noise_energy'] = sum([
-                debug_info['noise_signals'][rx_ant].abs().pow(2).sum().item()
-                for rx_ant in range(self.num_rx_antennas)
-            ])
         
         # Apply user scale factors to true channels for accurate comparison with estimates
         scaled_true_channels = {}
@@ -532,15 +442,6 @@ class SRSDataGenerator:
         for rx_ant in range(self.num_rx_antennas):
             ls_estimates[rx_ant] = y_noisy[rx_ant] / self.base_sequence
         
-        if enable_debug:
-            debug_info['ls_estimates'] = {rx_ant: ls_estimates[rx_ant].clone() for rx_ant in range(self.num_rx_antennas)}
-            debug_info['scaled_true_channels'] = {}
-            for u in range(num_users):
-                debug_info['scaled_true_channels'][u] = {}
-                for rx_ant in range(self.num_rx_antennas):
-                    debug_info['scaled_true_channels'][u][rx_ant] = {}
-                    for tx_ant in range(self.config.ports_per_user[u]):
-                        debug_info['scaled_true_channels'][u][rx_ant][tx_ant] = scaled_true_channels[u][rx_ant][tx_ant].clone()
         
         # Prepare return dictionary
         result = {
@@ -551,9 +452,6 @@ class SRSDataGenerator:
             'mapping_indices': self.mapping_indices  # Include mapping indices for reference
         }
         
-        # Add debug information if enabled
-        if enable_debug:
-            result['debug_info'] = debug_info
         
         return result
         

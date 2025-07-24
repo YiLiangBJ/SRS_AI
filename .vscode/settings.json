@@ -1,3 +1,23 @@
 {
-    "iis.configDir": ""
+    "iis.configDir": "",
+    "files.autoSave": "off",
+    "workbench.editor.enablePreview": false,
+    "editor.largeFileOptimizations": true,
+    "files.watcherExclude": {
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true,
+        "**/.hg/store/**": true,
+        "**/node_modules/**": true,
+        "**/dist/**": true
+    },
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/bower_components": true,
+        "**/*.code-search": true,
+        "**/__pycache__": true
+    },
+    "editor.renderWhitespace": "none",
+    "editor.cursorBlinking": "smooth",
+    "editor.experimental.asyncTokenization": true,
+    "editor.hardwareAcceleration": "off"
 }

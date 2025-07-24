@@ -53,7 +53,6 @@ class ChannelModelInterface(Protocol):
         delay_offset_samples: int = 0,
         mapping_indices: Optional[torch.Tensor] = None,
         ifft_size: Optional[int] = None,
-        debug_dict: Optional[Dict] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         应用信道模型到输入信号
@@ -155,74 +154,57 @@ class BaseSRSDataGenerator:
         self.base_seq = generate_base_sequence(length=self.config.current_seq_length)
     
     def generate_srs_sequences(
-        self, 
-        user_indices: List[int], 
-        num_symbols: int = 1
-    ) -> Dict[Tuple[int, int], torch.Tensor]:
+        self,
+        batch_size: int = 1,
+    ) -> torch.Tensor:
         """
         生成SRS序列（频域）
         
         Args:
             user_indices: 用户索引列表
+            batch_size: 批次大小
             num_symbols: 符号数量
-            
         Returns:
-            Dict[(user_id, port_id), frequency_domain_sequence]
+            sequences_tensor: [batch_size, num_user_ports, num_symbols, seq_length]
         """
-        sequences = {}
-        
-        # 使用预生成的基础序列
         base_seq = self.base_seq
-        
-        for user_id in user_indices:
-            # Ensure user ID is valid
-            if user_id >= self.config.num_users:
-                raise ValueError(f"User ID {user_id} exceeds configured users {self.config.num_users}")
-            
-            # Generate sequence for each port of this user
+        cyclic_shifts = []
+        meta_list = []
+        for user_id in range(self.config.num_users):
             num_ports = self.config.ports_per_user[user_id]
             for port_id in range(num_ports):
-                # Get cyclic shift for this port from current configuration
-                cyclic_shift = self.config.current_cyclic_shifts[user_id][port_id]
-                
-                # Apply cyclic shift using current K value
-                shifted_seq = apply_cyclic_shift(
-                    base_seq, 
-                    cyclic_shift,
-                    self.config.K  # This now uses the current K property based on current_ktc
-                )
-                
-                # 转换为张量并移动到设备 (使用推荐的 clone 方法而不是 torch.tensor)
-                seq_tensor = shifted_seq.detach().clone().to(
-                    dtype=torch.complex64, 
-                    device=self.device
-                )
-                
-                # 扩展到多个符号
-                if num_symbols > 1:
-                    seq_tensor = seq_tensor.unsqueeze(0).repeat(num_symbols, 1)
-                
-                # 使用 (user_id, port_id) 作为键
-                sequences[(user_id, port_id)] = seq_tensor
-            
-        return sequences
+                cyclic_shifts.append(self.config.current_cyclic_shifts[user_id][port_id])
+                meta_list.append((user_id, port_id))
+        cyclic_shifts_tensor = torch.tensor(cyclic_shifts, dtype=base_seq.dtype, device=self.device)
+        self.cyclic_shifts_tensor = cyclic_shifts_tensor
+        self.meta_list = meta_list
+        num_user_ports = len(cyclic_shifts_tensor)
+        # Broadcast base_seq for all ports and batch
+        base_seq_expanded = base_seq.unsqueeze(0).unsqueeze(0).expand(batch_size, num_user_ports, base_seq.shape[0])
+        # Compute phase shift matrix: exp(1j * 2pi * cyclic_shift * n / K)
+        n = torch.arange(base_seq.shape[0], device=self.device).unsqueeze(0)
+        K = self.config.K
+        phase = torch.exp(1j * 2 * np.pi * cyclic_shifts_tensor.unsqueeze(0).unsqueeze(2) * n / K)
+        phase = phase.expand(batch_size, num_user_ports, base_seq.shape[0])
+        shifted_seqs = base_seq_expanded * phase
+        sequences_tensor = shifted_seqs.to(dtype=torch.complex64, device=self.device)
+
+        return sequences_tensor
     
     def map_to_subcarriers(
-        self, 
-        sequences: Dict[Tuple[int, int], torch.Tensor], 
+        self,
+        sequences: torch.Tensor,
         ifft_size: Optional[int] = None
-    ) -> Tuple[Dict[Tuple[int, int], torch.Tensor], torch.Tensor]:
+    ) -> torch.Tensor:
         """
         将SRS序列映射到子载波
         
         Args:
-            sequences: 用户端口SRS序列 Dict[(user_id, port_id), sequence]
+            sequences: [batch_size, num_user_ports, seq_length]
             ifft_size: IFFT大小 (如果为None则使用系统配置)
             
         Returns:
-            Tuple of (mapped_signals_dict, mapping_indices)
-            - mapped_signals_dict: Dict[(user_id, port_id), full_freq_grid] 每个端口的完整频域网格
-            - mapping_indices: 子载波映射索引 (所有端口共享相同的映射)
+            mapped_signals: [batch_size, num_user_ports, ifft_size]
         """
         if ifft_size is None:
             ifft_size = self.ifft_size
@@ -234,75 +216,38 @@ class BaseSRSDataGenerator:
         
         # 简化映射：从索引0开始，步长为ktc
         # 确保映射索引不超出ifft_size范围
-        max_possible_index = (seq_length - 1) * ktc
-        if max_possible_index >= ifft_size:
-            # 调整seq_length以适应ifft_size
-            max_seq_length = ifft_size // ktc
-            if seq_length > max_seq_length:
-                print(f"⚠️ Warning: seq_length ({seq_length}) too large for ifft_size ({ifft_size}) with ktc ({ktc})")
-                print(f"   Reducing seq_length to {max_seq_length}")
-                seq_length = max_seq_length
         
         mapping_indices = torch.arange(seq_length, dtype=torch.long, device=self.device) * ktc
         
-        # 验证映射索引的有效性
-        max_index = mapping_indices.max().item() if len(mapping_indices) > 0 else -1
-        if max_index >= ifft_size:
-            raise ValueError(f"Mapping index {max_index} exceeds ifft_size {ifft_size}. "
-                           f"seq_length={seq_length}, ktc={ktc}")
-        
-        # 为每个端口创建独立的频域网格
-        mapped_signals = {}
-        
-        for (user_id, port_id), sequence in sequences.items():
-            # 创建完整的频域网格
-            freq_grid = torch.zeros(ifft_size, dtype=torch.complex64, device=self.device)
-            
-            # 映射序列到指定子载波 - 添加额外的安全检查
-            actual_length = min(len(sequence), len(mapping_indices))
-            if actual_length > 0:
-                # 确保映射索引在有效范围内
-                valid_indices = mapping_indices[:actual_length]
-                if valid_indices.max() < ifft_size:
-                    freq_grid[valid_indices] = sequence[:actual_length]
-                else:
-                    raise IndexError(f"Mapping indices out of bounds: max={valid_indices.max()}, ifft_size={ifft_size}")
-            
-            mapped_signals[(user_id, port_id)] = freq_grid
-        
-        return mapped_signals, mapping_indices
+        # sequences: (batch_size, num_user_ports, seq_length)
+        batch_size, num_user_ports, seq_length = sequences.shape[:3]
+        mapped_signals = torch.zeros((batch_size, num_user_ports, ifft_size), dtype=torch.complex64, device=self.device)
+        valid_indices = mapping_indices[:seq_length]
+        mapped_signals[:, :, valid_indices] = sequences[:, :, :seq_length]
+        self.mapping_indices = mapping_indices
+        return mapped_signals
     
-    def ofdm_modulate(self, freq_signals_dict: Dict[Tuple[int, int], torch.Tensor]) -> Dict[Tuple[int, int], torch.Tensor]:
+    def ofdm_modulate(self, freq_signals: torch.Tensor) -> torch.Tensor:
         """
         OFDM调制 - 频域到时域（为每个端口独立处理）
         
         Args:
-            freq_signals_dict: 频域信号字典 Dict[(user_id, port_id), freq_signal]
+            freq_signals: [batch_size, num_user_ports, ifft_size]
             
         Returns:
-            时域信号字典 Dict[(user_id, port_id), time_signal]
+            time_signals: [batch_size, num_user_ports, time_length]
         """
-        time_signals = {}
-        
-        for (user_id, port_id), freq_signal in freq_signals_dict.items():
-            # IFFT
-            time_signal = torch.fft.ifft(freq_signal)
-            
-            # 添加循环前缀（使用系统配置的CP长度）
-            cp_length = self.cp_length_samples
-            if cp_length > 0:
-                # 添加前缀和后缀CP（用于处理时延偏移）
-                time_signal_with_cp = torch.cat([
-                    time_signal[-cp_length:],  # 前缀CP
-                    time_signal,               # 完整符号
-                    time_signal[:cp_length]    # 后缀CP（用于负时延偏移）
-                ])
-            else:
-                time_signal_with_cp = time_signal
-            
-            time_signals[(user_id, port_id)] = time_signal_with_cp
-        
-        return time_signals
+        # freq_signals: (num_user_ports, ifft_size)
+        cp_length = self.cp_length_samples
+        # freq_signals: (batch_size, num_user_ports, ifft_size)
+        time_signals = torch.fft.ifft(freq_signals, dim=-1)
+        if cp_length > 0:
+            cp = time_signals[..., -cp_length:]
+            cs = time_signals[..., :cp_length]
+            time_signals_with_cp = torch.cat([cp, time_signals, cs], dim=-1)
+        else:
+            time_signals_with_cp = time_signals
+        return time_signals_with_cp
     
     def ofdm_demodulate(self, time_signals: torch.Tensor, cp_length: Optional[int] = None) -> torch.Tensor:
         """
@@ -353,129 +298,31 @@ class BaseSRSDataGenerator:
         return signals + noise
     
     def generate_pure_data_sample(
-        self, 
-        user_indices: List[int], 
+        self,
+        batch_size: int,
         ifft_size: Optional[int] = None
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Generate pure data sample (without channel and noise)
-        
+        Generate pure data sample (without channel and noise), batch-parallel
         Args:
+            batch_size: 批次大小
             user_indices: User index list
             ifft_size: IFFT size (if None, use system config)
-            
         Returns:
-            Dictionary containing all data (without SNR information)
+            Dictionary containing all data (without SNR information), batch-parallel
         """
-        # Update base sequence to match current configuration
         self._update_base_sequence()
         # 1. 生成SRS序列（每个用户每个端口）
-        sequences = self.generate_srs_sequences(user_indices)
-        
+        sequences = self.generate_srs_sequences(batch_size)
         # 2. 映射到子载波（每个端口独立的频域网格）
-        freq_grids_dict, mapping_indices = self.map_to_subcarriers(sequences, ifft_size)
-        
+        freq_grids = self.map_to_subcarriers(sequences, ifft_size)
         # 3. OFDM调制（每个端口独立的时域信号）
-        time_signals_dict = self.ofdm_modulate(freq_grids_dict)
-        
-        # 存储调试信息（不包含SNR）
-        self.debug_data.update({
-            'pure_sequences': sequences,
-            'freq_grids_dict': freq_grids_dict,
-            'time_signals_dict': time_signals_dict,
-            'mapping_indices': mapping_indices,
-            'user_indices': user_indices
-        })
-        
-        return {
-            'tx_signals': time_signals_dict,  # Dict[(user_id, port_id), time_signal]
-            'sequences': sequences,
-            'freq_grids': freq_grids_dict,
-            'mapping_indices': mapping_indices,
-            'ifft_size': ifft_size,
-            'user_indices': user_indices
-        }
+        time_signals = self.ofdm_modulate(freq_grids)
+        return time_signals, sequences, freq_grids
     
     def get_debug_info(self) -> Dict[str, torch.Tensor]:
         """获取调试信息"""
         return self.debug_data.copy()
-    
-    def generate_batch(
-        self, 
-        batch_size: int, 
-        user_indices: Optional[List[int]] = None,
-        enable_debug: bool = False,
-        **kwargs
-    ) -> Dict[str, torch.Tensor]:
-        """
-        生成一批纯数据样本（不包含信道建模）
-        
-        🎯 为动态架构设计：支持BaseSRSDataGenerator独立生成批次数据
-        
-        Args:
-            batch_size: 批次大小
-            user_indices: 用户索引列表，如果为None则使用所有用户
-            enable_debug: 是否启用调试模式
-            **kwargs: 传递给generate_pure_data_sample的其他参数
-            
-        Returns:
-            批次数据字典，每个键对应的值都是堆叠的张量
-        """
-        if user_indices is None:
-            user_indices = list(range(self.config.num_users))
-        
-        batch_samples = []
-        
-        for i in range(batch_size):
-            sample = self.generate_pure_data_sample(
-                user_indices=user_indices,
-                **kwargs
-            )
-            batch_samples.append(sample)
-        
-        # 合并批次数据
-        batch_data = {}
-        
-        # 处理需要堆叠的张量数据
-        tensor_keys = ['mapping_indices']  # snr_db现在在finalize_received_data中处理
-        scalar_keys = ['ifft_size']  # 这些可能为None或标量
-        dict_keys = ['tx_signals', 'sequences', 'freq_grids']  # 这些保持为列表
-        list_keys = ['user_indices']
-        
-        for key in batch_samples[0].keys():
-            if key in tensor_keys:
-                # 对于标量或张量，直接堆叠
-                values = [s[key] for s in batch_samples]
-                if isinstance(values[0], torch.Tensor):
-                    batch_data[key] = torch.stack(values)
-                else:
-                    batch_data[key] = torch.tensor(values)
-            elif key in scalar_keys:
-                # 对于可能为None的标量，特殊处理
-                values = [s[key] for s in batch_samples]
-                if values[0] is not None:
-                    batch_data[key] = torch.tensor(values) if not isinstance(values[0], torch.Tensor) else torch.stack(values)
-                else:
-                    batch_data[key] = values  # 保持为None列表
-            elif key in dict_keys:
-                # 对于字典数据，保持为列表（每个样本一个字典）
-                batch_data[key] = [s[key] for s in batch_samples]
-            elif key in list_keys:
-                # 对于列表数据，保持为列表
-                batch_data[key] = [s[key] for s in batch_samples]
-            else:
-                # 其他数据类型，尝试堆叠或保持为列表
-                try:
-                    values = [s[key] for s in batch_samples]
-                    if isinstance(values[0], torch.Tensor):
-                        batch_data[key] = torch.stack(values)
-                    else:
-                        batch_data[key] = values
-                except:
-                    batch_data[key] = [s[key] for s in batch_samples]
-        
-        return batch_data
-
 
 class SRSDataGenerator:
     """
@@ -524,96 +371,34 @@ class SRSDataGenerator:
         self.channel_model = channel_model
         self.using_channel = channel_model is not None
     
-    def generate_sample(
+    def generate_batch(
         self, 
-        user_indices: Optional[List[int]] = None,
-        snr_db: Optional[float] = None,
-        ifft_size: Optional[int] = None,
+        batch_size,
         **kwargs
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Generate a complete training sample with randomized configuration
-        
-        Args:
-            user_indices: User index list (if None, use all users defined in config)
-            snr_db: Signal-to-noise ratio (if None, randomly selected from config)
-            ifft_size: IFFT size (if None, use system configuration)
-            
-        Returns:
-            Complete data sample
-        """
-        # Randomize configuration for this sample
-        self.base_generator.config.randomize_configuration()
-        
-        # Use system config's IFFT size
-        if ifft_size is None:
-            ifft_size = self.base_generator.ifft_size
-            
-        # Determine user list - get from config, no longer randomly generated
-        if user_indices is None:
-            # Use all users defined in config
-            user_indices = list(range(self.base_generator.config.num_users))
-        
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+
+        ifft_size = self.base_generator.ifft_size
+
         # Generate pure data (without channel)
-        data_sample = self.base_generator.generate_pure_data_sample(
-            user_indices, ifft_size
+        time_signals, sequences, freq_grids = self.base_generator.generate_pure_data_sample(
+            batch_size, ifft_size
         )
-        
         # If SNR is not explicitly provided, get it from the config
+        snr_db = kwargs.get('snr_db', None)
         if snr_db is None:
             snr_db = self.base_generator.config.get_snr_db()
-        
-        debug_dict = {}
-        
         # 应用信道
         rx_signals, freq_channels = self.channel_model.apply_channel(
-            signals=data_sample['tx_signals'],
-            user_config=self.base_generator.config,  # 🎯 传入用户配置
-            mapping_indices=data_sample['mapping_indices'],
+            signals=time_signals,
+            user_config=self.base_generator.config,
+            mapping_indices=self.base_generator.mapping_indices,
             ifft_size=ifft_size,
-            debug_dict=debug_dict
         )
-        
-        # 存储信道调试信息
-        data_sample['channel_debug'] = debug_dict
-        data_sample['freq_channels'] = freq_channels
-        
-        # LS信道估计 - 按用户端口组织为字典
-        # ls_estimates_dict = {}
-        true_channels_dict = {}
-        
-        # 直接从配置获取用户端口信息
         base_seq = self.base_generator.base_seq
-        ls_estimates = rx_signals[:, data_sample['mapping_indices']] / base_seq.unsqueeze(0)
+        ls_estimates_tensor = rx_signals[:, self.base_generator.mapping_indices] / base_seq.unsqueeze(0)
+        true_channel_tensor = freq_channels[...,self.base_generator.mapping_indices]
 
-        # 按配置顺序遍历所有用户和端口
-        for user_id in range(self.base_generator.config.num_users):
-            num_ports = self.base_generator.config.ports_per_user[user_id]
-            for port_id in range(num_ports):
-                true_channels_dict[(user_id, port_id)] = freq_channels[user_id][:, port_id, data_sample['mapping_indices']]
-                
-
-        batch = {}
-        batch['ls_estimates'] = ls_estimates  
-        batch['true_channels'] = true_channels_dict  # Dict[(user_id, port_id), tensor]
-
-        return batch
-    
-    def generate_batch(self, batch_size: int, **kwargs) -> Dict[str, torch.Tensor]:
-        """Generate a batch of training samples with randomized configurations for each sample"""
-        batch_samples = []
-        
-        for i in range(batch_size):
-            # Each sample will have its own randomized configuration
-            sample = self.generate_sample(**kwargs)
-            batch_samples.append(sample)
-        
-        # 合并批次 - 特殊处理字典类型的数据
-        batch_data = {}
-        for key in batch_samples[0].keys():
-            batch_data[key] = [sample[key] for sample in batch_samples]
-        
-        return batch_data
+        return ls_estimates_tensor, true_channel_tensor
     
     def get_debug_info(self) -> Dict[str, torch.Tensor]:
         """获取调试信息"""
