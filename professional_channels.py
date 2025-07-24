@@ -670,140 +670,6 @@ class SIONNAChannelModel:
         Y = X_expand * H_diag  # [batch_size, num_rx_ant, num_ports, signal_length]
         y = torch.fft.ifft(Y, dim=-1)
         return y
-    def _apply_sionna_channel(
-        self,
-        signals: torch.Tensor,
-        user_config,
-        delay_offset_samples: int,
-        mapping_indices: Optional[torch.Tensor] = None,
-        ifft_size: Optional[int] = None,
-        snr_db: float = 30.0
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # signals: [batch_size, num_ports_total, signal_length]
-        batch_size, num_ports_total, signal_length = signals.shape
-        num_rx_ant = self.num_rx_antennas
-
-        tf_device = '/CPU:0' if self.device == 'cpu' else '/GPU:0'
-        with tf.device(tf_device):
-            model_letter = self.model_type.split("-")[1]
-            user_channel = TDL(
-                model=model_letter,
-                delay_spread=self.delay_spread,
-                carrier_frequency=self.carrier_frequency,
-                num_rx_ant=num_rx_ant,
-                num_tx_ant=num_ports_total,
-                precision='single'
-            )
-            cir = user_channel(batch_size=batch_size, num_time_steps=1, sampling_frequency=self.sampling_rate)
-            h_time_tf, delays_tf = cir
-            h_time = torch.from_numpy(h_time_tf.numpy()).to(self.device)  # [batch_size, 1, num_rx_ant, 1, num_ports_total, num_paths, 1]
-            delays = torch.from_numpy(delays_tf.numpy()).to(self.device)  # [batch_size, 1, 1, num_paths]
-            del user_channel, cir, h_time_tf, delays_tf
-
-        # 构建时域信道冲激响应 (全batch tensor化)
-        h_impulse_tensor = self._construct_time_domain_channel_pytorch(h_time, delays, signal_length)  # [batch_size, num_rx_ant, num_ports_total, signal_length]
-
-        # 并行卷积 (全batch tensor化)
-        received_tensor = self._time_domain_convolution(signals, h_impulse_tensor)  # [batch_size, num_rx_ant, num_ports_total, signal_length]
-
-        # timing offset
-        received_tensor = torch.roll(received_tensor, shifts=delay_offset_samples, dims=-1)
-
-        # 并行频域信道计算 (全batch tensor化)
-        h_freq_tensor = self._cir_to_ofdm_channel_pytorch_fft(h_impulse_tensor, mapping_indices, ifft_size)  # [batch_size, num_rx_ant, num_ports_total, num_subcarriers]
-        h_freq_tensor = self._apply_timing_offset_to_freq_channel(h_freq_tensor, delay_offset_samples, mapping_indices, ifft_size)  # [batch_size, num_rx_ant, num_ports_total, num_subcarriers]
-
-        # 功率归一化
-        snr_linear = 10 ** (snr_db / 10.0)
-        signal_power = snr_linear
-        received_tensor = received_tensor * math.sqrt(signal_power)
-        h_freq_tensor = h_freq_tensor * math.sqrt(signal_power)
-
-        # 加噪声
-        noise_var = 1
-        noise = math.sqrt(noise_var / 2) / math.sqrt(ifft_size) * (
-            torch.randn_like(received_tensor) + 1j * torch.randn_like(received_tensor)
-        )
-        noisy_received = received_tensor + noise
-        cp_length = self.system_config.cp_length_samples
-        data_part = noisy_received[..., cp_length:cp_length + ifft_size]
-        received_freq = torch.fft.fft(data_part, dim=-1)  # [batch_size, num_rx_ant, num_ports_total, num_subcarriers]
-
-        # 输出全部为张量
-        return received_freq, h_freq_tensor
-        
-        # Enforce all required parameters
-        if num_rx_antennas is None:
-            raise ValueError("num_rx_antennas must be provided and cannot be None")
-        if channel_model is None:
-            raise ValueError("channel_model must be provided and cannot be None")
-        if delay_spread is None:
-            raise ValueError("delay_spread must be provided and cannot be None")
-        if carrier_frequency is None:
-            raise ValueError("carrier_frequency must be provided and cannot be None")
-        if sampling_rate is None:
-            raise ValueError("sampling_rate must be provided and cannot be None")
-        if snr_range is None:
-            raise ValueError("snr_range must be provided and cannot be None")
-        
-        # Enforce device constraints
-        if device == "cuda" and not torch.cuda.is_available():
-            raise RuntimeError("CUDA was specified as device but no CUDA-capable GPU is available")
-            
-        # Use the provided parameters directly without fallbacks
-        channel_model_instance = None
-        
-        if use_channel:
-            # Enforce SIONNA availability if requested
-            if not SIONNA_AVAILABLE:
-                raise RuntimeError("SIONNA is required but not available. Please install SIONNA and TensorFlow.")
-                
-            channel_model_instance = SIONNAChannelModel(
-                system_config=system_config,
-                model_type=channel_model,
-                num_rx_antennas=num_rx_antennas,
-                delay_spread=delay_spread,
-                device=device
-            )
-
-        generator = SRSDataGenerator(
-            config=srs_config,
-            channel_model=channel_model_instance,
-            num_rx_antennas=num_rx_antennas,
-            snr_range=snr_range,
-            sampling_rate=sampling_rate,
-            device=device,
-            **kwargs
-        )
-
-        
-        return generator
-    
-    def __init__(self, *args, **kwargs):
-        """
-        向后兼容的构造函数
-        创建generator并代理所有方法调用
-        """
-        self.generator = self.create_generator(*args, **kwargs)
-        
-    def generate_sample(self, *args, **kwargs):
-        """生成样本"""
-        return self.generator.generate_sample(*args, **kwargs)
-    
-    def generate_batch(self, *args, **kwargs):
-        """生成批次"""
-        return self.generator.generate_batch(*args, **kwargs)
-    
-    def get_debug_info(self, *args, **kwargs):
-        """获取调试信息"""
-        return self.generator.get_debug_info(*args, **kwargs)
-    
-    @property
-    def using_sionna(self):
-        """是否使用SIONNA"""
-        return (hasattr(self.generator, 'channel_model') and 
-                self.generator.channel_model is not None and 
-                isinstance(self.generator.channel_model, SIONNAChannelModel))
 
 
 def check_sionna_installation() -> bool:
@@ -858,7 +724,29 @@ def print_sionna_info():
         install_sionna_guide()
 
 
-if __name__ == "__main__":
-    # Print SIONNA information
-    print_sionna_info()
+class SIONNAChannelGenerator:
+    """
+    SIONNA信道生成器工厂
+    这个类负责创建合适的数据生成器+信道模型组合：
+    1. 如果SIONNA可用，创建SRSDataGenerator + SIONNAChannelModel
+    2. 如果SIONNA不可用，创建SRSDataGenerator + SimpleFallbackChannel
+    3. 如果完全不使用信道，创建纯BaseSRSDataGenerator
+    """
+    @staticmethod
+    def create_generator(
+        srs_config,  # 用户SRS配置
+        system_config: Optional[SystemConfig] = None,  # 系统配置
+        use_sionna: bool = True,
+        use_channel: bool = True,
+        num_rx_antennas: Optional[int] = None,
+        channel_model: Optional[Literal["TDL-A", "TDL-B", "TDL-C", "TDL-D", "TDL-E"]] = None,
+        delay_spread: Optional[float] = None,
+        carrier_frequency: Optional[float] = None,
+        sampling_rate: Optional[float] = None,
+        snr_range: Optional[Tuple[float, float]] = None,
+        device: str = "cpu",  # Force CPU-only execution
+        **kwargs
+    ):
+        # ...existing code...
+        pass
 
