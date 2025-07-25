@@ -5,6 +5,38 @@ from typing import List, Tuple, Dict, Optional, Union
 import matplotlib.pyplot as plt
 
 class TrainableMMSEModule(nn.Module):    
+    def forward_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
+        """
+        完全tensor并行化端口MMSE滤波接口
+        h: [batch_size, num_rx_ant, total_ports, seq_length]
+        返回: [batch_size, num_rx_ant, total_ports, seq_length]
+        """
+        batch_size, num_rx_ant, total_ports, seq_length = h.shape
+        h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, seq_length]
+        # 这里假设self.mmse_filter支持(batch, seq_length)输入
+        if hasattr(self, 'mmse_filter'):
+            h_mmse_flat = self.mmse_filter(h_flat)
+        else:
+            # 兼容原有forward逻辑，逐个处理（但推荐改为tensor化）
+            h_mmse_flat = torch.stack([self.forward(x)[0][0] for x in h_flat], dim=0)
+        h_mmse = h_mmse_flat.reshape(batch_size, num_rx_ant, total_ports, seq_length)
+        return h_mmse
+    def forward_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
+        """
+        完全tensor并行化端口MMSE滤波接口
+        h: [batch_size, num_rx_ant, total_ports, seq_length]
+        返回: [batch_size, num_rx_ant, total_ports, seq_length]
+        """
+        batch_size, num_rx_ant, total_ports, seq_length = h.shape
+        h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, seq_length]
+        # 这里假设self.mmse_filter支持(batch, seq_length)输入
+        if hasattr(self, 'mmse_filter'):
+            h_mmse_flat = self.mmse_filter(h_flat)
+        else:
+            # 兼容原有forward逻辑，逐个处理（但推荐改为tensor化）
+            h_mmse_flat = torch.stack([self.forward(x)[0][0] for x in h_flat], dim=0)
+        h_mmse = h_mmse_flat.reshape(batch_size, num_rx_ant, total_ports, seq_length)
+        return h_mmse
     """
     Trainable MMSE Filter Module using Cholesky factor construction
     
@@ -328,3 +360,24 @@ class TrainableMMSEModule(nn.Module):
         
         # Use the new forward method that generates unique matrices for each chunk
         return self.forward(channel_stats)
+    
+    def forward_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
+        """
+        完全并行化端口MMSE滤波接口（tensor化）
+        h: [batch_size, num_rx_ant, total_ports, seq_length]
+        返回: [batch_size, num_rx_ant, total_ports, seq_length]
+        """
+        batch_size, num_rx_ant, total_ports, seq_length = h.shape
+        # 以每个端口独立处理为例，支持端口并行
+        # 这里假设每个端口都用同样的MMSE结构（如MLP/CNN等），如需区分可扩展
+        h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, seq_length]
+        # 这里调用原有的forward_chunked或forward方法，假设其支持batch输入
+        # 如果原forward不支持batch，则需扩展为支持batch
+        # 这里以MLP为例，假设self.mmse_filter支持(batch, seq_length)输入
+        if hasattr(self, 'mmse_filter'):
+            h_mmse_flat = self.mmse_filter(h_flat)
+        else:
+            # 兼容原有forward逻辑，逐个处理（但推荐改为tensor化）
+            h_mmse_flat = torch.stack([self.forward(x)[0][0] for x in h_flat], dim=0)
+        h_mmse = h_mmse_flat.reshape(batch_size, num_rx_ant, total_ports, seq_length)
+        return h_mmse

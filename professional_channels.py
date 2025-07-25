@@ -361,30 +361,39 @@ class SIONNAChannelModel:
         received_tensor = self._time_domain_convolution(signals, h_impulse_tensor)  # [batch_size, num_rx_ant, num_ports_total, signal_length]
 
         # timing offset
-        received_tensor = torch.roll(received_tensor, shifts=delay_offset_samples, dims=-1)
+        received_tensor_to = torch.roll(received_tensor, shifts=delay_offset_samples, dims=-1)
 
         # 并行频域信道计算 (全batch tensor化)
-        h_freq_tensor = self._cir_to_ofdm_channel_pytorch_fft(h_impulse_tensor, mapping_indices, ifft_size)  # [batch_size, num_rx_ant, num_ports_total, num_subcarriers]
-        h_freq_tensor = self._apply_timing_offset_to_freq_channel(h_freq_tensor, delay_offset_samples, mapping_indices, ifft_size)  # [batch_size, num_rx_ant, num_ports_total, num_subcarriers]
+        h_freq_tensor = self._cir_to_ofdm_channel_pytorch_fft(h_impulse_tensor, ifft_size)  # [batch_size, num_rx_ant, num_ports_total, num_subcarriers]
+        h_freq_tensor_to = self._apply_timing_offset_to_freq_channel(h_freq_tensor, delay_offset_samples, ifft_size)  # [batch_size, num_rx_ant, num_ports_total, num_subcarriers]
 
         # 功率归一化
         snr_linear = 10 ** (snr_db / 10.0)
         signal_power = snr_linear
-        received_tensor = received_tensor * math.sqrt(signal_power)
-        h_freq_tensor = h_freq_tensor * math.sqrt(signal_power)
 
+        scales = []
+        for num_ports in user_config.ports_per_user:
+            scales.extend([1/np.sqrt(num_ports)] * num_ports)
+        
+        scales = torch.tensor(scales, dtype=torch.float32, device=h_freq_tensor_to.device)
+        scales = scales.view(1, 1, -1, 1)
+
+        received_tensor_to = received_tensor_to * scales * math.sqrt(signal_power)
+        h_freq_tensor_to = h_freq_tensor_to * scales * math.sqrt(signal_power)
+
+        received_tensor_to_rx = torch.sum(received_tensor_to, dim=2)
         # 加噪声
         noise_var = 1
         noise = math.sqrt(noise_var / 2) / math.sqrt(ifft_size) * (
-            torch.randn_like(received_tensor) + 1j * torch.randn_like(received_tensor)
+            torch.randn_like(received_tensor_to_rx) + 1j * torch.randn_like(received_tensor_to_rx)
         )
-        noisy_received = received_tensor + noise
+        noisy_received = received_tensor_to_rx + noise
         cp_length = self.system_config.cp_length_samples
         data_part = noisy_received[..., cp_length:cp_length + ifft_size]
         received_freq = torch.fft.fft(data_part, dim=-1)  # [batch_size, num_rx_ant, num_ports_total, num_subcarriers]
 
         # 输出全部为张量
-        return received_freq, h_freq_tensor
+        return received_freq, h_freq_tensor_to
     
     def _construct_time_domain_channel_pytorch(
         self,
@@ -429,7 +438,6 @@ class SIONNAChannelModel:
     def _cir_to_ofdm_channel_pytorch_fft(
         self,
         h_impulse: torch.Tensor,
-        mapping_indices: torch.Tensor,
         ifft_size: int
     ) -> torch.Tensor:
         """
@@ -453,15 +461,14 @@ class SIONNAChannelModel:
         else:
             h_padded = h_impulse[..., :ifft_size]
         # FFT并行
-        h_freq_full = torch.fft.fft(h_padded, dim=-1)  # [batch_size, num_rx_ant, num_tx_ant, ifft_size]
-        h_freq_mapped = h_freq_full[..., mapping_indices]  # [batch_size, num_rx_ant, num_tx_ant, num_subcarriers]
-        return h_freq_mapped
+        h_freq = torch.fft.fft(h_padded, dim=-1)  # [batch_size, num_rx_ant, num_tx_ant, ifft_size]
+        # h_freq_mapped = h_freq_full[..., mapping_indices]  # [batch_size, num_rx_ant, num_tx_ant, num_subcarriers]
+        return h_freq
     
     def _apply_timing_offset_to_freq_channel(
         self,
         h_freq: torch.Tensor,
         timing_offset_samples: int,
-        mapping_indices: torch.Tensor,
         ifft_size: int
     ) -> torch.Tensor:
         """
@@ -481,11 +488,12 @@ class SIONNAChannelModel:
         
         
         # 计算相位旋转
+        mapping_indices = torch.arange(ifft_size, device=h_freq.device)
         phase_arg = -2.0 * np.pi * mapping_indices.float() * timing_offset_samples / ifft_size
         phase_rotation = torch.exp(1j * phase_arg)  # [num_subcarriers]
         
         # 应用相位旋转
-        h_freq_with_offset = h_freq * phase_rotation.unsqueeze(0).unsqueeze(0)  # broadcast to [rx_ant, tx_ant, subcarriers]
+        h_freq_with_offset = h_freq * phase_rotation[None,None,None,:]  # broadcast to [rx_ant, tx_ant, subcarriers]
         
         return h_freq_with_offset
     

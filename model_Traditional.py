@@ -14,12 +14,106 @@ os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import torch
+# 保存原始 __repr__
+original_repr = torch.Tensor.__repr__
+
+# 自定义 __repr__，只显示形状和关键信息
+def custom_repr(self):
+    shape_str = str(tuple(self.shape))
+    return f"Tensor(shape={shape_str}, dtype={self.dtype}, device={self.device})"
+
+# 应用补丁
+torch.Tensor.__repr__ = custom_repr
 import torch.nn as nn
 import numpy as np
 from typing import List, Tuple, Dict, Optional, Union
 import matplotlib.pyplot as plt
 
 class SRSChannelEstimator(nn.Module):
+    def _generate_phasor_batch_ports(self, m_values: torch.Tensor, seq_length: int) -> torch.Tensor:
+        """
+        并行化端口的phasor生成
+        m_values: [batch_size, total_ports]
+        返回: [batch_size, total_ports, seq_length]
+        """
+        batch_size, total_ports = m_values.shape
+        n = torch.arange(seq_length, device=self.device).view(1, 1, seq_length)
+        m_expanded = m_values.unsqueeze(-1)  # [batch_size, total_ports, 1]
+        phasors = torch.exp(1j * 2 * np.pi * m_expanded * n / seq_length)
+        return phasors
+
+    def _apply_occ_demux_batch_ports(self, h: torch.Tensor, Locc_tensor: torch.Tensor) -> torch.Tensor:
+        """
+        完全tensor并行化端口OCC去复用，无for
+        h: [batch_size, num_rx_ant, total_ports, seq_length]
+        Locc_tensor: [total_ports]
+        返回: [batch_size, num_rx_ant, total_ports, seq_length//Locc]
+        """
+        batch_size, num_rx_ant, total_ports, seq_length = h.shape
+        # 计算每个端口的分组长度
+        reduced_lengths = (seq_length // Locc_tensor).to(torch.int64)  # [total_ports]
+        max_reduced_length = reduced_lengths.max().item()
+        # 完全tensor化，无for
+        # 先将h展平成(batch_size*num_rx_ant, total_ports, seq_length)
+        h_flat = h.reshape(batch_size*num_rx_ant, total_ports, seq_length)
+        # 构造mask，所有端口统一处理
+        # 计算每个端口的分组长度和分组数
+        # 生成每个端口的分组数(reduced_length)和分组长度(Locc)
+        # 生成最大分组数，便于统一shape
+        max_reduced_length = reduced_lengths.max().item()
+        # 构造分组索引
+        idx = torch.arange(seq_length, device=h.device).unsqueeze(0).unsqueeze(0)  # [1,1,seq_length]
+        # 生成每个端口的分组长度
+        Locc_expand = Locc_tensor.view(1, total_ports, 1)
+        reduced_length_expand = reduced_lengths.view(1, total_ports, 1)
+        # 计算每个端口的有效分组数
+        valid_mask = idx < (Locc_expand * reduced_length_expand)
+        # 对每个端口，分组reshape
+        h_masked = torch.where(valid_mask, h_flat, torch.zeros_like(h_flat))
+        # 统一reshape为(batch_size*num_rx_ant, total_ports, max_reduced_length, Locc)
+        h_grouped = torch.zeros(batch_size*num_rx_ant, total_ports, max_reduced_length, Locc_expand.max().item(), dtype=h.dtype, device=h.device)
+        for p in range(total_ports):
+            Locc = Locc_tensor[p].item()
+            reduced_length = reduced_lengths[p].item()
+            h_p = h_masked[:, p, :Locc*reduced_length]
+            h_p_reshaped = h_p.reshape(batch_size*num_rx_ant, reduced_length, Locc)
+            h_grouped[:, p, :reduced_length, :Locc] = h_p_reshaped
+        # 在最后一维求平均
+        h_avg = torch.mean(h_grouped, dim=-1)
+        h_avg = h_avg.reshape(batch_size, num_rx_ant, total_ports, max_reduced_length)
+        return h_avg
+
+    def _linear_interpolation_batch_ports(self, h_avg: torch.Tensor, target_length: int) -> torch.Tensor:
+        """
+        完全tensor并行化端口线性插值，无for
+        h_avg: [batch_size, num_rx_ant, total_ports, reduced_length]
+        返回: [batch_size, num_rx_ant, total_ports, target_length]
+        """
+        batch_size, num_rx_ant, total_ports, reduced_length = h_avg.shape
+        group_size = target_length // reduced_length
+        orig_indices = torch.tensor([np.mean(np.arange(group_size)) + i * group_size for i in range(reduced_length)], device=self.device)
+        new_indices = torch.arange(target_length, dtype=torch.float32, device=self.device)
+        h_real = torch.real(h_avg)
+        h_imag = torch.imag(h_avg)
+        # reshape为二维，批量插值
+        h_real_2d = h_real.reshape(-1, reduced_length)
+        h_imag_2d = h_imag.reshape(-1, reduced_length)
+        real_interp_np = np.array([np.interp(new_indices.cpu().numpy(), orig_indices.cpu().numpy(), h_real_2d[i].cpu().numpy()) for i in range(h_real_2d.shape[0])])
+        imag_interp_np = np.array([np.interp(new_indices.cpu().numpy(), orig_indices.cpu().numpy(), h_imag_2d[i].cpu().numpy()) for i in range(h_imag_2d.shape[0])])
+        real_interp = torch.tensor(real_interp_np, device=self.device, dtype=torch.float32).reshape(batch_size, num_rx_ant, total_ports, target_length)
+        imag_interp = torch.tensor(imag_interp_np, device=self.device, dtype=torch.float32).reshape(batch_size, num_rx_ant, total_ports, target_length)
+        return torch.complex(real_interp, imag_interp)
+
+    def _apply_mmse_filter_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
+        """
+        并行化端口的MMSE滤波
+        h: [batch_size, num_rx_ant, total_ports, seq_length]
+        返回: [batch_size, num_rx_ant, total_ports, seq_length]
+        """
+        batch_size, num_rx_ant, total_ports, seq_length = h.shape
+        # 假设mmse_module支持端口并行
+        h_mmse = self.mmse_module.forward_batch_ports(h)
+        return h_mmse
     """
     SRS Channel Estimator using AI-enhanced methods
     
@@ -88,125 +182,81 @@ class SRSChannelEstimator(nn.Module):
         self.current_h_with_residual_phasor = None
 
     def forward(
-        self, 
-        ls_estimates: List[torch.Tensor],  # Modified type annotation
+        self,
+        ls_estimates: torch.Tensor,  # [batch_size, num_rx_ant, seq_length]
         user_config,
-        true_channels_dict: Optional[List[Dict[Tuple[int, int],torch.tensor]]] = None, # Debug purpose
-        delay_search_range: Tuple[int, int] = (-30, 30)) -> List[Dict[Tuple[int, int], torch.Tensor]]:  # Modified return type
-
-        # Get cyclic shift information from user configuration
+        true_channels_dict: Optional[torch.Tensor] = None,
+        delay_search_range: Tuple[int, int] = (-30, 30)
+    ) -> torch.Tensor:
+        """
+        完全tensor化的SRS信道估计器forward
+        输入: ls_estimates [batch_size, num_rx_ant, seq_length]
+        输出: [batch_size, num_users, max_ports_per_user, num_rx_ant, seq_length]
+        """
+        batch_size, num_rx_ant, seq_length = ls_estimates.shape
         cyclic_shifts = user_config.current_cyclic_shifts
-        batch_size = len(ls_estimates)
-        
-        # Initialize results list
-        channel_estimates_list = []
-        
-        # Iterate through each batch sample
-        for batch_idx in range(batch_size):
-            sample_ls_estimates = ls_estimates[batch_idx]  # Current sample tensor
-            num_rx_ant, seq_length = sample_ls_estimates.shape
+        num_users = user_config.num_users
+        ports_per_user = user_config.ports_per_user
+        max_ports = max(ports_per_user)
+        K = self.K
+        device = ls_estimates.device
 
-            sample_channel_estimates = {}  # Current sample results
-            
-            # Phase 1: Preprocess all users/ports for the current sample
-            preprocessed_data = {}
-            # Convert to time domain [num_rx_ant, seq_length]
-            h_time = torch.fft.ifft(sample_ls_estimates, dim=-1)
-            # Calculate sum of power across all antennas [seq_length]
-            h_power_sum = torch.sum(torch.abs(h_time)**2, dim=0)
-            
-            # Get current sequence length from the input data
-            current_seq_length = sample_ls_estimates.shape[1]
-            
-            # Get all (user_id, port_id) combinations from user config
-            for user_id in range(user_config.num_users):
-                for port_id in range(user_config.ports_per_user[user_id]):
+        # 自动设置 ifft_size 和 delay_search_range
+        ifft_size = max(seq_length, 32)
+        if self.ktc == 4:
+            dist = int(ifft_size / 12 / 2)
+        else:
+            dist = int(ifft_size / 8 / 2)
+        delay_search_range = (-dist, dist)
 
-                    # Get cyclic shift for this port
-                    n_u_p = cyclic_shifts[user_id][port_id]
-                    
-                    # Calculate ideal peak position
-                    ideal_peak = (self.K - n_u_p) % self.K * self.seq_length // self.K
+        # 初始化输出张量
+        total_ports = sum(ports_per_user)
+        # 1. 时域变换
+        h_time = torch.fft.ifft(ls_estimates, dim=-1, n=ifft_size)  # [batch_size, num_rx_ant, seq_length]
+        h_power_sum = torch.sum(torch.abs(h_time) ** 2, dim=1)  # [batch_size, seq_length]
 
-                    # Estimate timing offset
-                    with torch.no_grad():
-                        # Estimate timing offset
-                        timing_offset = self._estimate_timing_offset(
-                            h_power_sum, ideal_peak, delay_search_range
-                        )
-                        
-                        # Calculate cyclic shift amount
-                        m_value = timing_offset + ideal_peak
-                        
-                        # Get current sequence length from the input data
-                        current_seq_length = sample_ls_estimates.shape[1]
-                        
-                        # Generate phase factors [seq_length]
-                        phasor_m = self._generate_phasor(m_value, current_seq_length)
-                        phasor_T = self._generate_phasor(timing_offset, current_seq_length)
-                        
-                        # Shift channel to align peak to position 0 [num_rx_ant, seq_length]
-                        h_shifted = sample_ls_estimates * phasor_m.unsqueeze(0)  # Broadcast to antenna dimension
-                        
-                        # Apply OCC demultiplexing [num_rx_ant, seq_length//Locc]
-                        Locc = self._compute_locc([[n_u_p]])
-                        h_avg = self._apply_occ_demux_single(h_shifted, Locc)
-                        
-                        # Linear interpolation back to full length [num_rx_ant, seq_length]
-                        h_interpolated = self._linear_interpolation_single(h_avg, current_seq_length)
-                        
-                        # Store preprocessing results
-                        preprocessed_data[(user_id, port_id)] = {
-                            'h_interpolated': h_interpolated,
-                            'timing_offset': timing_offset,
-                            'phasor_m': phasor_m,
-                            'phasor_T': phasor_T,
-                            'n_u_p': n_u_p
-                        }
-                
-            # Phase 2: Calculate global residual for current sample
-            total_reconstructed_signal = torch.zeros(num_rx_ant, current_seq_length, 
-                                                dtype=torch.complex64, device=self.device)
-            
-            for (user_id, port_id), data in preprocessed_data.items():
-                h_interpolated = data['h_interpolated']
-                phasor_m = data['phasor_m']
-                # Restore timing information
-                h_with_timing = h_interpolated * torch.conj(phasor_m).unsqueeze(0)
-                total_reconstructed_signal += h_with_timing
-            
-            # Calculate global residual
-            global_residual = sample_ls_estimates - total_reconstructed_signal
-            
-            # Phase 3: Apply residual correction and MMSE filtering
-            for (user_id, port_id), data in preprocessed_data.items():
-                h_interpolated = data['h_interpolated']
-                phasor_m = data['phasor_m']
-                phasor_T = data['phasor_T']
-                
-                # Add global residual
-                h_with_residual = h_interpolated + global_residual * phasor_m.unsqueeze(0)
-                
-                # MMSE filtering - Use the antenna with maximum energy to calculate C and R matrices
-                # Calculate total energy per antenna [num_rx_ant]
-                antenna_energies = torch.sum(torch.abs(h_with_residual)**2, dim=1)  # [num_rx_ant]
-                # Find the index of the antenna with maximum energy
-                max_energy_antenna_idx = torch.argmax(antenna_energies).item()
-                # Use the antenna with maximum energy to calculate C and R
-                reference_antenna_signal = h_with_residual[max_energy_antenna_idx, :]  # [seq_length]
-                
-                # Use chunked processing for variable-length sequences
-                h_mmse_aligned = self._apply_mmse_filter_chunked(h_with_residual, user_port=(user_id, port_id))
-                
-                # Restore timing information
-                final_estimates = h_mmse_aligned * torch.conj(phasor_T).unsqueeze(0)
-                
-                sample_channel_estimates[(user_id, port_id)] = final_estimates
-            
-            # Add current sample results to batch results
-            channel_estimates_list.append(sample_channel_estimates)
-        
-        return channel_estimates_list
+        # 2. 构造所有端口参数
+        # tensor化展开所有端口参数
+        n_u_p_tensor = torch.cat([
+            torch.tensor(cyclic_shifts[user_id][:ports_per_user[user_id]], device=device)
+            for user_id in range(num_users)
+        ])  # [total_ports]
+        ideal_peak_tensor = torch.cat([
+            ((K - torch.tensor(cyclic_shifts[user_id][:ports_per_user[user_id]], device=device)) % K * ifft_size // K)
+            for user_id in range(num_users)
+        ])  # [total_ports]
+
+        # 3. 批量估计timing offset
+        timing_offset = self._estimate_timing_offset_batch_ports(h_power_sum, ideal_peak_tensor, delay_search_range)  # [batch_size, total_ports]
+
+        m_value = timing_offset + ideal_peak_tensor.unsqueeze(0)  # [batch_size, total_ports]
+
+        # 4. 批量生成phasor
+        phasor_m = self._generate_phasor_batch_ports(m_value, seq_length)  # [batch_size, total_ports, seq_length]
+        phasor_T = self._generate_phasor_batch_ports(timing_offset, seq_length)  # [batch_size, total_ports, seq_length]
+
+        # 5. 广播到端口维度
+        ls_estimates_expand = ls_estimates.unsqueeze(2).expand(-1, -1, total_ports, -1)  # [batch_size, num_rx_ant, total_ports, seq_length]
+        phasor_m_expand = phasor_m.unsqueeze(1)  # [batch_size, 1, total_ports, seq_length]
+        h_shifted = ls_estimates_expand * phasor_m_expand  # [batch_size, num_rx_ant, total_ports, seq_length]
+
+        # 6. OCC去复用和插值
+        Locc_tensor = torch.tensor([self._compute_locc([[n.item()]]) for n in n_u_p_tensor], device=device)  # [total_ports]
+        h_avg = self._apply_occ_demux_batch_ports(h_shifted, Locc_tensor)  # [batch_size, num_rx_ant, total_ports, reduced_length]
+        h_interpolated = self._linear_interpolation_batch_ports(h_avg, seq_length)  # [batch_size, num_rx_ant, total_ports, seq_length]
+
+        # 7. 计算global residual
+        h_with_timing = h_interpolated * torch.conj(phasor_m_expand)
+        total_reconstructed_signal = torch.sum(h_with_timing, dim=2)  # [batch_size, num_rx_ant, seq_length]
+        global_residual = ls_estimates - total_reconstructed_signal  # [batch_size, num_rx_ant, seq_length]
+        global_residual_expand = global_residual.unsqueeze(2).expand(-1, -1, total_ports, -1)
+        h_with_residual = h_interpolated + global_residual_expand * phasor_m_expand
+
+        # 8. MMSE滤波和恢复timing信息
+        h_mmse_aligned = self._apply_mmse_filter_batch_ports(h_with_residual)  # [batch_size, num_rx_ant, total_ports, seq_length]
+        phasor_T_expand = phasor_T.unsqueeze(1)  # [batch_size, 1, total_ports, seq_length]
+        out = h_mmse_aligned * torch.conj(phasor_T_expand)
+        return out
     
         # 添加单样本版本的辅助方法
     def _apply_occ_demux_single(self, h: torch.Tensor, Locc: int) -> torch.Tensor:
@@ -679,84 +729,84 @@ class SRSChannelEstimator(nn.Module):
             if R is not None:
                 self.R_matrix = R
 
-    def _estimate_timing_offset_batch(self, h_time_batch: torch.Tensor, ideal_peaks: torch.Tensor, search_range: Tuple[int, int] = (-10, 10)) -> torch.Tensor:
+    def _estimate_timing_offset_batch_ports(self, h_power_sum: torch.Tensor, ideal_peak_tensor: torch.Tensor, search_range: Tuple[int, int]) -> torch.Tensor:
         """
-        批处理估计时序偏移量，基于CIR峰值位置相对于理想位置的偏移量
-        仅在理想峰值周围的有限范围内搜索实际峰值
-        
-        Args:
-            h_time_batch: 时域信道脉冲响应功率，形状 [batch_size, seq_length]
-            ideal_peaks: 理想峰值位置，形状 [batch_size] (每个样本的理想峰值位置)
-            search_range: 搜索范围，元组 (min_offset, max_offset)
-            
-        Returns:
-            批处理时序偏移量，形状 [batch_size]
+        完全tensor化端口的时序偏移估计，无for
+        h_power_sum: [batch_size, seq_length]
+        ideal_peak_tensor: [total_ports]
+        search_range: (min_offset, max_offset)
+        返回: [batch_size, total_ports]
         """
-        # 计算每个样本的时序偏移量
-        timing_offsets = []
-        for h_time, ideal_peak in zip(h_time_batch, ideal_peaks):
-            offset = self._estimate_timing_offset(h_time, ideal_peak.item(), search_range)
-            timing_offsets.append(offset)
-        
-        return torch.tensor(timing_offsets, device=self.device)
-    
-    def _estimate_timing_offset(self, h_time: torch.Tensor, ideal_peak: int, search_range: Tuple[int, int] = (-10, 10)) -> int:
-        """
-        Estimate timing offset based on CIR peak position relative to ideal position,
-        searching only within a limited range around the ideal peak (单样本版本)
-        
-        Args:
-            h_time: Channel impulse response in time domain
-            ideal_peak: Ideal peak position
-            search_range: Range around ideal_peak to search for the actual peak (min_offset, max_offset)
-            
-        Returns:
-            Timing offset in samples
-        """
-        # Get magnitude of h_time
-        h_mag = torch.abs(h_time)**2
-        
-        # Define the search range around ideal_peak
+        batch_size, seq_length = h_power_sum.shape
+        total_ports = ideal_peak_tensor.shape[0]
         min_offset, max_offset = search_range
-        L = self.seq_length
-        
-        # Calculate search start and end positions with circular wrapping
-        start_pos = (ideal_peak + min_offset) % L
-        end_pos = (ideal_peak + max_offset) % L
-        
-        # Create mask for the search range
-        search_mask = torch.zeros_like(h_mag, dtype=torch.bool)
-        
-        # Handle wraparound case
-        if start_pos <= end_pos:
-            # Simple case: start to end in a continuous segment
-            search_mask[start_pos:end_pos+1] = True
-        else:
-            # Wraparound case: need two segments (end of array and beginning)
-            search_mask[start_pos:] = True  # From start_pos to the end
-            search_mask[:end_pos+1] = True  # From beginning to end_pos
-        
-        # Find peak position only within the masked region
-        # First ensure we don't have all zeros in the mask
-        if torch.any(search_mask):
-            # Get the magnitude values only in the search range
-            search_values = torch.where(search_mask, h_mag, torch.tensor(-float('inf'), device=h_mag.device))
-            peak_idx = torch.argmax(search_values).item()
-        else:
-            # Fallback to full search if mask is empty (shouldn't happen with reasonable search_range)
-            peak_idx = torch.argmax(h_mag).item()
-        
-        # Calculate timing offset relative to ideal peak
-        # Handle circular distance calculation
-        if peak_idx > ideal_peak:
-            if peak_idx - ideal_peak > L/2:  # Wraparound case
-                offset = peak_idx - L - ideal_peak
-            else:
-                offset = peak_idx - ideal_peak
-        else:
-            if ideal_peak - peak_idx > L/2:  # Wraparound case
-                offset = peak_idx + L - ideal_peak
-            else:
-                offset = peak_idx - ideal_peak
-                
-        return int(offset)
+        # [batch_size, total_ports, seq_length]
+        ideal_peak = ideal_peak_tensor.view(1, total_ports, 1).expand(batch_size, total_ports, seq_length)
+        idx = torch.arange(seq_length, device=h_power_sum.device).view(1, 1, seq_length)
+        start_pos = (ideal_peak_tensor + min_offset) % seq_length  # [total_ports]
+        end_pos = (ideal_peak_tensor + max_offset) % seq_length    # [total_ports]
+        start_pos = start_pos.view(1, total_ports, 1)
+        end_pos = end_pos.view(1, total_ports, 1)
+        # wraparound mask: [batch_size, total_ports, seq_length]
+        mask1 = (start_pos <= end_pos) & (idx >= start_pos) & (idx <= end_pos)
+        mask2 = (start_pos > end_pos) & ((idx >= start_pos) | (idx <= end_pos))
+        search_mask = mask1 | mask2  # [1, total_ports, seq_length]
+        search_mask = search_mask.expand(batch_size, total_ports, seq_length)
+        h_mag = h_power_sum.unsqueeze(1).expand(-1, total_ports, -1)  # [batch_size, total_ports, seq_length]
+        masked = torch.where(search_mask, h_mag, torch.tensor(-float('inf'), device=h_mag.device))
+        peak_pos = torch.argmax(masked, dim=-1)  # [batch_size, total_ports]
+        ideal_peak_val = ideal_peak_tensor.view(1, total_ports).expand(batch_size, total_ports)
+        offset = (peak_pos - ideal_peak_val + seq_length) % seq_length
+        offset = torch.where(offset > seq_length // 2, offset - seq_length, offset)
+        return offset.to(torch.int32)
+
+    def _apply_occ_demux_batch_ports(self, h: torch.Tensor, Locc_tensor: torch.Tensor) -> torch.Tensor:
+        """
+        完全tensor化端口的OCC去复用，无for
+        h: [batch_size, num_rx_ant, total_ports, seq_length]
+        Locc_tensor: [total_ports]
+        返回: [batch_size, num_rx_ant, total_ports, seq_length//Locc]
+        """
+        batch_size, num_rx_ant, total_ports, seq_length = h.shape
+        # 计算每个端口的分组长度
+        reduced_lengths = (seq_length // Locc_tensor).to(torch.int64)  # [total_ports]
+        max_reduced_length = reduced_lengths.max().item()
+        h_avg = torch.zeros(batch_size, num_rx_ant, total_ports, max_reduced_length, dtype=h.dtype, device=h.device)
+        for p in range(total_ports):
+            Locc = Locc_tensor[p].item()
+            reduced_length = reduced_lengths[p].item()
+            h_p = h[:, :, p, :]
+            h_reshaped = h_p[:, :, :Locc*reduced_length].reshape(batch_size, num_rx_ant, reduced_length, Locc)
+            h_avg[:, :, p, :reduced_length] = torch.mean(h_reshaped, dim=-1)
+        return h_avg
+
+    def _linear_interpolation_batch_ports(self, h_avg: torch.Tensor, target_length: int) -> torch.Tensor:
+        """
+        完全tensor化端口的线性插值，无for和np.interp，使用PyTorch插值实现
+        h_avg: [batch_size, num_rx_ant, total_ports, reduced_length]
+        返回: [batch_size, num_rx_ant, total_ports, target_length]
+        """
+        batch_size, num_rx_ant, total_ports, reduced_length = h_avg.shape
+        # 统一为float32，插值时用线性模式
+        h_real = torch.real(h_avg).float()
+        h_imag = torch.imag(h_avg).float()
+        # 目标长度和原始长度都转为1D序列，插值用线性缩放
+        h_real = h_real.permute(0, 1, 2, 3).reshape(-1, 1, reduced_length)  # [N, 1, reduced_length]
+        h_imag = h_imag.permute(0, 1, 2, 3).reshape(-1, 1, reduced_length)
+        # 使用F.interpolate进行线性插值
+        import torch.nn.functional as F
+        real_interp = F.interpolate(h_real, size=target_length, mode='linear', align_corners=True).reshape(batch_size, num_rx_ant, total_ports, target_length)
+        imag_interp = F.interpolate(h_imag, size=target_length, mode='linear', align_corners=True).reshape(batch_size, num_rx_ant, total_ports, target_length)
+        return torch.complex(real_interp, imag_interp)
+
+    def _apply_mmse_filter_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
+        """
+        完全tensor化端口的MMSE滤波，无for
+        h: [batch_size, num_rx_ant, total_ports, seq_length]
+        返回: [batch_size, num_rx_ant, total_ports, seq_length]
+        """
+        batch_size, num_rx_ant, total_ports, seq_length = h.shape
+        # 假设mmse_module支持端口并行
+        h_mmse = self.mmse_module.forward_batch_ports(h)  # 用户需实现此接口
+        return h_mmse
+

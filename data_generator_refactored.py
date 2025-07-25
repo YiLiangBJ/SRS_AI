@@ -395,7 +395,7 @@ class SRSDataGenerator:
             ifft_size=ifft_size,
         )
         base_seq = self.base_generator.base_seq
-        ls_estimates_tensor = rx_signals[:, self.base_generator.mapping_indices] / base_seq.unsqueeze(0)
+        ls_estimates_tensor = rx_signals[:,:, self.base_generator.mapping_indices] / base_seq[None,None,:]
         true_channel_tensor = freq_channels[...,self.base_generator.mapping_indices]
 
         return ls_estimates_tensor, true_channel_tensor
