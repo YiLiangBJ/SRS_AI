@@ -8,7 +8,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from user_config import SRSConfig, create_example_config
-from data_generator_refactored import SRSDataGenerator
+from data_generator import SRSDataGenerator
 from model_Traditional import SRSChannelEstimator
 from model_AIpart import TrainableMMSEModule
 from utils import calculate_nmse

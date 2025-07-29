@@ -3,147 +3,89 @@ import torch.nn as nn
 import numpy as np
 from typing import List, Tuple, Dict, Optional, Union
 import matplotlib.pyplot as plt
+import torch
+import torch.nn as nn
+import numpy as np
+from typing import List, Tuple, Dict, Optional, Union
+import matplotlib.pyplot as plt
 
 class TrainableMMSEModule(nn.Module):    
-    def forward_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
+    def mmse_chunked_filter(self, h: torch.Tensor) -> torch.Tensor:
         """
-        完全tensor并行化端口MMSE滤波接口
-        h: [batch_size, num_rx_ant, total_ports, seq_length]
+        按chunk分块，逐块做MMSE处理，最后拼接输出。
+        h: [batch_size, num_rx_ant, total_ports, seq_length]，seq_length可大于mmse_block_size
         返回: [batch_size, num_rx_ant, total_ports, seq_length]
         """
         batch_size, num_rx_ant, total_ports, seq_length = h.shape
-        h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, seq_length]
-        # 这里假设self.mmse_filter支持(batch, seq_length)输入
-        if hasattr(self, 'mmse_filter'):
-            h_mmse_flat = self.mmse_filter(h_flat)
-        else:
-            # 兼容原有forward逻辑，逐个处理（但推荐改为tensor化）
-            h_mmse_flat = torch.stack([self.forward(x)[0][0] for x in h_flat], dim=0)
-        h_mmse = h_mmse_flat.reshape(batch_size, num_rx_ant, total_ports, seq_length)
-        return h_mmse
+        block_size = self.mmse_block_size
+        num_chunks = (seq_length + block_size - 1) // block_size
+        out = []
+        for i in range(num_chunks):
+            start = i * block_size
+            end = min((i+1)*block_size, seq_length)
+            chunk = h[..., start:end]  # [batch_size, num_rx_ant, total_ports, chunk_len]
+            # 如果chunk不足block_size，补零
+            if chunk.shape[-1] < block_size:
+                pad = torch.zeros(*chunk.shape[:-1], block_size-chunk.shape[-1], dtype=chunk.dtype, device=chunk.device)
+                chunk = torch.cat([chunk, pad], dim=-1)
+            # MMSE处理
+            chunk_mmse = self.forward_batch_ports(chunk)  # [batch_size, num_rx_ant, total_ports, block_size]
+            # 去掉补零部分
+            chunk_mmse = chunk_mmse[..., :end-start]
+            out.append(chunk_mmse)
+        # 拼接所有chunk
+        return torch.cat(out, dim=-1)
+
     def forward_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
         """
-        完全tensor并行化端口MMSE滤波接口
-        h: [batch_size, num_rx_ant, total_ports, seq_length]
-        返回: [batch_size, num_rx_ant, total_ports, seq_length]
+        并行端口MMSE滤波接口，输入h: [batch_size, num_rx_ant, total_ports, mmse_block_size]
+        返回: [batch_size, num_rx_ant, total_ports, mmse_block_size]
         """
         batch_size, num_rx_ant, total_ports, seq_length = h.shape
-        h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, seq_length]
-        # 这里假设self.mmse_filter支持(batch, seq_length)输入
-        if hasattr(self, 'mmse_filter'):
-            h_mmse_flat = self.mmse_filter(h_flat)
-        else:
-            # 兼容原有forward逻辑，逐个处理（但推荐改为tensor化）
-            h_mmse_flat = torch.stack([self.forward(x)[0][0] for x in h_flat], dim=0)
+        assert seq_length == self.mmse_block_size, f"输入序列长度必须为mmse_block_size={self.mmse_block_size}"
+        h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, mmse_block_size]
+        # 逐个处理每个端口的chunk
+        h_mmse_flat = torch.stack([self.forward(x)[0] for x in h_flat], dim=0)  # [N, mmse_block_size]
         h_mmse = h_mmse_flat.reshape(batch_size, num_rx_ant, total_ports, seq_length)
         return h_mmse
-    """
-    Trainable MMSE Filter Module using Cholesky factor construction
-    
-    This module can be used to train the C and R matrices for MMSE filtering,
-    using Cholesky factor construction to ensure positive definiteness without post-processing.
-    
-    Rather than generating matrices C and R directly and then enforcing constraints,
-    we parameterize their Cholesky factors (L matrices where C = L*L^H) directly,
-    which guarantees that the resulting matrices are Hermitian positive definite.
-    """
-    def __init__(self, seq_length: int, mmse_block_size: int = 12, hidden_dim: int = 64, use_complex_input: bool = False):
-        """
-        Initialize the hybrid CNN-MLP MMSE module.
-        
-        This module uses a CNN to extract global features from the full sequence,
-        then processes chunks of the sequence along with these features using an MLP.
-        
-        Args:
-            seq_length: Length of sequence (L) - will be chunked into blocks of mmse_block_size
-            mmse_block_size: Size of blocks for MMSE filtering (default: 12)
-            hidden_dim: Hidden dimension for the neural network
-            use_complex_input: Whether to use complex input (real + imaginary parts)
-        """
+
+    def __init__(self, mmse_block_size: int = 12, hidden_dim: int = 64):
         super().__init__()
-        self.seq_length = seq_length
         self.mmse_block_size = mmse_block_size
-        self.use_complex_input = use_complex_input
-        
-        # Calculate number of chunks
-        self.num_chunks = seq_length // mmse_block_size
-        if seq_length % mmse_block_size != 0:
-            self.num_chunks += 1  # Add one more chunk for remainder
-        
-        # CNN feature extractor: full sequence -> 12-point complex feature
-        # Input: [seq_length] (complex) or [seq_length*2] (real+imag)
-        # Output: [mmse_block_size] (complex) = [mmse_block_size*2] (real+imag)
-        cnn_input_channels = 2 if use_complex_input else 1  # Real+Imag or magnitude only
-        self.cnn_feature_extractor = nn.Sequential(
-            # 1D CNN to extract global features
-            nn.Conv1d(cnn_input_channels, 32, kernel_size=7, padding=3),
-            nn.BatchNorm1d(32),
-            nn.ReLU(),
-            nn.Conv1d(32, 64, kernel_size=5, padding=2),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-            nn.Conv1d(64, 32, kernel_size=3, padding=1),
-            nn.BatchNorm1d(32),
-            nn.ReLU(),
-            # Adaptive pooling to get exactly mmse_block_size output
-            nn.AdaptiveAvgPool1d(mmse_block_size),
-            # Final conv to get 2 channels (real + imaginary parts)
-            nn.Conv1d(32, 2, kernel_size=1)
-        )
-        
-        # MLP input dimension: 
-        # - mmse_block_size chunk (complex) = mmse_block_size * 2 (real+imag)
-        # - CNN features (complex) = mmse_block_size * 2 (real+imag)
-        # Total = mmse_block_size * 4
-        mlp_input_dim = mmse_block_size * 4
-        
-        # Calculate parameter counts for Cholesky factors (lower triangular matrices)
         n = mmse_block_size
-        # Diagonal elements (real part only) = n
-        # Strictly lower triangular elements (real + imaginary parts) = n*(n-1)/2
-        diag_size = n  # Number of diagonal elements
-        off_diag_size = n * (n - 1) // 2  # Number of strictly lower triangular elements
-        
-        # Real parameters = diagonal elements + strictly lower triangular elements
+        diag_size = n
+        off_diag_size = n * (n - 1) // 2
         real_params = diag_size + off_diag_size
-        # Imaginary parameters = only strictly lower triangular elements have imaginary parts
         imag_params = off_diag_size
-        
-        # 总参数量
         c_matrix_size = real_params + imag_params
         r_matrix_size = real_params + imag_params
-        
-        # MLP networks to generate Cholesky factors
-        # Input: chunk (12*2) + CNN features (12*2) = 48 dimensions
+        mlp_input_dim = n * 2  # 只输入chunk的实部和虚部
         self.C_factor_generator = nn.Sequential(
             nn.Linear(mlp_input_dim, hidden_dim * 2),
             nn.LayerNorm(hidden_dim * 2),
             nn.LeakyReLU(0.1),
             nn.Dropout(0.2),
             nn.Linear(hidden_dim * 2, hidden_dim * 2),
-            nn.LayerNorm(hidden_dim * 2), 
+            nn.LayerNorm(hidden_dim * 2),
             nn.LeakyReLU(0.1),
             nn.Dropout(0.2),
             nn.Linear(hidden_dim * 2, hidden_dim),
             nn.LeakyReLU(0.1),
             nn.Linear(hidden_dim, c_matrix_size)
         )
-        
         self.R_factor_generator = nn.Sequential(
             nn.Linear(mlp_input_dim, hidden_dim * 2),
             nn.LayerNorm(hidden_dim * 2),
             nn.LeakyReLU(0.1),
             nn.Dropout(0.2),
             nn.Linear(hidden_dim * 2, hidden_dim * 2),
-            nn.LayerNorm(hidden_dim * 2), 
+            nn.LayerNorm(hidden_dim * 2),
             nn.LeakyReLU(0.1),
             nn.Dropout(0.2),
             nn.Linear(hidden_dim * 2, hidden_dim),
             nn.LeakyReLU(0.1),
             nn.Linear(hidden_dim, r_matrix_size)
         )
-        
-        # Apply Xavier initialization for better random initial values
         self._initialize_weights()
     
     def _initialize_weights(self):
@@ -161,25 +103,6 @@ class TrainableMMSEModule(nn.Module):
                         nn.init.uniform_(layer.bias, -0.1, 0.1)
     
     def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:        
-        """
-        Forward pass of the hybrid CNN-MLP MMSE module.
-        
-        NEW APPROACH: Generate different C and R matrices for each chunk to preserve local characteristics.
-        
-        Process:
-        1. Extract global features from full sequence using CNN
-        2. Split sequence into chunks of mmse_block_size
-        3. For each chunk, combine with CNN features and process through MLP
-        4. Generate unique C and R matrices for each chunk
-        
-        Args:
-            channel_stats: Channel statistics tensor [seq_length] (complex)
-            noise_power: Estimated noise power (not used directly anymore, kept for API compatibility)
-            
-        Returns:
-            C_matrices: List of channel correlation matrices for each chunk
-            R_matrices: List of noise correlation matrices for each chunk
-        """
         device = channel_stats.device
         seq_length = channel_stats.shape[0]
         
@@ -219,40 +142,6 @@ class TrainableMMSEModule(nn.Module):
         
         return C_matrices, R_matrices
     
-    def _extract_cnn_features(self, channel_stats: torch.Tensor) -> torch.Tensor:
-        """
-        Extract global features from the full sequence using CNN.
-        
-        Args:
-            channel_stats: Full sequence [seq_length] (complex)
-            
-        Returns:
-            CNN features [mmse_block_size] (complex)
-        """
-        # Prepare input for CNN
-        if self.use_complex_input and channel_stats.is_complex():
-            # Split complex into real and imaginary parts: [2, seq_length]
-            cnn_input = torch.stack([torch.real(channel_stats), torch.imag(channel_stats)], dim=0)
-        else:
-            # Use magnitude only: [1, seq_length]
-            if channel_stats.is_complex():
-                cnn_input = torch.abs(channel_stats).unsqueeze(0)
-            else:
-                cnn_input = channel_stats.unsqueeze(0)
-        
-        # Add batch dimension: [1, channels, seq_length]
-        cnn_input = cnn_input.unsqueeze(0)
-        
-        # Extract features using CNN: [1, 2, mmse_block_size]
-        cnn_output = self.cnn_feature_extractor(cnn_input)
-        
-        # Remove batch dimension and convert back to complex: [mmse_block_size]
-        cnn_output = cnn_output.squeeze(0)  # [2, mmse_block_size]
-        real_part = cnn_output[0, :]  # [mmse_block_size]
-        imag_part = cnn_output[1, :]  # [mmse_block_size]
-        
-        return torch.complex(real_part, imag_part)
-    
     def _process_chunk_with_features(self, chunk: torch.Tensor, cnn_features: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Process a chunk along with CNN features through MLP.
@@ -283,16 +172,6 @@ class TrainableMMSEModule(nn.Module):
         return C_factors, R_factors
     
     def _construct_matrix_from_cholesky_params(self, factors: torch.Tensor, matrix_size: int) -> torch.Tensor:
-        """
-        Construct Hermitian positive definite matrix from Cholesky factors.
-        
-        Args:
-            factors: Flattened Cholesky factors
-            matrix_size: Size of the output matrix (n x n)
-            
-        Returns:
-            Hermitian positive definite matrix (matrix_size x matrix_size)
-        """
         n = matrix_size
         device = factors.device
         
@@ -310,50 +189,9 @@ class TrainableMMSEModule(nn.Module):
         L_real = torch.zeros((n, n), device=device)
         L_imag = torch.zeros((n, n), device=device)
         
-        # Fill lower triangular matrix (real part)
-        idx = 0
-        for i in range(n):
-            for j in range(i + 1):  # j <= i for lower triangular
-                if i == j:  # Diagonal elements only have real part and must be positive
-                    L_real[i, j] = torch.nn.functional.softplus(L_real_flat[idx])
-                else:
-                    L_real[i, j] = L_real_flat[idx]
-                idx += 1
-        
-        # Fill lower triangular matrix (imaginary part, only off-diagonal)
-        idx = 0
-        for i in range(n):
-            for j in range(i):  # j < i for strictly lower triangular
-                L_imag[i, j] = L_imag_flat[idx]
-                idx += 1
-                
-        # Combine into complex lower triangular matrix L
-        L = torch.complex(L_real, L_imag)
-        
-        # Calculate matrix = L @ L^H (L^H is conjugate transpose of L)
-        # This naturally creates a Hermitian positive definite matrix
-        matrix = L @ L.conj().transpose(0, 1)
-        
-        # Add small diagonal loading for numerical stability
-        epsilon = 1e-6
-        matrix = matrix + torch.eye(n, device=device) * epsilon
-        
-        return matrix
-    
+    # ...existing code...
     def forward_chunked(self, channel_stats: torch.Tensor, chunk_size: int = 12) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
-        """
-        Process a variable-length sequence in fixed-size chunks using hybrid CNN-MLP approach.
-        
-        This method now generates unique C and R matrices for each chunk, preserving local characteristics.
-        
-        Args:
-            channel_stats: Channel statistics - can be any length (not restricted to self.seq_length)
-            chunk_size: Size of chunks to process (default: 12, should match mmse_block_size)
-            
-        Returns:
-            C_matrices: List of channel correlation matrices for each chunk (each is unique)
-            R_matrices: List of noise correlation matrices for each chunk (each is unique)
-        """
+
         # Ensure chunk_size matches our mmse_block_size for consistency
         if chunk_size != self.mmse_block_size:
             print(f"Warning: chunk_size ({chunk_size}) != mmse_block_size ({self.mmse_block_size}). Using mmse_block_size.")
@@ -362,11 +200,6 @@ class TrainableMMSEModule(nn.Module):
         return self.forward(channel_stats)
     
     def forward_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
-        """
-        完全并行化端口MMSE滤波接口（tensor化）
-        h: [batch_size, num_rx_ant, total_ports, seq_length]
-        返回: [batch_size, num_rx_ant, total_ports, seq_length]
-        """
         batch_size, num_rx_ant, total_ports, seq_length = h.shape
         # 以每个端口独立处理为例，支持端口并行
         # 这里假设每个端口都用同样的MMSE结构（如MLP/CNN等），如需区分可扩展
@@ -375,7 +208,9 @@ class TrainableMMSEModule(nn.Module):
         # 如果原forward不支持batch，则需扩展为支持batch
         # 这里以MLP为例，假设self.mmse_filter支持(batch, seq_length)输入
         if hasattr(self, 'mmse_filter'):
-            h_mmse_flat = self.mmse_filter(h_flat)
+            # 这里需要定义chunk，或者根据实际需求修改
+            # 由于chunk未定义，建议将此分支实现完善或移除
+            raise NotImplementedError("mmse_filter 分支未实现，请完善 chunk 的定义或移除此分支。")
         else:
             # 兼容原有forward逻辑，逐个处理（但推荐改为tensor化）
             h_mmse_flat = torch.stack([self.forward(x)[0][0] for x in h_flat], dim=0)

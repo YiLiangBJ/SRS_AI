@@ -14,6 +14,7 @@ os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import torch
+from model_AIpart import TrainableMMSEModule
 # 保存原始 __repr__
 original_repr = torch.Tensor.__repr__
 
@@ -90,19 +91,33 @@ class SRSChannelEstimator(nn.Module):
         返回: [batch_size, num_rx_ant, total_ports, target_length]
         """
         batch_size, num_rx_ant, total_ports, reduced_length = h_avg.shape
-        group_size = target_length // reduced_length
-        orig_indices = torch.tensor([np.mean(np.arange(group_size)) + i * group_size for i in range(reduced_length)], device=self.device)
-        new_indices = torch.arange(target_length, dtype=torch.float32, device=self.device)
-        h_real = torch.real(h_avg)
-        h_imag = torch.imag(h_avg)
-        # reshape为二维，批量插值
-        h_real_2d = h_real.reshape(-1, reduced_length)
-        h_imag_2d = h_imag.reshape(-1, reduced_length)
-        real_interp_np = np.array([np.interp(new_indices.cpu().numpy(), orig_indices.cpu().numpy(), h_real_2d[i].cpu().numpy()) for i in range(h_real_2d.shape[0])])
-        imag_interp_np = np.array([np.interp(new_indices.cpu().numpy(), orig_indices.cpu().numpy(), h_imag_2d[i].cpu().numpy()) for i in range(h_imag_2d.shape[0])])
-        real_interp = torch.tensor(real_interp_np, device=self.device, dtype=torch.float32).reshape(batch_size, num_rx_ant, total_ports, target_length)
-        imag_interp = torch.tensor(imag_interp_np, device=self.device, dtype=torch.float32).reshape(batch_size, num_rx_ant, total_ports, target_length)
-        return torch.complex(real_interp, imag_interp)
+        lseg = target_length // reduced_length
+        hk_interp = torch.zeros(batch_size, num_rx_ant, total_ports, reduced_length * lseg, device=h_avg.device, dtype=h_avg.dtype)
+        centerSc = (lseg - 1) / 2
+        # slope: [batch_size, num_rx_ant, total_ports, reduced_length-1]
+        slope = (h_avg[..., 1:] - h_avg[..., :-1]) / lseg
+        # Left Edge (从0开始)
+        xseg = torch.arange(0, int(centerSc)+1, device=h_avg.device)
+        len_edge = xseg.shape[0]
+        hinterp = slope[..., :1].expand(-1, -1, -1, len_edge) * (xseg-centerSc).view(1,1,1,-1) + h_avg[..., :1].expand(-1, -1, -1, len_edge)
+        hk_interp[..., :len_edge] = hinterp
+        # Middle SCs tensor化 (从0开始)
+        mid_idx = torch.arange(reduced_length-1, device=h_avg.device)
+        seg_start = centerSc + mid_idx * lseg + 1
+        seg_end = seg_start + lseg
+        xseg = torch.arange(int(centerSc)+1, lseg+int(centerSc)+1, device=h_avg.device).view(1, lseg) + mid_idx.view(-1, 1) * lseg
+        slope_mid = slope.unsqueeze(-1)
+        h_comp_mid = h_avg[..., :-1].unsqueeze(-1)
+        xseg_center = xseg - centerSc
+        hinterp = slope_mid * xseg_center.view(1,1,1,reduced_length-1,lseg) + h_comp_mid
+        for k in range(reduced_length-1):
+            hk_interp[..., int(seg_start[k]):int(seg_end[k])] = hinterp[..., k, :]
+        # Right Edge (从0开始)
+        xseg = torch.arange(int(xseg[0]), reduced_length*lseg, device=h_avg.device)
+        len_edge = xseg.shape[0]
+        hinterp = slope[..., -1:].expand(-1, -1, -1, len_edge) * (xseg-centerSc).view(1,1,1,-1) + h_avg[..., -1:].expand(-1, -1, -1, len_edge)
+        hk_interp[..., int(xseg[0]):] = hinterp
+        return hk_interp
 
     def _apply_mmse_filter_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
         """
@@ -114,72 +129,20 @@ class SRSChannelEstimator(nn.Module):
         # 假设mmse_module支持端口并行
         h_mmse = self.mmse_module.forward_batch_ports(h)
         return h_mmse
-    """
-    SRS Channel Estimator using AI-enhanced methods
-    
-    ⚠️  IMPORTANT ARCHITECTURAL CHANGE ⚠️
-    
-    This module has been refactored to ONLY support MLP-based MMSE filtering.
-    All traditional C/R matrix calculation methods have been marked as OBSOLETE.
-    
-    CURRENT MMSE APPROACH:
-    - Uses TrainableMMSEModule (MLP-based) for C and R matrix generation
-    - C and R matrices are learned through neural networks with proper initialization
-    - Traditional exponential decay and diagonal noise models are deprecated
-    
-    OBSOLETE METHODS (marked with warnings):
-    - _get_block_C_matrix: replaced by TrainableMMSEModule
-    - _get_block_R_matrix: replaced by TrainableMMSEModule  
-    - _get_C_matrix: replaced by TrainableMMSEModule
-    - _get_R_matrix: replaced by TrainableMMSEModule
-    - _apply_mmse_filter: use _apply_mmse_filter_batch instead
-    
-    This module implements the complete SRS channel estimation process:
-    1. LS estimation from received signals
-    2. OCC demultiplexing and interpolation  
-    3. Global residual calculation and application
-    4. MLP-based MMSE filtering (NEW: only supported method)
-    5. Timing offset estimation and recovery
-    """
+
     def __init__(
         self,
-        seq_length: int,
-        ktc: int = 4,
-        max_users: int = 8,
-        max_ports_per_user: int = 4,
-        mmse_block_size: int = 12,
-        device: str = "cpu",  # Force CPU-only execution
-        mmse_module = None
+        mmse_module: TrainableMMSEModule,
+        device: str = "cpu"
     ):
         """
-        Initialize the SRS Channel Estimator
-        
-        Args:
-            seq_length: Length of SRS sequence (L)
-            ktc: Configuration parameter (ktc=4 -> K=12, ktc=2 -> K=8)
-            max_users: Maximum number of users to support
-            max_ports_per_user: Maximum number of ports across all users (different users can have different numbers of ports)
-            mmse_block_size: Size of blocks for MMSE filtering
-            device: Computation device
+        SRSChannelEstimator 顶层初始化
+        1. 先实例化底层 MMSE 模块
+        2. 作为参数传递给 SRSChannelEstimator
         """
         super().__init__()
-        self.seq_length = seq_length
-        self.ktc = ktc
-        self.K = 12 if ktc == 4 else 8  # Number of cyclic shifts
-        self.max_users = max_users
-        self.max_ports_per_user = max_ports_per_user
-        self.mmse_block_size = mmse_block_size
-        self.device = device        # Initialize parameters for MMSE filter matrices
+        self.device = device
         self.mmse_module = mmse_module
-        # These could be trainable or set by traditional methods
-        self.C_matrix = None
-        self.R_matrix = None
-        
-        # Initialize h_with_residual/phasor for use in MMSE matrix generation
-        # Store h_with_residual_phasor for each user/port
-        self.current_h_with_residual_phasors = {}
-        # Keep single variable for backward compatibility
-        self.current_h_with_residual_phasor = None
 
     def forward(
         self,
@@ -241,8 +204,9 @@ class SRSChannelEstimator(nn.Module):
         h_shifted = ls_estimates_expand * phasor_m_expand  # [batch_size, num_rx_ant, total_ports, seq_length]
 
         # 6. OCC去复用和插值
-        Locc_tensor = torch.tensor([self._compute_locc([[n.item()]]) for n in n_u_p_tensor], device=device)  # [total_ports]
-        h_avg = self._apply_occ_demux_batch_ports(h_shifted, Locc_tensor)  # [batch_size, num_rx_ant, total_ports, reduced_length]
+        Locc = 4  # [total_ports]
+        h_reshape = h_shifted.reshape(batch_size, num_rx_ant, total_ports, seq_length//Locc, Locc)
+        h_avg = torch.mean(h_reshape, dim=-1)
         h_interpolated = self._linear_interpolation_batch_ports(h_avg, seq_length)  # [batch_size, num_rx_ant, total_ports, seq_length]
 
         # 7. 计算global residual
@@ -760,26 +724,6 @@ class SRSChannelEstimator(nn.Module):
         offset = torch.where(offset > seq_length // 2, offset - seq_length, offset)
         return offset.to(torch.int32)
 
-    def _apply_occ_demux_batch_ports(self, h: torch.Tensor, Locc_tensor: torch.Tensor) -> torch.Tensor:
-        """
-        完全tensor化端口的OCC去复用，无for
-        h: [batch_size, num_rx_ant, total_ports, seq_length]
-        Locc_tensor: [total_ports]
-        返回: [batch_size, num_rx_ant, total_ports, seq_length//Locc]
-        """
-        batch_size, num_rx_ant, total_ports, seq_length = h.shape
-        # 计算每个端口的分组长度
-        reduced_lengths = (seq_length // Locc_tensor).to(torch.int64)  # [total_ports]
-        max_reduced_length = reduced_lengths.max().item()
-        h_avg = torch.zeros(batch_size, num_rx_ant, total_ports, max_reduced_length, dtype=h.dtype, device=h.device)
-        for p in range(total_ports):
-            Locc = Locc_tensor[p].item()
-            reduced_length = reduced_lengths[p].item()
-            h_p = h[:, :, p, :]
-            h_reshaped = h_p[:, :, :Locc*reduced_length].reshape(batch_size, num_rx_ant, reduced_length, Locc)
-            h_avg[:, :, p, :reduced_length] = torch.mean(h_reshaped, dim=-1)
-        return h_avg
-
     def _linear_interpolation_batch_ports(self, h_avg: torch.Tensor, target_length: int) -> torch.Tensor:
         """
         完全tensor化端口的线性插值，无for和np.interp，使用PyTorch插值实现
@@ -787,17 +731,31 @@ class SRSChannelEstimator(nn.Module):
         返回: [batch_size, num_rx_ant, total_ports, target_length]
         """
         batch_size, num_rx_ant, total_ports, reduced_length = h_avg.shape
-        # 统一为float32，插值时用线性模式
-        h_real = torch.real(h_avg).float()
-        h_imag = torch.imag(h_avg).float()
-        # 目标长度和原始长度都转为1D序列，插值用线性缩放
-        h_real = h_real.permute(0, 1, 2, 3).reshape(-1, 1, reduced_length)  # [N, 1, reduced_length]
-        h_imag = h_imag.permute(0, 1, 2, 3).reshape(-1, 1, reduced_length)
-        # 使用F.interpolate进行线性插值
-        import torch.nn.functional as F
-        real_interp = F.interpolate(h_real, size=target_length, mode='linear', align_corners=True).reshape(batch_size, num_rx_ant, total_ports, target_length)
-        imag_interp = F.interpolate(h_imag, size=target_length, mode='linear', align_corners=True).reshape(batch_size, num_rx_ant, total_ports, target_length)
-        return torch.complex(real_interp, imag_interp)
+        lseg = target_length // reduced_length
+        hk_interp = torch.zeros(batch_size, num_rx_ant, total_ports, reduced_length * lseg, device=h_avg.device, dtype=h_avg.dtype)
+        centerSc = (lseg - 1) / 2
+        # slope: [batch_size, num_rx_ant, total_ports, reduced_length-1]
+        slope = (h_avg[..., 1:] - h_avg[..., :-1]) / lseg
+        # Left Edge
+        len_edge = lseg // 2 
+        xseg = torch.arange(len_edge, device=h_avg.device)
+        hinterp4d = slope[..., :1].expand(-1, -1, -1, len_edge) * (xseg-centerSc).view(1,1,1,-1) + h_avg[..., :1].expand(-1, -1, -1, len_edge)
+        hk_interp[..., :len_edge] = hinterp4d
+        # Middle SCs tensor化
+        mid_idx = torch.arange(reduced_length-1, device=h_avg.device)
+        # seg_start = len_edge + mid_idx * lseg
+        seg_end = len_edge + lseg
+        xseg = torch.arange(len_edge, lseg+len_edge, device=h_avg.device).view(1, lseg) + mid_idx.view(-1, 1) * lseg
+        slope_mid = slope.unsqueeze(-1)
+        h_comp_mid = h_avg[..., :-1].unsqueeze(-1)
+        xseg_center = xseg - (centerSc + mid_idx.view(-1, 1) * lseg)
+        hinterp5d = slope_mid * xseg_center.view(1,1,1,reduced_length-1,lseg) + h_comp_mid
+        hk_interp[..., len_edge:-len_edge] = hinterp5d.reshape(*hinterp5d.shape[:-2], hinterp5d.shape[-2] * hinterp5d.shape[-1])
+        # Right Edge
+        xseg = torch.arange(xseg[-1,-1]+1, reduced_length*lseg, device=h_avg.device)
+        hinterp4d = slope[..., -1:].expand(-1, -1, -1, len_edge) * (xseg-(centerSc+(reduced_length-1)*lseg)).view(1,1,1,-1) + h_avg[..., -1:].expand(-1, -1, -1, len_edge)
+        hk_interp[..., -len_edge:] = hinterp4d
+        return hk_interp
 
     def _apply_mmse_filter_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
         """

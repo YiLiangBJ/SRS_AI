@@ -26,7 +26,7 @@ import argparse
 from datetime import datetime
 import json
 from tqdm import tqdm
-
+from user_config import SRSConfig
 
 import sionna
 SIONNA_AVAILABLE = True
@@ -45,724 +45,73 @@ from model_AIpart import TrainableMMSEModule
 from utils import calculate_nmse, visualize_channel_estimate
 
 
-class SRSTrainerModified:
+class SRSTrainer:
     """
     Modified Trainer for SRS Channel Estimator that uses h_with_residual/phasor as input
     """
     def __init__(
         self,
-        srs_estimator: SRSChannelEstimator = None,
-        mmse_module: TrainableMMSEModule = None,
-        config: SRSConfig = None,
-        data_generator: SRSDataGenerator = None,
-        device: str = "cpu",  # Default to CPU, can be overridden to "cuda"
-        learning_rate: float = 1e-4,
-        batch_size: int = 32,
         use_tensorboard: bool = True,
         log_dir: str = "./logs",
-        # Legacy parameters for backward compatibility
-        srs_config: SRSConfig = None,
         save_dir: str = "./checkpoints_modified",
-        use_trainable_mmse: bool = True,
-        use_professional_channels: bool = True,
-        use_sionna: bool = True
+        device: str = "cpu",
+        lr: float = 0.001
     ):
-        """
-        Initialize the trainer with support for distributed training
-        
-        Args:
-            srs_estimator: Pre-initialized SRS estimator (for DDP support)
-            mmse_module: Pre-initialized MMSE module (for DDP support)
-            config: SRS configuration
-            data_generator: Pre-initialized data generator
-            device: Computation device
-            learning_rate: Learning rate for training
-            batch_size: Batch size for training
-            use_tensorboard: Whether to use TensorBoard logging
-            log_dir: Directory for logs
-            
-            # Legacy parameters (backward compatibility)
-            srs_config: Legacy parameter name for config
-            save_dir: Directory for saving checkpoints
-            use_trainable_mmse: Whether to use trainable MMSE
-            use_professional_channels: Whether to use professional channels
-            use_sionna: Whether to use SIONNA
-        """
-        # Handle legacy parameter names
-        if config is None and srs_config is not None:
-            config = srs_config
-        
-        if config is None:
-            config = create_example_config()
-        
-        self.config = config
-        self.device = device
-        self.learning_rate = learning_rate
-        self.batch_size = batch_size
         self.use_tensorboard = use_tensorboard
         self.log_dir = log_dir
         self.save_dir = save_dir
-        
-        # Initialize data structures for multi-generator support
-        # 🔧 Create these dictionaries first to ensure other methods can add items to them
-        # Create these before _init_models_legacy to avoid AttributeError
-        self.data_generators = {}  # Data generators organized by SNR
-        self.channel_models = {}   # Channel models organized by channel type and delay parameters
-        self.per_ue_channels = {}  # Dedicated channel instances organized by UE ID
-        self.per_port_generators = {}  # Dedicated generator instances organized by port ID
-        
-        # Initialize models if not provided (for backward compatibility)
-        if srs_estimator is None or mmse_module is None:
-            self._init_models_legacy(use_trainable_mmse)
+        self.device = device
+        self.lr = lr
+
+        # 每个 batch 实例化并随机化 SRSConfig
+        from user_config import create_example_config
+        self.srs_config = create_example_config()
+        # 1. 实例化底层数据生成器
+        from system_config import create_default_system_config
+        system_config = create_default_system_config()
+        from data_generator import BaseSRSDataGenerator
+        base_generator = BaseSRSDataGenerator(
+            system_config=system_config,
+            num_rx_antennas=system_config.num_rx_antennas,
+            sampling_rate=system_config.sampling_rate,
+            device=device
+        )
+
+        # 3. 实例化 SRSDataGenerator
+        self.data_generator = SRSDataGenerator(
+            base_generator=base_generator,
+        )
+
+        # 4. 实例化 MMSE 模块
+        self.mmse_module = TrainableMMSEModule().to(device)
+
+        # 5. 实例化 SRSChannelEstimator
+        self.srs_estimator = SRSChannelEstimator(
+            mmse_module=self.mmse_module,
+            device=device
+        ).to(device)
+
+        # 6.
+        self.optimizer = optim.Adam(
+            self.mmse_module.parameters(),
+            lr=self.lr
+        )
+
+        # 7. 目录和 TensorBoard 初始化
+        os.makedirs(self.save_dir, exist_ok=True)
+        log_dir = os.path.join(self.save_dir, 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        if self.use_tensorboard:
+            self.writer = SummaryWriter(log_dir=log_dir)
         else:
-            self.srs_estimator = srs_estimator
-            self.mmse_module = mmse_module
-        
-        # Always initialize legacy attributes first to ensure all required attributes exist
-        self._init_legacy_attributes(use_professional_channels, use_sionna)
-            
-        # Then handle the data generator
-        if data_generator is not None:
-            self.data_generator = data_generator
-        
-        # Initialize common channel configs (needed for all instances)
-        self.common_channel_configs = [
-            {'model': 'TDL-A', 'delay_spread': 30e-9},
-            {'model': 'TDL-B', 'delay_spread': 100e-9},
-            {'model': 'TDL-C', 'delay_spread': 300e-9},
-        ]
-        
-        # Initialize training history (needed for all instances)
+            self.writer = None
+
+        # 8. 初始化训练历史
         self.train_losses = []
         self.val_losses = []
         self.train_nmse = []
         self.val_nmse = []
-        
-        # Global step counter for logging
         self.global_step = 0
-        
-        # Initialize optimizer - ensure we have models first
-        if hasattr(self, 'mmse_module') and self.mmse_module is not None:
-            self.optimizer = optim.Adam(
-                self.mmse_module.parameters(),
-                lr=self.learning_rate,
-                weight_decay=1e-5
-            )
-        else:
-            self.optimizer = None  # Will be set later in _init_models_legacy
-        
-        # Initialize TensorBoard writer
-        if self.use_tensorboard:
-            os.makedirs(self.log_dir, exist_ok=True)
-            self.writer = SummaryWriter(self.log_dir)
-        else:
-            self.writer = None
-        
-        # Initialize checkpoint directory
-        os.makedirs(self.save_dir, exist_ok=True)
-        
-        # Training state
-        self.epoch = 0
-        self.step = 0
-        self.best_loss = float('inf')
-        
-        print(f"✅ SRSTrainerModified initialized")
-        print(f"   - Device: {self.device}")
-        print(f"   - Batch size: {self.batch_size}")
-        print(f"   - Learning rate: {self.learning_rate}")
-        print(f"   - TensorBoard: {self.use_tensorboard}")
-        print(f"   - Log directory: {self.log_dir}")
-        print(f"   - Save directory: {self.save_dir}")
-    
-    def _init_models_legacy(self, use_trainable_mmse: bool):
-        """Initialize models for backward compatibility"""
-        # Create trainable MMSE module if needed
-        if use_trainable_mmse:
-            # Get the current active sequence length from the new SRSConfig structure
-            if hasattr(self.config, 'current_seq_length'):
-                # Use the current active sequence length
-                seq_length = self.config.current_seq_length
-            elif hasattr(self.config, '_current_seq_length'):
-                # Use the private current sequence length
-                seq_length = self.config._current_seq_length
-            else:
-                # Fallback to the first value in the seq_length list
-                seq_length = self.config.seq_length[0] if isinstance(self.config.seq_length, list) else self.config.seq_length
-            
-            # Ensure seq_length is an integer, not a list
-            if isinstance(seq_length, list):
-                seq_length = seq_length[0]
-                
-            self.mmse_module = TrainableMMSEModule(
-                seq_length=seq_length,
-                mmse_block_size=self.config.mmse_block_size,
-                use_complex_input=True
-            ).to(self.device)
-        else:
-            self.mmse_module = None
-            
-        # Create models
-        # Ensure we use an integer for seq_length parameter
-        seq_length_for_estimator = seq_length if use_trainable_mmse else (
-            self.config.seq_length[0] if isinstance(self.config.seq_length, list) else self.config.seq_length
-        )
-        
-        # Use the current ktc from the config
-        ktc_for_estimator = self.config.current_ktc if hasattr(self.config, 'current_ktc') else self.config.ktc_options[0]
-        
-        self.srs_estimator = SRSChannelEstimator(
-            seq_length=seq_length_for_estimator,
-            ktc=ktc_for_estimator,
-            max_users=self.config.num_users,
-            max_ports_per_user=max(self.config.ports_per_user),
-            mmse_block_size=self.config.mmse_block_size,
-            device=self.device,
-            mmse_module=self.mmse_module if use_trainable_mmse else None  # Pass MMSE module
-        ).to(self.device)
-
-        # Make sure all model parameters require gradients
-        for name, param in self.srs_estimator.named_parameters():
-            param.requires_grad = True
-            print(f"Setting requires_grad=True for SRS estimator parameter: {name}, shape: {param.shape}")
-            
-        if self.mmse_module:
-            for name, param in self.mmse_module.named_parameters():
-                param.requires_grad = True
-                print(f"Setting requires_grad=True for MMSE parameter: {name}, shape: {param.shape}")
-        
-        # Create optimizer
-        model_params = []
-        # Add SRSChannelEstimator parameters
-        for name, param in self.srs_estimator.named_parameters():
-            if param.requires_grad:
-                print(f"Adding trainable parameter: {name}, shape: {param.shape}")
-                model_params.append(param)
-        
-        # Add MMSE module parameters
-        if self.mmse_module:
-            for name, param in self.mmse_module.named_parameters():
-                if param.requires_grad:
-                    print(f"Adding trainable MMSE parameter: {name}, shape: {param.shape}")
-                    model_params.append(param)
-        
-        # Ensure model has trainable parameters
-        if len(model_params) == 0:
-            raise ValueError("No trainable parameters found in the model!")
-          
-        # Print number of trainable parameters
-        total_params = sum(p.numel() for p in model_params)
-        print(f"Total trainable parameters: {total_params}")
-        
-        self.optimizer = optim.Adam(model_params, lr=0.01)
-        
-        # Create save directory if it doesn't exist
-        os.makedirs(self.save_dir, exist_ok=True)
-        
-        # Create logs directory for TensorBoard
-        legacy_log_dir = os.path.join(self.save_dir, 'logs')
-        os.makedirs(legacy_log_dir, exist_ok=True)
-        
-        # Initialize TensorBoard writer (if not already initialized)
-        if not hasattr(self, 'writer') or self.writer is None:
-            legacy_log_dir = os.path.join(self.save_dir, 'logs')
-            os.makedirs(legacy_log_dir, exist_ok=True)
-            self.writer = SummaryWriter(log_dir=legacy_log_dir)
-        
-        # Initialize training history (if not already initialized)
-        if not hasattr(self, 'train_losses'):
-            self.train_losses = []
-            self.val_losses = []
-            self.train_nmse = []
-            self.val_nmse = []
-        
-        # Initialize global step counter (if not already initialized)
-        if not hasattr(self, 'global_step'):
-            self.global_step = 0
-        
-        # 🎯 Complete instantiation of all required components
-        print(f"\n🚀 Starting complete instantiation of all components...")
-        
-        # Initialize legacy attributes if not already done
-        if not hasattr(self, 'channel_params'):
-            self._init_legacy_attributes(use_professional_channels=True, use_sionna=True)
-        
-        # Execute complete initialization - no try/except for strict error handling
-        self._initialize_all_instances()
-            
-    def _init_legacy_attributes(self, use_professional_channels: bool, use_sionna: bool):
-        """
-        Initialize legacy attributes for backward compatibility
-        
-        This method initializes all the attributes that were previously
-        initialized in the legacy constructor paths.
-        """
-        # Import required modules
-        from system_config import create_default_system_config
-        
-        # Initialize system config
-        self.system_config = create_default_system_config()
-        
-        # Initialize channel parameters
-        self.channel_params = {
-            'channel_model': 'TDL-C',  # Default channel model
-            'delay_spread': self.system_config.delay_spread,
-            'carrier_frequency': self.system_config.carrier_frequency,
-            'device': self.device,
-            'use_sionna': use_sionna and SIONNA_AVAILABLE,
-            'use_professional_channels': use_professional_channels and PROFESSIONAL_CHANNELS_AVAILABLE
-        }
-        
-        # Initialize signal generation parameters
-        self.signal_gen_params = {
-            'srs_config': self.config,
-            'num_rx_antennas': self.system_config.num_rx_antennas,
-            'sampling_rate': self.system_config.sampling_rate,
-            'device': self.device,
-            'enable_debug': False
-        }
-        
-        # Initialize SRS config alias for backward compatibility
-        self.srs_config = self.config
-        
-        # Initialize data generator if not provided
-        if not hasattr(self, 'data_generator') or self.data_generator is None:
-            self._init_data_generator()
-    
-    def _init_data_generator(self):
-        """Initialize the data generator"""
-        from data_generator_refactored import SRSDataGenerator
-        
-        # First check if there's a pre-initialized data generator available for direct use
-        snr_key = "config_snr"
-        if hasattr(self, 'data_generators') and snr_key in self.data_generators and self.data_generators[snr_key] is not None:
-            self.data_generator = self.data_generators[snr_key]
-            print(f"✅ Using pre-initialized data generator (using_channel={self.data_generator.using_channel})")
-            return
-            
-        # Check if there's a pre-initialized channel model available for use
-        channel_model = None
-        if hasattr(self, 'channel_models') and self.channel_models:
-            # Try to get channel model matching default configuration
-            default_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
-            if default_channel_key in self.channel_models and self.channel_models[default_channel_key] is not None:
-                channel_model = self.channel_models[default_channel_key]
-                print(f"✅ Using pre-initialized channel model: {default_channel_key}")
-            else:
-                # Use any available channel model
-                available_models = [model for model in self.channel_models.values() if model is not None]
-                if available_models:
-                    channel_model = available_models[0]
-                    found_key = [k for k, v in self.channel_models.items() if v == channel_model][0]
-                    print(f"✅ Using alternative channel model: {found_key}")
-        
-        # If there's no pre-initialized channel model, create a new one
-        if channel_model is None and self.channel_params['use_professional_channels']:
-            from professional_channels import SIONNAChannelModel
-            
-            channel_model = SIONNAChannelModel(
-                system_config=self.system_config,
-                model_type=self.channel_params['channel_model'],
-                num_rx_antennas=self.system_config.num_rx_antennas,
-                delay_spread=self.channel_params['delay_spread'],
-                device=self.device
-            )
-            print(f"✅ Created new SIONNA channel model: {self.channel_params['channel_model']}")
-            
-            # Cache this newly created model if channel_models dict exists
-            if hasattr(self, 'channel_models'):
-                channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
-                self.channel_models[channel_key] = channel_model
-                print(f"✅ Cached new channel model: {channel_key}")
-        
-        # Create data generator
-        self.data_generator = SRSDataGenerator(
-            config=self.config,
-            channel_model=channel_model,
-            num_rx_antennas=self.system_config.num_rx_antennas,
-            sampling_rate=self.system_config.sampling_rate,
-            device=self.device
-        )
-        
-        # Cache this newly created data generator if data_generators dict exists
-        if hasattr(self, 'data_generators'):
-            self.data_generators[snr_key] = self.data_generator
-            print(f"✅ Cached new data generator: {snr_key}")
-        
-        print(f"✅ Data generator initialized (using_channel={self.data_generator.using_channel})")
-
-    def _initialize_all_instances(self):
-        """
-        Complete initialization of all required instances
-        
-        🎯 Performance optimization strategy:
-        1. Pre-create all common channel model instances
-        2. Pre-create data generators for each SNR range
-        3. Pre-create dedicated channel instances for each UE (if needed)
-        4. Pre-create signal generators for each port (if needed)
-        
-        This way during training we only need to look up dictionaries, no repeated instantiation
-        """
-        print(f"🚀 Starting complete instantiation...")
-        
-        # ========================================
-        # 1. Initialize channel model instances (organized by configuration parameters)
-        # ========================================
-        print(f"📡 Initializing channel model instances...")
-        self._initialize_channel_models()
-        
-        # ========================================
-        # 2. Initialize data generator instances (organized by SNR range)
-        # ========================================
-        print(f"📊 Initializing data generator instances...")
-        self._initialize_data_generators()
-        
-        # ========================================
-        # 3. Initialize per-UE dedicated instances (if needed)
-        # ========================================
-        print(f"👥 Initializing per-UE dedicated instances...")
-        self._initialize_per_ue_instances()
-        
-        # ========================================
-        # 4. Initialize per-port dedicated instances (if needed)
-        # ========================================
-        print(f"📋 Initializing per-port dedicated instances...")
-        self._initialize_per_port_instances()
-        
-        print(f"✅ All instances initialization completed!")
-        self._print_instance_summary()
-    
-    def _initialize_channel_models(self):
-        """Initialize all common channel model instances"""
-        if not PROFESSIONAL_CHANNELS_AVAILABLE:
-            print("⚠️ Professional channel library is not available, skipping channel model initialization")
-            return
-        
-        # Ensure channel_models dict exists
-        if not hasattr(self, 'channel_models'):
-            self.channel_models = {}
-        
-        # Ensure common_channel_configs contains all needed channel configurations
-        if not hasattr(self, 'common_channel_configs') or not self.common_channel_configs:
-            self.common_channel_configs = [
-                {'model': 'TDL-A', 'delay_spread': 30e-9},
-                {'model': 'TDL-B', 'delay_spread': 100e-9},
-                {'model': 'TDL-C', 'delay_spread': 300e-9},
-            ]
-        else:
-            # Ensure TDL-A_30ns exists in configuration (to avoid warnings)
-            has_tdla_30ns = False
-            for config in self.common_channel_configs:
-                if config['model'] == 'TDL-A' and abs(config['delay_spread'] - 30e-9) < 1e-12:
-                    has_tdla_30ns = True
-                    break
-                    
-            if not has_tdla_30ns:
-                print("   📌 Adding TDL-A_30ns to configuration (to avoid warnings)")
-                self.common_channel_configs.insert(0, {'model': 'TDL-A', 'delay_spread': 30e-9})
-        
-        # Ensure default channel model configuration is also included in common_channel_configs
-        default_model = self.channel_params.get('channel_model', 'TDL-A')
-        default_delay = self.channel_params.get('delay_spread', 30e-9)
-        default_config_exists = False
-        
-        for config in self.common_channel_configs:
-            if config['model'] == default_model and abs(config['delay_spread'] - default_delay) < 1e-12:
-                default_config_exists = True
-                break
-                
-        if not default_config_exists:
-            print(f"   📌 Adding default channel model {default_model}_{default_delay*1e9:.0f}ns to configuration")
-            self.common_channel_configs.insert(0, {'model': default_model, 'delay_spread': default_delay})
-            
-        # Initialize all channel model instances
-        from professional_channels import SIONNAChannelModel
-        
-        print(f"   🔄 Initializing {len(self.common_channel_configs)} channel models...")
-        
-        # Ensure at least one successful channel model
-        successful_model = None
-        
-        for config in self.common_channel_configs:
-            config_key = f"{config['model']}_{config['delay_spread']*1e9:.0f}ns"
-            
-            # Skip existing models
-            if config_key in self.channel_models and self.channel_models[config_key] is not None:
-                print(f"   ⏩ {config_key} already exists, skipping initialization")
-                successful_model = self.channel_models[config_key]  # Record a successful model
-                continue
-                
-            print(f"   🔧 Creating channel model: {config_key}")
-            channel_model = SIONNAChannelModel(
-                system_config=self.system_config,
-                model_type=config['model'],
-                num_rx_antennas=self.system_config.num_rx_antennas,
-                delay_spread=config['delay_spread'],
-                device=self.channel_params['device']
-            )
-            self.channel_models[config_key] = channel_model
-            print(f"   ✅ {config_key} created successfully")
-            successful_model = channel_model  # Record a successful model
-        
-        # All channel models should be created successfully, no need for fallback logic
-                
-        # Check and report initialization results
-        success_count = sum(1 for model in self.channel_models.values() if model is not None)
-        print(f"   🔍 Channel model initialization result: {success_count}/{len(self.common_channel_configs)} successful")
-    
-    def _initialize_data_generators(self):
-        """Initialize unique data generator (using SNR range from configuration file)"""
-        from data_generator_refactored import SRSDataGenerator
-        
-        # Ensure data_generators dict exists
-        if not hasattr(self, 'data_generators'):
-            self.data_generators = {}
-        
-        # Ensure channel_models dict exists
-        if not hasattr(self, 'channel_models'):
-            self.channel_models = {}
-        
-        # Get default channel model
-        default_channel_key = f"{self.channel_params['channel_model']}_{self.channel_params['delay_spread']*1e9:.0f}ns"
-        
-        print(f"   🎯 Looking for default channel model: {default_channel_key}")
-        print(f"   🎯 Available channel models: {list(self.channel_models.keys())}")
-        
-        # Ensure default channel model exists
-        if default_channel_key not in self.channel_models or self.channel_models[default_channel_key] is None:
-            print(f"   🔄 Default channel model {default_channel_key} does not exist, trying to create")
-            
-            try:
-                # Directly create default channel model
-                from professional_channels import SIONNAChannelModel
-                default_channel_model = SIONNAChannelModel(
-                    system_config=self.system_config,
-                    model_type=self.channel_params['channel_model'],
-                    num_rx_antennas=self.system_config.num_rx_antennas,
-                    delay_spread=self.channel_params['delay_spread'],
-                    device=self.channel_params['device']
-                )
-                self.channel_models[default_channel_key] = default_channel_model
-                print(f"   ✅ Successfully created default channel model: {default_channel_key}")
-            except Exception as e:
-                print(f"   ⚠️ Failed to create default channel model: {e}")
-                
-                # Try to use any available channel model
-                available_models = [model for k, model in self.channel_models.items() if model is not None]
-                if available_models:
-                    default_channel_model = available_models[0]
-                    found_key = [k for k, v in self.channel_models.items() if v == default_channel_model][0]
-                    print(f"   ✅ Using existing channel model: {found_key}")
-                else:
-                    # If no available model, create a TDL-A model as backup
-                    print(f"   🔄 Creating TDL-A backup channel model")
-                    default_channel_model = SIONNAChannelModel(
-                        system_config=self.system_config,
-                        model_type="TDL-A",
-                        num_rx_antennas=self.system_config.num_rx_antennas,
-                        delay_spread=30e-9,
-                        device=self.channel_params['device']
-                    )
-                    self.channel_models["TDL-A_30ns"] = default_channel_model
-                    default_channel_key = "TDL-A_30ns"
-        
-        # Ensure we have a valid channel model
-        default_channel_model = self.channel_models[default_channel_key]
-        print(f"   ✅ Using channel model: {default_channel_key}")
-        
-        # Only create one data generator using configuration SNR range
-        config_snr_range = self.srs_config.snr_range
-        snr_key = "config_snr"  # Use fixed key name
-        
-        # Check if the data generator already exists
-        if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
-            print(f"   ⏩ Data generator {snr_key} already exists, skipping initialization")
-            return
-        
-        print(f"   🔧 Creating data generator: {snr_key} (SNR range: {config_snr_range})")
-        data_generator = SRSDataGenerator(
-            config=self.signal_gen_params['srs_config'],
-            channel_model=default_channel_model,
-            num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
-            sampling_rate=self.signal_gen_params['sampling_rate'],
-            device=self.signal_gen_params['device']
-        )
-        self.data_generators[snr_key] = data_generator
-        print(f"   ✅ {snr_key} created successfully (using_channel={data_generator.using_channel})")
-    
-    def _initialize_per_ue_instances(self):
-        """Initialize dedicated instances for each UE (if needed)"""
-        # Current design uses unified data generators, per-UE instances are handled inside channels
-        # If future needs per-UE special processing, can add here
-        
-        # 🔧 Add configuration validation to prevent index out of bounds
-        self.srs_config.validate_config()
-        
-        for user_id in range(self.srs_config.num_users):
-            # 🔧 Add boundary check
-            if user_id >= len(self.srs_config.ports_per_user):
-                raise RuntimeError(f"User {user_id} exceeds ports_per_user range (length={len(self.srs_config.ports_per_user)})")
-            if user_id >= len(self.srs_config.current_cyclic_shifts):
-                raise RuntimeError(f"User {user_id} exceeds cyclic_shifts range (length={len(self.srs_config.current_cyclic_shifts)})")
-                
-            num_ports = self.srs_config.ports_per_user[user_id]
-            print(f"   UE {user_id}: {num_ports} ports")
-            
-            # Reserve: can create dedicated processing instances for each UE
-            self.per_ue_channels[user_id] = {
-                'num_ports': num_ports,
-                'cyclic_shifts': self.srs_config.current_cyclic_shifts[user_id],
-                # 'dedicated_channel': None,  # If need per-UE channel instance
-                # 'dedicated_generator': None,  # If need per-UE generator
-            }
-    
-    def _initialize_per_port_instances(self):
-        """Initialize dedicated instances for each port (if needed)"""
-        # Current design uses unified data generators, per-port instances are handled internally
-        # If future needs per-port special processing, can add here
-        
-        for user_id in range(self.srs_config.num_users):
-            # 🔧 Double boundary check to ensure safety
-            if user_id >= len(self.srs_config.ports_per_user):
-                continue  # Skip invalid users
-                
-            for port_id in range(self.srs_config.ports_per_user[user_id]):
-                # 🔧 Check cyclic_shifts boundary
-                if (user_id >= len(self.srs_config.current_cyclic_shifts) or 
-                    port_id >= len(self.srs_config.current_cyclic_shifts[user_id])):
-                    print(f"   ⚠️ Port {user_id}:{port_id} cyclic shift configuration missing, skipping")
-                    continue
-                    
-                port_key = f"ue_{user_id}_port_{port_id}"
-                cyclic_shift = self.srs_config.current_cyclic_shifts[user_id][port_id]
-                
-                print(f"   Port {port_key}: cyclic shift {cyclic_shift}")
-                
-                # Reserve: can create dedicated processing instances for each port
-                self.per_port_generators[port_key] = {
-                    'user_id': user_id,
-                    'port_id': port_id,
-                    'cyclic_shift': cyclic_shift,
-                    # 'dedicated_sequence_gen': None,  # If need per-port sequence generator
-                    # 'dedicated_mapper': None,  # If need per-port mapper
-                }
-    
-    def _print_instance_summary(self):
-        """Print instantiation summary"""
-        print(f"\n📊 Instantiation summary:")
-        print(f"   Channel models: {len(self.channel_models)} items")
-        for key, model in self.channel_models.items():
-            status = "✅" if model is not None else "❌"
-            print(f"     {status} {key}")
-        
-        print(f"   Data generators: {len(self.data_generators)} items")
-        for key, generator in self.data_generators.items():
-            status = "✅" if generator is not None else "❌"
-            print(f"     {status} {key}")
-        
-        print(f"   UE instances: {len(self.per_ue_channels)} items")
-        print(f"   Port instances: {len(self.per_port_generators)} items")
-    
-    def get_data_generator(self, channel_config=None):
-        """
-        获取数据生成器实例
-        
-        🎯 优化设计：优先使用已初始化的数据生成器，避免重复创建
-        
-        Args:
-            channel_config: 信道配置，格式：{'model': 'TDL-A', 'delay_spread': 300e-9}
-            
-        Returns:
-            SRSDataGenerator实例
-        """
-        # 使用唯一的数据生成器键名
-        snr_key = "config_snr"
-        
-        # 检查是否有预创建的生成器
-        if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
-            return self.data_generators[snr_key]
-        
-        # If no pre-created generator is found, first check if there's a channel model matching the requested config
-        if channel_config is None:
-            # If config has a current_channel_model, use it
-            if hasattr(self.config, 'current_channel_model') and self.config.current_channel_model:
-                model_type, delay_spread = self.config.parse_channel_model()
-                channel_config = {
-                    'model': model_type,
-                    'delay_spread': delay_spread
-                }
-                print(f"📊 Using randomized channel configuration: {model_type}, {delay_spread*1e9:.1f}ns")
-            else:
-                # Use default configuration
-                channel_config = self.common_channel_configs[0] if hasattr(self, 'common_channel_configs') and self.common_channel_configs else {
-                    'model': 'TDL-A',
-                    'delay_spread': self.system_config.delay_spread if hasattr(self, 'system_config') else 300e-9
-                }
-
-        # 构建信道模型的键名
-        channel_key = f"{channel_config['model']}_{channel_config['delay_spread']*1e9:.0f}ns"
-        
-        # 检查信道模型是否存在
-        if channel_key not in self.channel_models or self.channel_models[channel_key] is None:
-            print(f"📢 请求的信道模型 {channel_key} 不存在，需要创建")
-            # 确保信道模型被创建
-            from professional_channels import SIONNAChannelModel
-            try:
-                channel_model = SIONNAChannelModel(
-                    system_config=self.system_config,
-                    model_type=channel_config['model'],
-                    num_rx_antennas=self.system_config.num_rx_antennas,
-                    delay_spread=channel_config['delay_spread'],
-                    device=self.channel_params['device']
-                )
-                self.channel_models[channel_key] = channel_model
-                print(f"✅ 成功创建信道模型: {channel_key}")
-            except Exception as e:
-                print(f"❗ 创建信道模型 {channel_key} 时出错: {e}")
-                # 使用任何已存在的有效模型
-                available_models = [model for k, model in self.channel_models.items() if model is not None]
-                if not available_models:
-                    # 如果没有可用的模型，强制创建一个TDL-A
-                    print(f"📢 没有可用的信道模型，创建默认TDL-A模型")
-                    try:
-                        channel_model = SIONNAChannelModel(
-                            system_config=self.system_config,
-                            model_type="TDL-A",
-                            num_rx_antennas=self.system_config.num_rx_antennas,
-                            delay_spread=30e-9,
-                            device=self.channel_params['device']
-                        )
-                        self.channel_models["TDL-A_30ns"] = channel_model
-                        channel_key = "TDL-A_30ns"  # 更新当前使用的键名
-                    except Exception as inner_e:
-                        # 如果所有尝试都失败，打印错误但继续执行
-                        print(f"⚠️ 创建默认TDL-A模型失败: {inner_e}")
-                        print(f"📢 将创建无信道模型的数据生成器")
-                        channel_model = None
-                else:
-                    # 使用第一个可用的模型
-                    channel_model = available_models[0]
-                    found_key = [k for k, v in self.channel_models.items() if v == channel_model][0]
-                    print(f"✅ 使用已有的信道模型代替: {found_key}")
-                    self.channel_models[channel_key] = channel_model  # 确保请求的键名也有对应的模型
-        else:
-            # 获取信道模型
-            channel_model = self.channel_models[channel_key]
-        
-        # 创建新的数据生成器
-        from data_generator_refactored import SRSDataGenerator
-        generator = SRSDataGenerator(
-            config=self.signal_gen_params['srs_config'],
-            channel_model=channel_model,
-            num_rx_antennas=self.signal_gen_params['num_rx_antennas'],
-            sampling_rate=self.signal_gen_params['sampling_rate'],
-            device=self.signal_gen_params['device']
-        )
-        
-        # 缓存新创建的生成器
-        self.data_generators[snr_key] = generator
-        print(f"✅ 创建并缓存新数据生成器: {snr_key} (using_channel={generator.using_channel})")
-        
-        return generator
     
     def get_channel_model(self, model_type="TDL-A", delay_spread=None):
         """
@@ -841,58 +190,33 @@ class SRSTrainerModified:
         
         print(f"✅ 使用备用信道模型: {backup_key}")
         return backup_model
-            
-            
-    def generate_batch_with_dynamic_channel(self, batch_size: int, channel_config=None) -> tuple[torch.Tensor, torch.Tensor]:
-
-        # First, randomize the SRS configuration for this batch
-        self.config.randomize_configuration()
-
-        # If channel_config is None, use the newly randomized channel model from config
-        if channel_config is None and hasattr(self.config, 'current_channel_model'):
-            model_type, delay_spread = self.config.parse_channel_model()
-            channel_config = {
-                'model': model_type,
-                'delay_spread': delay_spread
-            }
-
-        # Check for pre-initialized generators
-        snr_key = "config_snr"
-        if snr_key in self.data_generators and self.data_generators[snr_key] is not None:
-            data_generator = self.data_generators[snr_key]
-        else:
-            # If no pre-initialized generator is found, create one
-            data_generator = self.get_data_generator(channel_config=channel_config)
-
-        # Generate batch as before
-        ls_estimates_tensor, true_channel_tensor = data_generator.generate_batch(batch_size)
-
-        return ls_estimates_tensor, true_channel_tensor
     
     def train_epoch(self, num_batches: int, batch_size: int) -> Tuple[float, float]:
-        """
-        Train for one epoch - 完全批处理化版本
-        
-        Args:
-            num_batches: Number of batches
-            batch_size: Batch size
-            
-        Returns:
-            Average loss and NMSE for the epoch
-        """
         print("\n====== Starting training epoch (batch processing mode) ======")
         total_loss = 0
         total_nmse = 0
         total_sample_count = 0
-        
-        # Set models to training mode
-        if self.mmse_module:
-            self.mmse_module.train()
-        
+        self.mmse_module.train()
         for batch_idx in tqdm(range(num_batches), desc="Training"):
+            # 每个 batch 实例化并随机化 SRSConfig
+            from user_config import create_example_config
+            srs_config = create_example_config()
+            srs_config.randomize_configuration()
+            self.srs_config = srs_config
+            # 每个 batch 实例化 BaseSRSDataGenerator，确保用最新 srs_config
+            from system_config import create_default_system_config
+            system_config = create_default_system_config()
+            from data_generator import BaseSRSDataGenerator
+            base_generator = BaseSRSDataGenerator(
+                system_config=system_config,
+                num_rx_antennas=system_config.num_rx_antennas,
+                sampling_rate=system_config.sampling_rate,
+                device=self.device
+            )
+            self.data_generator = SRSDataGenerator(base_generator=base_generator)
             # Generate batch with dynamic channel
             with torch.no_grad():
-                ls_estimates_tensor, true_channel_tensor = self.generate_batch_with_dynamic_channel(batch_size)
+                ls_estimates_tensor, true_channel_tensor = self.data_generator.generate_batch(batch_size, self.srs_config)
 
             # Clear gradients
             self.optimizer.zero_grad()
@@ -998,20 +322,6 @@ class SRSTrainerModified:
     def train(self, num_epochs: int, num_batches: int, batch_size: int, 
               val_batches: int, val_every_n_epochs: int = 1, 
               save_every_n_epochs: int = 5) -> Dict[str, List[float]]:
-        """
-        Train the model for the specified number of epochs
-        
-        Args:
-            num_epochs: Number of epochs to train for
-            num_batches: Number of batches per epoch during training
-            batch_size: Batch size for training
-            val_batches: Number of batches for validation
-            val_every_n_epochs: Validate every n epochs
-            save_every_n_epochs: Save checkpoint every n epochs
-            
-        Returns:
-            Dictionary with training history
-        """
         print(f"\n====== Starting training ({num_epochs} epochs) ======")
         
         best_val_nmse = float('inf')
@@ -1359,14 +669,15 @@ def main():
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
     parser.add_argument('--val_every', type=int, default=1, help='Validate every n epochs')
     parser.add_argument('--save_every', type=int, default=5, help='Save checkpoint every n epochs')
+    parser.add_argument('--lr', type=float, default=0.001, help='Learning rate for optimizer')
     parser.add_argument('--save_dir', type=str, default='./checkpoints_modified', help='Save directory')
+    parser.add_argument('--log_dir', type=str, default='./logs', help='Log directory for TensorBoard')
     parser.add_argument('--load_checkpoint', type=str, default='', help='Load checkpoint file')
     parser.add_argument('--num_threads', type=int, default=os.cpu_count(), help='Number of CPU threads for PyTorch (default: all cores)')
     # Device argument
     parser.add_argument('--device', type=str, default='cpu',
                        choices=['cpu', 'cuda'],
                        help='Device to use for training (cpu or cuda, default: cpu)')
-    
     args = parser.parse_args()
 
     # 设置PyTorch多进程启动方式（推荐spawn，避免fork导致的死锁和内存问题）
@@ -1403,36 +714,13 @@ def main():
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
         print("🔒 CPU-only mode enabled")
     
-    # Create configuration and system config
-    srs_config = create_example_config()
-    from system_config import create_default_system_config
-    system_config = create_default_system_config()
-    
-    # Print configuration summary
-    print("\n" + "="*60)
-    print("🔧 TRAINING CONFIGURATION")
-    print("="*60)
-    print(f"Device: {args.device}")
-    if args.device == 'cuda':
-        print(f"GPU: {torch.cuda.get_device_name()}")
-        print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
-    print(f"Channel Model: Using SRS config randomization")
-    print(f"Use SIONNA: {SIONNA_AVAILABLE} (enforced)")
-    print(f"Delay Spread: Using system config ({system_config.delay_spread*1e9:.1f} ns)")
-    print(f"Carrier Frequency: Using system config ({system_config.carrier_frequency/1e9:.1f} GHz)")
-    print(f"Trainable MMSE: True (default)")
-    print(f"Epochs: {args.epochs}")
-    print(f"Batch Size: {args.batch_size}")
-    print("="*60 + "\n")
-    
     # Create trainer
-    trainer = SRSTrainerModified(
-        srs_config=srs_config,
-        device=args.device,  # Use device from command line argument
+    trainer = SRSTrainer(
+        use_tensorboard=True,
+        log_dir=args.log_dir,
         save_dir=args.save_dir,
-        use_trainable_mmse=True,  # Always True in this version
-        use_professional_channels=True,
-        use_sionna=True  # Always True (SIONNA is enforced)
+        device=args.device,
+        lr=args.lr
     )
     
     # Load checkpoint if specified

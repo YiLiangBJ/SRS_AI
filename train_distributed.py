@@ -51,10 +51,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from user_config import SRSConfig, create_example_config
 from system_detection import SystemDetector, setup_distributed_training
-from data_generator_refactored import SRSDataGenerator
+from data_generator import SRSDataGenerator
 from model_Traditional import SRSChannelEstimator
 from model_AIpart import TrainableMMSEModule
-from trainMLPmmse import SRSTrainerModified
+from trainMLPmmse import SRSTrainer
 
 
 def detect_numa_topology():
@@ -326,7 +326,7 @@ class DistributedTrainer:
         batch_size = self.settings.get('batch_size_per_process', 32)
         
         # Create trainer
-        self.trainer = SRSTrainerModified(
+        self.trainer = SRSTrainer(
             srs_estimator=self.srs_estimator,
             mmse_module=self.mmse_module if not self.use_ddp else self.mmse_module.module,
             config=self.config,
