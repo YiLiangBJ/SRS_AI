@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 from typing import List, Tuple, Dict, Optional, Union, Literal
-from professional_channels import SIONNAChannelModel
 
 from user_config import SRSConfig
 from system_config import SystemConfig, create_default_system_config
@@ -11,26 +10,11 @@ from utils import generate_base_sequence, apply_cyclic_shift
 
 
 
-class BaseSRSDataGenerator:
-    """
-    基础SRS数据生成器 - 纯PyTorch数据生成，不包含任何信道建模
-    
-    🎯 框架策略：100% PyTorch实现
-    
-    这个类专注于：
-    1. SRS序列生成 (PyTorch)
-    2. 资源映射 (PyTorch) 
-    3. OFDM调制/解调 (PyTorch)
-    4. 噪声添加 (PyTorch)
-    5. 数据格式化 (PyTorch)
-    
-    ⚠️ 不包含任何信道建模逻辑！
-    ⚠️ 不使用TensorFlow！所有计算都在PyTorch中完成！
-    """
-    
+class BaseSRSDataGenerator: 
     def __init__(
         self,
-        system_config: Optional[SystemConfig] = None,  # 系统配置
+        srs_config: SRSConfig,
+        system_config: SystemConfig,  # 系统配置
         # 以下参数如果为None，将从system_config获取
         num_rx_antennas: Optional[int] = None,
         sampling_rate: Optional[float] = None,
@@ -38,10 +22,7 @@ class BaseSRSDataGenerator:
         device: str = "cpu",  # Force CPU-only execution
         **kwargs
     ):
-        # 使用系统配置或创建默认配置
-        if system_config is None:
-            system_config = create_default_system_config()
-        
+        self.srs_config = srs_config
         self.system_config = system_config  # 系统配置
         
         # 从系统配置获取参数
@@ -63,7 +44,7 @@ class BaseSRSDataGenerator:
     def _update_base_sequence(self):
         """Update the base sequence when configuration changes"""
         # Use the current sequence length from the configuration
-        self.base_seq = generate_base_sequence(length=self.config.current_seq_length)
+        self.base_seq = generate_base_sequence(length=self.srs_config.current_seq_length)
     
     def generate_srs_sequences(
         self,
@@ -82,10 +63,10 @@ class BaseSRSDataGenerator:
         base_seq = self.base_seq
         cyclic_shifts = []
         meta_list = []
-        for user_id in range(self.config.num_users):
-            num_ports = self.config.ports_per_user[user_id]
+        for user_id in range(self.srs_config.num_users):
+            num_ports = self.srs_config.ports_per_user[user_id]
             for port_id in range(num_ports):
-                cyclic_shifts.append(self.config.current_cyclic_shifts[user_id][port_id])
+                cyclic_shifts.append(self.srs_config.current_cyclic_shifts[user_id][port_id])
                 meta_list.append((user_id, port_id))
         cyclic_shifts_tensor = torch.tensor(cyclic_shifts, dtype=base_seq.dtype, device=self.device)
         self.cyclic_shifts_tensor = cyclic_shifts_tensor
@@ -95,7 +76,7 @@ class BaseSRSDataGenerator:
         base_seq_expanded = base_seq.unsqueeze(0).unsqueeze(0).expand(batch_size, num_user_ports, base_seq.shape[0])
         # Compute phase shift matrix: exp(1j * 2pi * cyclic_shift * n / K)
         n = torch.arange(base_seq.shape[0], device=self.device).unsqueeze(0)
-        K = self.config.K
+        K = self.srs_config.K
         phase = torch.exp(1j * 2 * np.pi * cyclic_shifts_tensor.unsqueeze(0).unsqueeze(2) * n / K)
         phase = phase.expand(batch_size, num_user_ports, base_seq.shape[0])
         shifted_seqs = base_seq_expanded * phase
@@ -123,8 +104,8 @@ class BaseSRSDataGenerator:
         
         # Generate comb mapping indices - place one sequence element every ktc subcarriers
         # Use current values from the active configuration
-        seq_length = self.config.current_seq_length
-        ktc = self.config.current_ktc  # Comb spacing
+        seq_length = self.srs_config.current_seq_length
+        ktc = self.srs_config.current_ktc  # Comb spacing
         
         # 简化映射：从索引0开始，步长为ktc
         # 确保映射索引不超出ifft_size范围
@@ -212,17 +193,8 @@ class BaseSRSDataGenerator:
     def generate_pure_data_sample(
         self,
         batch_size: int,
-        ifft_size: Optional[int] = None
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Generate pure data sample (without channel and noise), batch-parallel
-        Args:
-            batch_size: 批次大小
-            user_indices: User index list
-            ifft_size: IFFT size (if None, use system config)
-        Returns:
-            Dictionary containing all data (without SNR information), batch-parallel
-        """
+        ifft_size = self.ifft_size
         self._update_base_sequence()
         # 1. 生成SRS序列（每个用户每个端口）
         sequences = self.generate_srs_sequences(batch_size)
@@ -241,38 +213,20 @@ class SRSDataGenerator:
         self,
         base_generator: BaseSRSDataGenerator,
     ):
-        """
-        SRSDataGenerator 顶层初始化
-        1. 先初始化底层 BaseSRSDataGenerator
-        2. 信道模型 SIONNAChannelModel
-        3. 组合为 SRSDataGenerator
-        """
         self.base_generator = base_generator
     
     def generate_batch(
         self, 
         batch_size,
-        srs_config: SRSConfig
     ) -> tuple[torch.Tensor, torch.Tensor]:
 
-        ifft_size = self.base_generator.ifft_size
-
         # Generate pure data (without channel)
-        time_signals, sequences, freq_grids = self.base_generator.generate_pure_data_sample(
-            batch_size, ifft_size
-        )
+        time_signals, sequences, freq_grids = self.base_generator.generate_pure_data_sample(batch_size)
 
-        if snr_db is None:
-            snr_db = self.base_generator.config.get_snr_db()
-        # 应用信道
-        rx_signals, freq_channels = self.channel_model.apply_channel(
-            signals=time_signals,
-            user_config=self.base_generator.config,
-            mapping_indices=self.base_generator.mapping_indices,
-            ifft_size=ifft_size,
-        )
-        base_seq = self.base_generator.base_seq
-        ls_estimates_tensor = rx_signals[:,:, self.base_generator.mapping_indices] / base_seq[None,None,:]
+        rx_signals, freq_channels = \
+            self.channel_model._apply_sionna_channel(signals=time_signals, base_generator=self.base_generator)
+
+        ls_estimates_tensor = rx_signals[:,:, self.base_generator.mapping_indices] / self.base_generator.base_seq[None,None,:]
         true_channel_tensor = freq_channels[...,self.base_generator.mapping_indices]
 
         return ls_estimates_tensor, true_channel_tensor

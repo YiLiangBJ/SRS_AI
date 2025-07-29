@@ -147,9 +147,7 @@ class SRSChannelEstimator(nn.Module):
     def forward(
         self,
         ls_estimates: torch.Tensor,  # [batch_size, num_rx_ant, seq_length]
-        user_config,
-        true_channels_dict: Optional[torch.Tensor] = None,
-        delay_search_range: Tuple[int, int] = (-30, 30)
+        srs_config
     ) -> torch.Tensor:
         """
         完全tensor化的SRS信道估计器forward
@@ -157,19 +155,20 @@ class SRSChannelEstimator(nn.Module):
         输出: [batch_size, num_users, max_ports_per_user, num_rx_ant, seq_length]
         """
         batch_size, num_rx_ant, seq_length = ls_estimates.shape
-        cyclic_shifts = user_config.current_cyclic_shifts
-        num_users = user_config.num_users
-        ports_per_user = user_config.ports_per_user
+        cyclic_shifts = srs_config.current_cyclic_shifts
+        num_users = srs_config.num_users
+        ports_per_user = srs_config.ports_per_user
         max_ports = max(ports_per_user)
-        K = self.K
         device = ls_estimates.device
-
+        # K = srs_config.K
         # 自动设置 ifft_size 和 delay_search_range
         ifft_size = max(seq_length, 32)
-        if self.ktc == 4:
-            dist = int(ifft_size / 12 / 2)
+        if srs_config.current_ktc == 4:
+            K = 12
+            dist = int(ifft_size / K / 2)
         else:
-            dist = int(ifft_size / 8 / 2)
+            K = 8
+            dist = int(ifft_size / K / 2)
         delay_search_range = (-dist, dist)
 
         # 初始化输出张量

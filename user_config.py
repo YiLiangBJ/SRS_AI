@@ -11,7 +11,7 @@
 
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple
-
+import torch
 
 @dataclass
 class SRSConfig:
@@ -185,22 +185,12 @@ class SRSConfig:
         """Calculate total number of ports across all users"""
         return sum(self.ports_per_user)
     
-    def get_snr_db(self) -> float:
-        """
-        获取SNR值 (dB)
-        
-        如果snr_range的最小值和最大值相等，返回固定SNR。
-        否则在范围内随机选择SNR。
-        
-        Returns:
-            SNR值 (dB)
-        """
+    def get_snr_db(self, batch_size: int = 1) -> torch.Tensor:        
         min_snr, max_snr = self.snr_range
         if min_snr == max_snr:
-            return min_snr  # 固定SNR
+            return torch.full((batch_size,), min_snr, dtype=torch.float32)
         else:
-            import random
-            return random.uniform(min_snr, max_snr)  # 随机SNR
+            return torch.empty(batch_size).uniform_(min_snr, max_snr)
     
     def is_fixed_snr(self) -> bool:
         """
@@ -338,35 +328,31 @@ class SRSConfig:
             'start_subcarrier': None,  # Will be determined by mapping logic
         }
     
-    def get_timing_offset_seconds(self) -> float:
+    def get_timing_offset_seconds(self, batch_size: int = 1) -> torch.Tensor:
         """
-        获取时间偏移值 (秒)
-        
-        如果timing_offset_range的最小值和最大值相等，返回固定偏移。
-        否则在范围内随机选择偏移。
-        
+        获取每个样本的时间偏移值 (秒)，支持批量
+        Args:
+            batch_size: 批次大小
         Returns:
-            时间偏移值 (秒)
+            Tensor, shape [batch_size], 每个元素为一个样本的时间偏移 (秒)
         """
         min_offset, max_offset = self.timing_offset_range
         if min_offset == max_offset:
-            return min_offset  # 固定偏移
+            return torch.full((batch_size,), min_offset, dtype=torch.float32)
         else:
-            import random
-            return random.uniform(min_offset, max_offset)  # 随机偏移
-    
-    def get_timing_offset_samples(self, sampling_rate: float) -> int:
+            return torch.empty(batch_size).uniform_(min_offset, max_offset)
+
+    def get_timing_offset_samples(self, sampling_rate: float, batch_size: int = 1) -> torch.Tensor:
         """
-        获取时间偏移对应的采样点数
-        
+        获取每个样本的时间偏移对应的采样点数，支持批量
         Args:
             sampling_rate: 采样率 (Hz)
-            
+            batch_size: 批次大小
         Returns:
-            时间偏移对应的采样点数 (整数)
+            Tensor, shape [batch_size], 每个元素为一个样本的时间偏移采样点数 (整数)
         """
-        timing_offset_seconds = self.get_timing_offset_seconds()
-        return int(timing_offset_seconds * sampling_rate)
+        timing_offset_seconds = self.get_timing_offset_seconds(batch_size)
+        return (timing_offset_seconds * sampling_rate).to(torch.int32)
     
     def is_fixed_timing_offset(self) -> bool:
         """

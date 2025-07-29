@@ -102,44 +102,18 @@ class TrainableMMSEModule(nn.Module):
                         # Small random bias initialization
                         nn.init.uniform_(layer.bias, -0.1, 0.1)
     
-    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:        
+    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
         device = channel_stats.device
         seq_length = channel_stats.shape[0]
-        
-        # Step 1: Extract global features using CNN
-        cnn_features = self._extract_cnn_features(channel_stats)  # [mmse_block_size] complex
-        
-        # Step 2: Split sequence into chunks and generate unique matrices for each
-        C_matrices = []
-        R_matrices = []
-        
-        # Calculate actual number of chunks needed for this sequence
-        actual_num_chunks = (seq_length + self.mmse_block_size - 1) // self.mmse_block_size
-        
-        for chunk_idx in range(actual_num_chunks):
-            start_idx = chunk_idx * self.mmse_block_size
-            end_idx = min(start_idx + self.mmse_block_size, seq_length)
-            
-            # Extract chunk
-            chunk = channel_stats[start_idx:end_idx]
-            
-            # Pad chunk if it's smaller than mmse_block_size
-            if chunk.shape[0] < self.mmse_block_size:
-                padding_size = self.mmse_block_size - chunk.shape[0]
-                padding = torch.zeros(padding_size, dtype=chunk.dtype, device=device)
-                chunk = torch.cat([chunk, padding])
-            
-            # Process chunk with CNN features to get unique Cholesky factors
-            C_factors, R_factors = self._process_chunk_with_features(chunk, cnn_features)
-            
-            # Construct unique matrices for this chunk
-            C_matrix = self._construct_matrix_from_cholesky_params(C_factors, self.mmse_block_size)
-            R_matrix = self._construct_matrix_from_cholesky_params(R_factors, self.mmse_block_size)
-            
-            # Store the unique matrices
-            C_matrices.append(C_matrix)
-            R_matrices.append(R_matrix)
-        
+        block_size = self.mmse_block_size
+        num_chunks = seq_length // block_size
+        # 直接分块，无需补零
+        chunks = channel_stats.view(num_chunks, block_size)  # [num_chunks, block_size]
+        chunks_real = torch.cat([torch.real(chunks), torch.imag(chunks)], dim=1)  # [num_chunks, block_size*2]
+        C_factors = self.C_factor_generator(chunks_real)  # [num_chunks, c_matrix_size]
+        R_factors = self.R_factor_generator(chunks_real)  # [num_chunks, r_matrix_size]
+        C_matrices = [self._construct_matrix_from_cholesky_params(C_factors[i], block_size) for i in range(num_chunks)]
+        R_matrices = [self._construct_matrix_from_cholesky_params(R_factors[i], block_size) for i in range(num_chunks)]
         return C_matrices, R_matrices
     
     def _process_chunk_with_features(self, chunk: torch.Tensor, cnn_features: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

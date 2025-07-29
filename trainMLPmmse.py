@@ -65,12 +65,13 @@ class SRSTrainer:
 
         # 每个 batch 实例化并随机化 SRSConfig
         from user_config import create_example_config
-        self.srs_config = create_example_config()
+        srs_config = create_example_config()
         # 1. 实例化底层数据生成器
         from system_config import create_default_system_config
         system_config = create_default_system_config()
         from data_generator import BaseSRSDataGenerator
         base_generator = BaseSRSDataGenerator(
+            srs_config=srs_config,
             system_config=system_config,
             num_rx_antennas=system_config.num_rx_antennas,
             sampling_rate=system_config.sampling_rate,
@@ -199,24 +200,34 @@ class SRSTrainer:
         self.mmse_module.train()
         for batch_idx in tqdm(range(num_batches), desc="Training"):
             # 每个 batch 实例化并随机化 SRSConfig
-            from user_config import create_example_config
-            srs_config = create_example_config()
-            srs_config.randomize_configuration()
-            self.srs_config = srs_config
-            # 每个 batch 实例化 BaseSRSDataGenerator，确保用最新 srs_config
-            from system_config import create_default_system_config
-            system_config = create_default_system_config()
-            from data_generator import BaseSRSDataGenerator
-            base_generator = BaseSRSDataGenerator(
-                system_config=system_config,
-                num_rx_antennas=system_config.num_rx_antennas,
-                sampling_rate=system_config.sampling_rate,
+            self.srs_config.randomize_configuration()
+            # 解析信道模型参数
+            model_type, delay_spread = self.srs_config.parse_channel_model()
+            # 实例化 SIONNAChannelModel
+            from professional_channels import SIONNAChannelModel
+            channel_model = SIONNAChannelModel(
+                system_config=self.system_config,
+                model_type=model_type,
+                num_rx_antennas=self.system_config.num_rx_antennas,
+                delay_spread=delay_spread,
                 device=self.device
             )
-            self.data_generator = SRSDataGenerator(base_generator=base_generator)
+            # 每个 batch 实例化 BaseSRSDataGenerator，确保用最新 srs_config
+            from data_generator import BaseSRSDataGenerator, SRSDataGenerator
+            base_generator = BaseSRSDataGenerator(
+                srs_config=self.srs_config,
+                system_config=self.system_config,
+                num_rx_antennas=self.system_config.num_rx_antennas,
+                sampling_rate=self.system_config.sampling_rate,
+                device=self.device
+            )
+            # 实例化 SRSDataGenerator 并注入信道模型
+            data_generator = SRSDataGenerator(base_generator=base_generator)
+            data_generator.channel_model = channel_model
+            self.data_generator = data_generator
             # Generate batch with dynamic channel
             with torch.no_grad():
-                ls_estimates_tensor, true_channel_tensor = self.data_generator.generate_batch(batch_size, self.srs_config)
+                ls_estimates_tensor, true_channel_tensor = self.data_generator.generate_batch(batch_size)
 
             # Clear gradients
             self.optimizer.zero_grad()
@@ -224,7 +235,7 @@ class SRSTrainer:
             # Model forward: tensor batch input, output shape (batch_size, num_user_ports, ...)
             estimated_channels = self.srs_estimator(
                 ls_estimates=ls_estimates_tensor,
-                user_config=self.srs_config
+                srs_config=self.srs_config
             )
 
             # Vectorized loss and NMSE calculation
@@ -327,6 +338,11 @@ class SRSTrainer:
         best_val_nmse = float('inf')
         best_epoch = -1
         
+        from user_config import create_example_config
+        self.srs_config = create_example_config()
+        from system_config import create_default_system_config
+        self.system_config = create_default_system_config()
+
         for epoch in range(num_epochs):
             print(f"\n====== Epoch {epoch+1}/{num_epochs} ======")
             
