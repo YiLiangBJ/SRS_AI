@@ -757,13 +757,10 @@ class SRSChannelEstimator(nn.Module):
         return hk_interp
 
     def _apply_mmse_filter_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
-        """
-        完全tensor化端口的MMSE滤波，无for
-        h: [batch_size, num_rx_ant, total_ports, seq_length]
-        返回: [batch_size, num_rx_ant, total_ports, seq_length]
-        """
         batch_size, num_rx_ant, total_ports, seq_length = h.shape
-        # 假设mmse_module支持端口并行
-        h_mmse = self.mmse_module.forward_batch_ports(h)  # 用户需实现此接口
+        h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, seq_length]
+        # 直接拼接每个端口的 MMSE 估计结果，shape [seq_length]
+        h_mmse_flat = torch.stack([self.mmse_module.forward(x) for x in h_flat], dim=0)  # [N, seq_length]
+        h_mmse = h_mmse_flat.reshape(batch_size, num_rx_ant, total_ports, seq_length)
         return h_mmse
 

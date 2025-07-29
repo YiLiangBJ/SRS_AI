@@ -39,14 +39,16 @@ class TrainableMMSEModule(nn.Module):
     def forward_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
         """
         并行端口MMSE滤波接口，输入h: [batch_size, num_rx_ant, total_ports, mmse_block_size]
-        返回: [batch_size, num_rx_ant, total_ports, mmse_block_size]
+        返回: [batch_size, num_rx_ant, total_ports, chunk_num, mmse_block_size, mmse_block_size]
         """
         batch_size, num_rx_ant, total_ports, seq_length = h.shape
         assert seq_length == self.mmse_block_size, f"输入序列长度必须为mmse_block_size={self.mmse_block_size}"
         h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, mmse_block_size]
-        # 逐个处理每个端口的chunk
-        h_mmse_flat = torch.stack([self.forward(x)[0] for x in h_flat], dim=0)  # [N, mmse_block_size]
-        h_mmse = h_mmse_flat.reshape(batch_size, num_rx_ant, total_ports, seq_length)
+        # 逐个处理每个端口的chunk，返回所有chunk的MMSE矩阵
+        mmse_chunks = [self.forward(x) for x in h_flat]  # 每个元素是chunk_num个MMSE矩阵
+        chunk_num = len(mmse_chunks[0])
+        mmse_chunks = [torch.stack(m, dim=0) for m in mmse_chunks]  # [N, chunk_num, mmse_block_size, mmse_block_size]
+        h_mmse = torch.stack(mmse_chunks, dim=0).reshape(batch_size, num_rx_ant, total_ports, chunk_num, self.mmse_block_size, self.mmse_block_size)
         return h_mmse
 
     def __init__(self, mmse_block_size: int = 12, hidden_dim: int = 64):
@@ -102,7 +104,7 @@ class TrainableMMSEModule(nn.Module):
                         # Small random bias initialization
                         nn.init.uniform_(layer.bias, -0.1, 0.1)
     
-    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> List[torch.Tensor]:
         device = channel_stats.device
         seq_length = channel_stats.shape[0]
         block_size = self.mmse_block_size
@@ -114,7 +116,9 @@ class TrainableMMSEModule(nn.Module):
         R_factors = self.R_factor_generator(chunks_real)  # [num_chunks, r_matrix_size]
         C_matrices = [self._construct_matrix_from_cholesky_params(C_factors[i], block_size) for i in range(num_chunks)]
         R_matrices = [self._construct_matrix_from_cholesky_params(R_factors[i], block_size) for i in range(num_chunks)]
-        return C_matrices, R_matrices
+        h_mmse_chunks = [C_matrices[i] @ torch.linalg.inv(C_matrices[i] + R_matrices[i]) @ chunks[i].unsqueeze(-1) for i in range(num_chunks)]  # 每个chunk shape: [block_size, 1]
+        h_mmse = torch.cat([chunk.squeeze(-1) for chunk in h_mmse_chunks], dim=0)  # [seq_length]
+        return h_mmse
     
     def _process_chunk_with_features(self, chunk: torch.Tensor, cnn_features: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -163,7 +167,36 @@ class TrainableMMSEModule(nn.Module):
         L_real = torch.zeros((n, n), device=device)
         L_imag = torch.zeros((n, n), device=device)
         
-    # ...existing code...
+        # Fill lower triangular matrix (real part)
+        idx = 0
+        for i in range(n):
+            for j in range(i + 1):  # j <= i for lower triangular
+                if i == j:  # Diagonal elements only have real part and must be positive
+                    L_real[i, j] = torch.nn.functional.softplus(L_real_flat[idx])
+                else:
+                    L_real[i, j] = L_real_flat[idx]
+                idx += 1
+        
+        # Fill lower triangular matrix (imaginary part, only off-diagonal)
+        idx = 0
+        for i in range(n):
+            for j in range(i):  # j < i for strictly lower triangular
+                L_imag[i, j] = L_imag_flat[idx]
+                idx += 1
+                
+        # Combine into complex lower triangular matrix L
+        L = torch.complex(L_real, L_imag)
+        
+        # Calculate matrix = L @ L^H (L^H is conjugate transpose of L)
+        # This naturally creates a Hermitian positive definite matrix
+        matrix = L @ L.conj().transpose(0, 1)
+        
+        # Add small diagonal loading for numerical stability
+        epsilon = 1e-6
+        matrix = matrix + torch.eye(n, device=device) * epsilon
+        
+        return matrix
+    
     def forward_chunked(self, channel_stats: torch.Tensor, chunk_size: int = 12) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
 
         # Ensure chunk_size matches our mmse_block_size for consistency
@@ -175,18 +208,8 @@ class TrainableMMSEModule(nn.Module):
     
     def forward_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
         batch_size, num_rx_ant, total_ports, seq_length = h.shape
-        # 以每个端口独立处理为例，支持端口并行
-        # 这里假设每个端口都用同样的MMSE结构（如MLP/CNN等），如需区分可扩展
         h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, seq_length]
-        # 这里调用原有的forward_chunked或forward方法，假设其支持batch输入
-        # 如果原forward不支持batch，则需扩展为支持batch
-        # 这里以MLP为例，假设self.mmse_filter支持(batch, seq_length)输入
-        if hasattr(self, 'mmse_filter'):
-            # 这里需要定义chunk，或者根据实际需求修改
-            # 由于chunk未定义，建议将此分支实现完善或移除
-            raise NotImplementedError("mmse_filter 分支未实现，请完善 chunk 的定义或移除此分支。")
-        else:
-            # 兼容原有forward逻辑，逐个处理（但推荐改为tensor化）
-            h_mmse_flat = torch.stack([self.forward(x)[0][0] for x in h_flat], dim=0)
-        h_mmse = h_mmse_flat.reshape(batch_size, num_rx_ant, total_ports, seq_length)
+
+        h_mmse_chunks = [torch.stack(self.forward(x), dim=0) for x in h_flat]  # 每个元素 shape: [chunk_num, mmse_block_size, mmse_block_size]
+        h_mmse = torch.stack(h_mmse_chunks, dim=0).reshape(batch_size, num_rx_ant, total_ports, -1, self.mmse_block_size, self.mmse_block_size)
         return h_mmse
