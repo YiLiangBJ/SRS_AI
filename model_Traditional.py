@@ -216,7 +216,7 @@ class SRSChannelEstimator(nn.Module):
         h_with_residual = h_interpolated + global_residual_expand * phasor_m_expand
 
         # 8. MMSE滤波和恢复timing信息
-        h_mmse_aligned = self._apply_mmse_filter_batch_ports(h_with_residual)  # [batch_size, num_rx_ant, total_ports, seq_length]
+        h_mmse_aligned = self.mmse_module(h_with_residual)  # [batch_size, num_rx_ant, total_ports, seq_length]
         phasor_T_expand = phasor_T.unsqueeze(1)  # [batch_size, 1, total_ports, seq_length]
         out = h_mmse_aligned * torch.conj(phasor_T_expand)
         return out
@@ -250,21 +250,7 @@ class SRSChannelEstimator(nn.Module):
         return h_filtered_batch.squeeze(0)
 
     def _apply_mmse_filter_chunked(self, h_input: torch.Tensor, user_port: Optional[Tuple[int, int]] = None):
-        """
-        Apply MMSE filtering using chunked processing for variable sequence lengths
-        
-        This method handles variable-length sequences by:
-        1. Using the MLP to generate C and R matrices for each chunk
-        2. Applying MMSE filtering to each chunk separately
-        3. Concatenating the results to form the full-length filtered output
-        
-        Args:
-            h_input: Input channel estimates [num_rx_ant, seq_length]
-            user_port: Optional user/port tuple for per-user matrices
-            
-        Returns:
-            Filtered channel estimates [num_rx_ant, seq_length]
-        """
+
         num_rx_ant, seq_length = h_input.shape
         
         # Get chunk size from MMSE block size
@@ -755,12 +741,4 @@ class SRSChannelEstimator(nn.Module):
         hinterp4d = slope[..., -1:].expand(-1, -1, -1, len_edge) * (xseg-(centerSc+(reduced_length-1)*lseg)).view(1,1,1,-1) + h_avg[..., -1:].expand(-1, -1, -1, len_edge)
         hk_interp[..., -len_edge:] = hinterp4d
         return hk_interp
-
-    def _apply_mmse_filter_batch_ports(self, h: torch.Tensor) -> torch.Tensor:
-        batch_size, num_rx_ant, total_ports, seq_length = h.shape
-        h_flat = h.reshape(-1, seq_length)  # [batch_size*num_rx_ant*total_ports, seq_length]
-        # 直接拼接每个端口的 MMSE 估计结果，shape [seq_length]
-        h_mmse_flat = torch.stack([self.mmse_module.forward(x) for x in h_flat], dim=0)  # [N, seq_length]
-        h_mmse = h_mmse_flat.reshape(batch_size, num_rx_ant, total_ports, seq_length)
-        return h_mmse
 

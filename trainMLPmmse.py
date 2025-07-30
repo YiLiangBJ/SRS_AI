@@ -608,71 +608,31 @@ class SRSTrainer:
         }
     
     def compute_batch_loss_and_nmse(self, 
-                                    estimated_channels_list: List[Dict[Tuple[int, int], torch.Tensor]],
-                                    true_channels_list: List[Dict[Tuple[int, int], torch.Tensor]],
+                                    estimated_channels: torch.Tensor,
+                                    true_channels: torch.Tensor,
                                     is_training: bool = True
                                     ) -> Tuple[torch.Tensor, float, int]:
         """
-        批处理化的损失和NMSE计算 - 适配列表格式
-        
-        Args:
-            estimated_channels_list: 估计信道列表，长度为batch_size，每个元素是Dict[(user_id, port_id), tensor]
-                                   每个tensor形状: [num_rx_ant, seq_length]
-            true_channels_list: 真实信道列表，长度为batch_size，每个元素是Dict[(user_id, port_id), tensor]
-                               每个tensor形状: [num_rx_ant, seq_length]
-            is_training: 是否在训练模式（验证时不检查梯度）
-        
-        Returns:
-            Tuple[总损失标量, 总NMSE, 样本数量]
+        全tensor化版本，输入 shape: [batch_size, num_rx_ant, seq_length] 或更多 batch 维度
         """
-        if is_training:
-            total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
-        else:
-            total_loss = torch.tensor(0.0, device=self.device, requires_grad=False)
-        
-        total_nmse = 0.0
-        sample_count = 0
-        
-        batch_size = len(estimated_channels_list)
-        
-        # 遍历每个batch样本
-        for batch_idx in range(batch_size):
-            est_dict = estimated_channels_list[batch_idx]    # Dict[(user_id, port_id), tensor]
-            true_dict = true_channels_list[batch_idx]        # Dict[(user_id, port_id), tensor]
-            
-            # 遍历该样本的每个用户端口
-            for user_port_key in est_dict.keys():
-                if user_port_key not in true_dict:
-                    continue
-                    
-                est_channels = est_dict[user_port_key]      # [num_rx_ant, seq_length]
-                true_channels = true_dict[user_port_key]    # [num_rx_ant, seq_length]
-                
-                # 只在训练时检查梯度
-                if is_training and not est_channels.requires_grad:
-                    print(f"警告：估计的信道在batch {batch_idx} 用户端口 {user_port_key} 不需要梯度")
-                    continue
-                
-                # 计算实部和虚部的MSE损失（对所有维度求平均）
-                real_loss = torch.mean((torch.real(est_channels) - torch.real(true_channels))**2)
-                imag_loss = torch.mean((torch.imag(est_channels) - torch.imag(true_channels))**2)
-                
-                # 累积损失
-                channel_loss = real_loss + imag_loss
-                total_loss = total_loss + channel_loss
-                
-                # 计算NMSE（仅用于监控，不需要梯度）
-                with torch.no_grad():
-                    num_rx_ant, seq_length = est_channels.shape
-                    for ant_idx in range(num_rx_ant):
-                        est_channel = est_channels[ant_idx, :]     # [seq_length]
-                        true_channel = true_channels[ant_idx, :]   # [seq_length]
-                        
-                        nmse = calculate_nmse(true_channel, est_channel)
-                        total_nmse += nmse
-                        sample_count += 1
-        
-        return total_loss, total_nmse, sample_count
+        # loss: 对所有 batch、天线、序列点求平均
+        real_loss = torch.mean((torch.real(estimated_channels) - torch.real(true_channels)) ** 2)
+        imag_loss = torch.mean((torch.imag(estimated_channels) - torch.imag(true_channels)) ** 2)
+        total_loss = real_loss + imag_loss
+        # NMSE: 对所有样本、天线分别计算，再取平均
+        with torch.no_grad():
+            # flatten batch维度，保留天线和seq_length
+            batch_dims = estimated_channels.shape[:-2]
+            num_rx_ant = estimated_channels.shape[-2]
+            seq_length = estimated_channels.shape[-1]
+            est_flat = estimated_channels.reshape(-1, num_rx_ant, seq_length)
+            true_flat = true_channels.reshape(-1, num_rx_ant, seq_length)
+            # nmse: [batch*num_rx_ant]
+            mse = torch.mean(torch.abs(est_flat - true_flat) ** 2, dim=-1)  # [batch*num_rx_ant, num_rx_ant]
+            power = torch.mean(torch.abs(true_flat) ** 2, dim=-1)           # [batch*num_rx_ant, num_rx_ant]
+            nmse = 10 * torch.log10((mse / (power + 1e-8)).mean()).item()
+            sample_count = est_flat.numel() // seq_length
+        return total_loss, nmse, sample_count
     
 
 def main():
