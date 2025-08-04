@@ -110,8 +110,14 @@ class TrainableMMSEModule(nn.Module):
         *batch_shape, seq_length = channel_stats.shape
         block_size = self.mmse_block_size
         num_chunks = seq_length // block_size
+        
+        # 数据归一化：计算输入数据的功率并归一化
+        input_power = torch.mean(torch.abs(channel_stats) ** 2, dim=-1, keepdim=True)  # [..., 1]
+        input_scale = torch.sqrt(input_power + 1e-12)  # 防止除零
+        normalized_input = channel_stats / input_scale  # 归一化到单位功率
+        
         # 分块，自动适配 batch 维度
-        chunks = channel_stats.reshape(*batch_shape, num_chunks, block_size)  # [..., num_chunks, block_size]
+        chunks = normalized_input.reshape(*batch_shape, num_chunks, block_size)  # [..., num_chunks, block_size]
         chunks_real = torch.cat([torch.real(chunks), torch.imag(chunks)], dim=-1)  # [..., num_chunks, block_size*2]
         # 合并 batch 维度用于 MLP
         chunks_real_flat = chunks_real.reshape(-1, block_size*2)  # [batch*num_chunks, block_size*2]
@@ -135,11 +141,14 @@ class TrainableMMSEModule(nn.Module):
             # 如果 solve 失败，使用带正则化的逆矩阵
             regularized_sum = C_matrices + R_matrices + 1e-3 * eye_matrix
             W = torch.matmul(C_matrices, torch.linalg.inv(regularized_sum))
-        # MMSE输出
+        # MMSE输出（处理归一化后的数据）
         chunks_flat = chunks.reshape(-1, block_size)  # [batch*num_chunks, block_size]
         h_mmse_chunks = torch.matmul(W, chunks_flat.unsqueeze(-1)).squeeze(-1)  # [batch*num_chunks, block_size]
         # 恢复 batch 维度
-        h_mmse = h_mmse_chunks.reshape(*batch_shape, seq_length)
+        h_mmse_normalized = h_mmse_chunks.reshape(*batch_shape, seq_length)
+        
+        # 恢复原始尺度：将输出重新缩放到原始功率水平
+        h_mmse = h_mmse_normalized * input_scale  # [..., seq_length]
         return h_mmse
     
     def _process_chunk_with_features(self, chunk: torch.Tensor, cnn_features: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
