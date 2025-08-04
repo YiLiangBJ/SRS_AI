@@ -218,7 +218,7 @@ class SRSChannelEstimator(nn.Module):
         # 8. MMSE滤波和恢复timing信息
         h_mmse_aligned = self.mmse_module(h_with_residual)  # [batch_size, num_rx_ant, total_ports, seq_length]
         phasor_T_expand = phasor_T.unsqueeze(1)  # [batch_size, 1, total_ports, seq_length]
-        out = h_mmse_aligned * torch.conj(phasor_T_expand)
+        out = h_mmse_aligned * torch.conj(phasor_T_expand)  # [batch_size, num_rx_ant, total_ports, seq_length]
         return out
     
         # 添加单样本版本的辅助方法

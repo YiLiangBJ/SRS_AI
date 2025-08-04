@@ -104,7 +104,7 @@ class TrainableMMSEModule(nn.Module):
                         # Small random bias initialization
                         nn.init.uniform_(layer.bias, -0.1, 0.1)
     
-    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> List[torch.Tensor]:
+    def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> torch.Tensor:
         device = channel_stats.device
         # 支持多维 batch，最后一维为信道长度
         *batch_shape, seq_length = channel_stats.shape
@@ -120,7 +120,21 @@ class TrainableMMSEModule(nn.Module):
         # 构造 C/R 矩阵
         C_matrices = self._construct_matrix_from_cholesky_params(C_factors, block_size)  # [batch*num_chunks, block_size, block_size]
         R_matrices = self._construct_matrix_from_cholesky_params(R_factors, block_size)  # [batch*num_chunks, block_size, block_size]
-        W = torch.matmul(C_matrices, torch.linalg.inv(C_matrices + R_matrices))  # [batch*num_chunks, block_size, block_size]
+        
+        # 为数值稳定性添加更大的对角加载
+        eye_matrix = torch.eye(block_size, device=device).unsqueeze(0)  # [1, block_size, block_size]
+        C_matrices = C_matrices + 1e-4 * eye_matrix  # 增加对角加载
+        R_matrices = R_matrices + 1e-4 * eye_matrix  # 增加对角加载
+        
+        # 使用 solve 代替 inv 以提高数值稳定性
+        # W = C @ (C+R)^(-1) = C @ inv(C+R)
+        # 等价于求解 (C+R) @ W = C, 即 W = solve(C+R, C)
+        try:
+            W = torch.linalg.solve(C_matrices + R_matrices, C_matrices)  # [batch*num_chunks, block_size, block_size]
+        except:
+            # 如果 solve 失败，使用带正则化的逆矩阵
+            regularized_sum = C_matrices + R_matrices + 1e-3 * eye_matrix
+            W = torch.matmul(C_matrices, torch.linalg.inv(regularized_sum))
         # MMSE输出
         chunks_flat = chunks.reshape(-1, block_size)  # [batch*num_chunks, block_size]
         h_mmse_chunks = torch.matmul(W, chunks_flat.unsqueeze(-1)).squeeze(-1)  # [batch*num_chunks, block_size]

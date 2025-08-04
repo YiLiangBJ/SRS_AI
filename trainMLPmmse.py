@@ -228,6 +228,9 @@ class SRSTrainer:
             # Generate batch with dynamic channel
             with torch.no_grad():
                 ls_estimates_tensor, true_channel_tensor = self.data_generator.generate_batch(batch_size)
+                # 确保数据在正确的设备上
+                ls_estimates_tensor = ls_estimates_tensor.to(self.device)
+                true_channel_tensor = true_channel_tensor.to(self.device)
 
             # Clear gradients
             self.optimizer.zero_grad()
@@ -249,12 +252,21 @@ class SRSTrainer:
             # Backpropagation and optimization
             if batch_loss.requires_grad:
                 batch_loss.backward()
-                # Gradient info
-                for name, param in self.srs_estimator.named_parameters():
+                # 检查梯度是否正常
+                total_grad_norm = 0.0
+                param_count = 0
+                for name, param in self.mmse_module.named_parameters():
                     if param.requires_grad and param.grad is not None:
-                        grad_norm = param.grad.abs().mean().item()
+                        grad_norm = param.grad.norm().item()
+                        total_grad_norm += grad_norm
+                        param_count += 1
                         if self.writer is not None:
-                            self.writer.add_scalar(f'Gradients/SRS_{name}', grad_norm, self.global_step)
+                            self.writer.add_scalar(f'Gradients/MMSE_{name}', grad_norm, self.global_step)
+                
+                avg_grad_norm = total_grad_norm / max(param_count, 1)
+                if avg_grad_norm < 1e-8:
+                    print(f"Warning: Very small gradients detected (avg: {avg_grad_norm:.2e})")
+                
                 self.optimizer.step()
             else:
                 print(f"Warning: Batch {batch_idx} loss does not require gradients. Skipping backpropagation.")
@@ -263,9 +275,9 @@ class SRSTrainer:
             with torch.no_grad():
                 batch_loss_value = batch_loss.item()
                 total_loss += batch_loss_value
-                total_nmse += batch_nmse
+                total_nmse += batch_nmse * batch_sample_count  # 累积加权NMSE
                 total_sample_count += batch_sample_count
-                avg_batch_nmse = batch_nmse / batch_sample_count if batch_sample_count > 0 else 0
+                avg_batch_nmse = batch_nmse  # batch_nmse 已经是平均值
                 if self.writer is not None:
                     self.writer.add_scalar('Loss/batch', batch_loss_value, self.global_step)
                     self.writer.add_scalar('NMSE/batch', avg_batch_nmse, self.global_step)
@@ -273,7 +285,7 @@ class SRSTrainer:
                 self.global_step += 1
         
         # Calculate averages
-        avg_loss = total_loss / total_sample_count if total_sample_count > 0 else 0
+        avg_loss = total_loss / num_batches if num_batches > 0 else 0
         avg_nmse = total_nmse / total_sample_count if total_sample_count > 0 else 0
         
         return avg_loss, avg_nmse
@@ -299,33 +311,58 @@ class SRSTrainer:
         
         with torch.no_grad():
             for _ in tqdm(range(num_batches), desc="Validating"):
-                # Generate batch with dynamic channel (using SNR range from configuration file)
-                batch = self.generate_batch_with_dynamic_channel(batch_size)
+                # 每个 batch 实例化并随机化 SRSConfig (与训练保持一致)
+                self.srs_config.randomize_configuration()
+                # 解析信道模型参数
+                model_type, delay_spread = self.srs_config.parse_channel_model()
+                # 实例化 SIONNAChannelModel
+                from professional_channels import SIONNAChannelModel
+                channel_model = SIONNAChannelModel(
+                    system_config=self.system_config,
+                    model_type=model_type,
+                    num_rx_antennas=self.system_config.num_rx_antennas,
+                    delay_spread=delay_spread,
+                    device=self.device
+                )
+                # 每个 batch 实例化 BaseSRSDataGenerator，确保用最新 srs_config
+                from data_generator import BaseSRSDataGenerator, SRSDataGenerator
+                base_generator = BaseSRSDataGenerator(
+                    srs_config=self.srs_config,
+                    system_config=self.system_config,
+                    num_rx_antennas=self.system_config.num_rx_antennas,
+                    sampling_rate=self.system_config.sampling_rate,
+                    device=self.device
+                )
+                # 实例化 SRSDataGenerator 并注入信道模型
+                data_generator = SRSDataGenerator(base_generator=base_generator)
+                data_generator.channel_model = channel_model
                 
-                # Get batch data - now in list format
-                ls_estimates_dict = batch['ls_estimates']
-                true_channels_dict = batch['true_channels']
+                # Generate batch with dynamic channel
+                ls_estimates_tensor, true_channel_tensor = data_generator.generate_batch(batch_size)
+                # 确保数据在正确的设备上
+                ls_estimates_tensor = ls_estimates_tensor.to(self.device)
+                true_channel_tensor = true_channel_tensor.to(self.device)
                 
-                # Process all user ports in the entire batch at once
-                estimated_channels_dict = self.srs_estimator(
-                    ls_estimates=ls_estimates_dict,
-                    user_config=self.srs_config
+                # Model forward
+                estimated_channels = self.srs_estimator(
+                    ls_estimates=ls_estimates_tensor,
+                    srs_config=self.srs_config
                 )
                 
                 # Batch processing computation of loss and NMSE
                 batch_loss, batch_nmse, batch_sample_count = self.compute_batch_loss_and_nmse(
-                    estimated_channels_dict, 
-                    true_channels_dict,
+                    estimated_channels, 
+                    true_channel_tensor,
                     is_training=False  # Validation mode
                 )
                 
                 # Update totals
                 total_loss += batch_loss.item()
-                total_nmse += batch_nmse
+                total_nmse += batch_nmse * batch_sample_count  # 累积加权NMSE
                 total_sample_count += batch_sample_count
                 
         # Calculate averages for the entire validation set
-        avg_loss = total_loss / total_sample_count if total_sample_count > 0 else 0
+        avg_loss = total_loss / num_batches if num_batches > 0 else 0
         avg_nmse = total_nmse / total_sample_count if total_sample_count > 0 else 0
         
         return avg_loss, avg_nmse
@@ -613,26 +650,33 @@ class SRSTrainer:
                                     is_training: bool = True
                                     ) -> Tuple[torch.Tensor, float, int]:
         """
-        全tensor化版本，输入 shape: [batch_size, num_rx_ant, seq_length] 或更多 batch 维度
+        全tensor化版本
+        estimated_channels: [batch_size, num_rx_ant, total_ports, seq_length] 
+        true_channels: [batch_size, num_rx_ant, total_ports, seq_length]
         """
-        # loss: 对所有 batch、天线、序列点求平均
+        # loss: 对所有 batch、天线、端口、序列点求平均
         real_loss = torch.mean((torch.real(estimated_channels) - torch.real(true_channels)) ** 2)
         imag_loss = torch.mean((torch.imag(estimated_channels) - torch.imag(true_channels)) ** 2)
         total_loss = real_loss + imag_loss
-        # NMSE: 对所有样本、天线分别计算，再取平均
+        
+        # NMSE: 对所有样本、天线、端口分别计算，再取平均
         with torch.no_grad():
-            # flatten batch维度，保留天线和seq_length
-            batch_dims = estimated_channels.shape[:-2]
-            num_rx_ant = estimated_channels.shape[-2]
-            seq_length = estimated_channels.shape[-1]
-            est_flat = estimated_channels.reshape(-1, num_rx_ant, seq_length)
-            true_flat = true_channels.reshape(-1, num_rx_ant, seq_length)
-            # nmse: [batch*num_rx_ant]
-            mse = torch.mean(torch.abs(est_flat - true_flat) ** 2, dim=-1)  # [batch*num_rx_ant, num_rx_ant]
-            power = torch.mean(torch.abs(true_flat) ** 2, dim=-1)           # [batch*num_rx_ant, num_rx_ant]
-            nmse = 10 * torch.log10((mse / (power + 1e-8)).mean()).item()
-            sample_count = est_flat.numel() // seq_length
-        return total_loss, nmse, sample_count
+            # 按照标准NMSE公式计算: NMSE = ||est - true||^2 / ||true||^2
+            batch_size, num_rx_ant, total_ports, seq_length = estimated_channels.shape
+            
+            # 计算每个样本的NMSE (对天线、端口、序列维度求和)
+            error_power = torch.sum(torch.abs(estimated_channels - true_channels) ** 2, dim=(1, 2, 3))  # [batch_size]
+            signal_power = torch.sum(torch.abs(true_channels) ** 2, dim=(1, 2, 3))  # [batch_size]
+            
+            # 计算NMSE (线性域)
+            nmse_linear = error_power / (signal_power + 1e-8)  # [batch_size]
+            
+            # 转换为dB域并取平均
+            nmse_db = 10 * torch.log10(nmse_linear.mean()).item()
+            
+            # 样本数是batch中的样本数
+            sample_count = batch_size
+        return total_loss, nmse_db, sample_count
     
 
 def main():
@@ -642,7 +686,7 @@ def main():
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs')
     parser.add_argument('--train_batches', type=int, default=100, help='Number of training batches per epoch')
     parser.add_argument('--val_batches', type=int, default=10, help='Number of validation batches')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=128, help='Batch size')
     parser.add_argument('--val_every', type=int, default=1, help='Validate every n epochs')
     parser.add_argument('--save_every', type=int, default=5, help='Save checkpoint every n epochs')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate for optimizer')
