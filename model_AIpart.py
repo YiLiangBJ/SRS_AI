@@ -3,11 +3,6 @@ import torch.nn as nn
 import numpy as np
 from typing import List, Tuple, Dict, Optional, Union
 import matplotlib.pyplot as plt
-import torch
-import torch.nn as nn
-import numpy as np
-from typing import List, Tuple, Dict, Optional, Union
-import matplotlib.pyplot as plt
 
 class TrainableMMSEModule(nn.Module):    
     def mmse_chunked_filter(self, h: torch.Tensor) -> torch.Tensor:
@@ -92,17 +87,17 @@ class TrainableMMSEModule(nn.Module):
     
     def _initialize_weights(self):
         """
-        Initialize network weights with Xavier/Glorot initialization for better randomness.
-        This ensures that the initial MMSE matrices have reasonable random values.
+        优化的权重初始化，提高训练速度和稳定性
         """
+        # 对于线性层使用更好的初始化策略
         for module in [self.C_factor_generator, self.R_factor_generator]:
             for layer in module:
                 if isinstance(layer, nn.Linear):
-                    # Xavier initialization for linear layers
-                    nn.init.xavier_uniform_(layer.weight)
+                    # 使用Kaiming初始化（对LeakyReLU更友好）
+                    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='leaky_relu')
                     if layer.bias is not None:
-                        # Small random bias initialization
-                        nn.init.uniform_(layer.bias, -0.1, 0.1)
+                        # 更小的bias初始化，加快收敛
+                        nn.init.uniform_(layer.bias, -0.01, 0.01)
     
     def forward(self, channel_stats: torch.Tensor, noise_power: Optional[torch.Tensor] = None) -> torch.Tensor:
         device = channel_stats.device
@@ -132,18 +127,21 @@ class TrainableMMSEModule(nn.Module):
         C_matrices = C_matrices + 1e-4 * eye_matrix  # 增加对角加载
         R_matrices = R_matrices + 1e-4 * eye_matrix  # 增加对角加载
         
-        # 使用 solve 代替 inv 以提高数值稳定性
+        # 使用 solve 代替 inv 以提高数值稳定性和速度
         # W = C @ (C+R)^(-1) = C @ inv(C+R)
         # 等价于求解 (C+R) @ W = C, 即 W = solve(C+R, C)
+        chunks_flat = chunks.reshape(-1, block_size)  # [batch*num_chunks, block_size]
         try:
-            W = torch.linalg.solve(C_matrices + R_matrices, C_matrices)  # [batch*num_chunks, block_size, block_size]
+            # 直接求解线性系统，避免显式计算逆矩阵，提高速度
+            h_mmse_chunks = torch.linalg.solve(
+                C_matrices + R_matrices,
+                torch.matmul(C_matrices, chunks_flat.unsqueeze(-1))
+            ).squeeze(-1)
         except:
-            # 如果 solve 失败，使用带正则化的逆矩阵
+            # 备用方案：使用矩阵乘法（稍慢但更稳定）
             regularized_sum = C_matrices + R_matrices + 1e-3 * eye_matrix
             W = torch.matmul(C_matrices, torch.linalg.inv(regularized_sum))
-        # MMSE输出（处理归一化后的数据）
-        chunks_flat = chunks.reshape(-1, block_size)  # [batch*num_chunks, block_size]
-        h_mmse_chunks = torch.matmul(W, chunks_flat.unsqueeze(-1)).squeeze(-1)  # [batch*num_chunks, block_size]
+            h_mmse_chunks = torch.matmul(W, chunks_flat.unsqueeze(-1)).squeeze(-1)
         # 恢复 batch 维度
         h_mmse_normalized = h_mmse_chunks.reshape(*batch_shape, seq_length)
         
