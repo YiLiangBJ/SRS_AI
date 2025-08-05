@@ -51,6 +51,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+import time
 from typing import Dict, List, Tuple, Optional, Any, Union
 from torch.utils.tensorboard import SummaryWriter
 import argparse
@@ -143,6 +144,7 @@ class SRSTrainer:
         self.val_losses = []
         self.train_nmse = []
         self.val_nmse = []
+        self.epoch_times = []  # 每个epoch的训练时间
         self.global_step = 0
     
     def get_channel_model(self, model_type="TDL-A", delay_spread=None):
@@ -223,7 +225,9 @@ class SRSTrainer:
         print(f"✅ 使用备用信道模型: {backup_key}")
         return backup_model
     
-    def train_epoch(self, num_batches: int, batch_size: int) -> Tuple[float, float]:
+    def train_epoch(self, num_batches: int, batch_size: int) -> Tuple[float, float, float]:
+        """训练一个epoch，返回平均loss、NMSE和时间"""
+        epoch_start_time = time.time()
         print("\n====== Starting training epoch (batch processing mode) ======")
         total_loss = 0
         total_nmse = 0
@@ -319,9 +323,13 @@ class SRSTrainer:
         avg_loss = total_loss / num_batches if num_batches > 0 else 0
         avg_nmse = total_nmse / total_sample_count if total_sample_count > 0 else 0
         
-        return avg_loss, avg_nmse
+        # 计算epoch训练时间
+        epoch_time = time.time() - epoch_start_time
         
-    def validate(self, num_batches: int, batch_size: int) -> Tuple[float, float]:
+        print(f"Epoch training completed in {epoch_time:.2f} seconds")
+        return avg_loss, avg_nmse, epoch_time
+        
+    def validate(self, num_batches: int, batch_size: int) -> Tuple[float, float, float]:
         """
         Validate the model - 完全批处理化版本
         
@@ -330,8 +338,9 @@ class SRSTrainer:
             batch_size: Batch size
             
         Returns:
-            Average loss and NMSE for validation
+            Average loss, NMSE and validation time
         """
+        val_start_time = time.time()
         print("\n====== Starting validation (batch processing mode) ======")
         total_loss = 0
         total_nmse = 0
@@ -396,12 +405,20 @@ class SRSTrainer:
         avg_loss = total_loss / num_batches if num_batches > 0 else 0
         avg_nmse = total_nmse / total_sample_count if total_sample_count > 0 else 0
         
-        return avg_loss, avg_nmse
+        # 计算验证时间
+        val_time = time.time() - val_start_time
+        print(f"Validation completed in {val_time:.2f} seconds")
+        
+        return avg_loss, avg_nmse, val_time
 
     def train(self, num_epochs: int, num_batches: int, batch_size: int, 
               val_batches: int, val_every_n_epochs: int = 1, 
               save_every_n_epochs: int = 5) -> Dict[str, List[float]]:
+        
+        # 记录总训练开始时间
+        total_start_time = time.time()
         print(f"\n====== Starting training ({num_epochs} epochs) ======")
+        print(f"Training started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
         best_val_nmse = float('inf')
         best_epoch = -1
@@ -412,21 +429,27 @@ class SRSTrainer:
         self.system_config = create_default_system_config()
 
         for epoch in range(num_epochs):
+            epoch_start_time = time.time()
             print(f"\n====== Epoch {epoch+1}/{num_epochs} ======")
+            print(f"Epoch {epoch+1} started at: {datetime.now().strftime('%H:%M:%S')}")
             
             # Train for one epoch
-            train_loss, train_nmse = self.train_epoch(num_batches, batch_size)
+            train_loss, train_nmse, train_time = self.train_epoch(num_batches, batch_size)
             self.train_losses.append(train_loss)
             self.train_nmse.append(train_nmse)
+            
+            # 记录验证时间（如果需要验证）
+            val_time = 0.0
             
             # Log training metrics to TensorBoard
             if self.writer is not None:
                 self.writer.add_scalar('Loss/train', train_loss, epoch)
                 self.writer.add_scalar('NMSE/train', train_nmse, epoch)
+                self.writer.add_scalar('Time/train_epoch', train_time, epoch)
             
             # Validate if needed
             if (epoch + 1) % val_every_n_epochs == 0:
-                val_loss, val_nmse = self.validate(val_batches, batch_size)
+                val_loss, val_nmse, val_time = self.validate(val_batches, batch_size)
                 self.val_losses.append(val_loss)
                 self.val_nmse.append(val_nmse)
                 
@@ -434,6 +457,7 @@ class SRSTrainer:
                 if self.writer is not None:
                     self.writer.add_scalar('Loss/val', val_loss, epoch)
                     self.writer.add_scalar('NMSE/val', val_nmse, epoch)
+                    self.writer.add_scalar('Time/val_epoch', val_time, epoch)
                 
                 # Check if this is the best model so far
                 if val_nmse < best_val_nmse:
@@ -445,23 +469,49 @@ class SRSTrainer:
                 
                 print(f"Validation loss: {val_loss:.6f}, Validation NMSE: {val_nmse:.2f} dB")
             
+            # 计算整个epoch时间（包括验证）
+            total_epoch_time = time.time() - epoch_start_time
+            self.epoch_times.append(total_epoch_time)
+            
             # Save checkpoint if needed
             if (epoch + 1) % save_every_n_epochs == 0:
                 self._save_checkpoint(epoch)
             
-            # Print epoch summary
-            print(f"Epoch {epoch+1} training loss: {train_loss:.6f}, training NMSE: {train_nmse:.2f} dB")
+            # Print epoch summary with timing
+            print(f"Epoch {epoch+1} completed:")
+            print(f"  Training: loss={train_loss:.6f}, NMSE={train_nmse:.2f} dB, time={train_time:.2f}s")
+            if val_time > 0:
+                print(f"  Validation: time={val_time:.2f}s")
+            print(f"  Total epoch time: {total_epoch_time:.2f}s")
+            print(f"  Estimated remaining time: {(total_epoch_time * (num_epochs - epoch - 1) / 60):.1f} minutes")
+        
+        # 计算总训练时间
+        total_training_time = time.time() - total_start_time
         
         print("\n====== Training completed ======")
+        print(f"Training finished at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Total training time: {total_training_time/60:.2f} minutes ({total_training_time:.2f} seconds)")
+        print(f"Average time per epoch: {total_training_time/num_epochs:.2f} seconds")
+        
         if best_epoch >= 0:
             print(f"Best model at epoch {best_epoch+1}, NMSE: {best_val_nmse:.2f} dB")
+        
+        # 显示时间统计
+        if self.epoch_times:
+            min_epoch_time = min(self.epoch_times)
+            max_epoch_time = max(self.epoch_times)
+            avg_epoch_time = sum(self.epoch_times) / len(self.epoch_times)
+            print(f"Epoch time statistics:")
+            print(f"  Min: {min_epoch_time:.2f}s, Max: {max_epoch_time:.2f}s, Avg: {avg_epoch_time:.2f}s")
         
         # Return training history
         history = {
             'train_loss': self.train_losses,
             'val_loss': self.val_losses,
             'train_nmse': self.train_nmse,
-            'val_nmse': self.val_nmse
+            'val_nmse': self.val_nmse,
+            'epoch_times': self.epoch_times,
+            'total_training_time': total_training_time
         }
         
         return history
@@ -481,7 +531,9 @@ class SRSTrainer:
             'train_losses': self.train_losses,
             'val_losses': self.val_losses,
             'train_nmse': self.train_nmse,
-            'val_nmse': self.val_nmse
+            'val_nmse': self.val_nmse,
+            'epoch_times': self.epoch_times,
+            'timestamp': datetime.now().isoformat()
         }
         
         if self.mmse_module:
@@ -525,9 +577,12 @@ class SRSTrainer:
             self.train_nmse = checkpoint['train_nmse']
         if 'val_nmse' in checkpoint:
             self.val_nmse = checkpoint['val_nmse']
+        if 'epoch_times' in checkpoint:
+            self.epoch_times = checkpoint['epoch_times']
         
         epoch = checkpoint.get('epoch', -1)
-        print(f"Successfully loaded checkpoint, epoch {epoch+1}")
+        timestamp = checkpoint.get('timestamp', 'Unknown')
+        print(f"Successfully loaded checkpoint from epoch {epoch+1}, saved at {timestamp}")
         
         return epoch
 
@@ -791,6 +846,9 @@ def main():
         start_epoch = trainer.load_checkpoint(args.load_checkpoint) + 1
     
     # Train the model
+    print(f"🚀 Starting training process at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    main_start_time = time.time()
+    
     history = trainer.train(
         num_epochs=args.epochs,
         num_batches=args.train_batches,
@@ -799,6 +857,14 @@ def main():
         val_every_n_epochs=args.val_every,
         save_every_n_epochs=args.save_every
     )
+    
+    main_end_time = time.time()
+    total_script_time = main_end_time - main_start_time
+    
+    print(f"\n🎉 Training script completed!")
+    print(f"Total script execution time: {total_script_time/60:.2f} minutes")
+    print(f"Pure training time: {history.get('total_training_time', 0)/60:.2f} minutes")
+    print(f"Overhead time: {(total_script_time - history.get('total_training_time', 0))/60:.2f} minutes")
     
 if __name__ == '__main__':
     print(f"PyTorch MKL-DNN available: {torch.backends.mkldnn.is_available()}")
