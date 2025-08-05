@@ -18,8 +18,7 @@ numactl --physcpubind=0-55 --membind=0 python3 trainMLPmmse.py \
     --train_batches 100 \
     --batch_size 128 \
     --optimize_cpu \
-    --num_threads 56 \
-    --mkl_threads 56
+    --num_threads 56
 
 echo ""
 echo "如果上面的命令效果不好，尝试以下方案："

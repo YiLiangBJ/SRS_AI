@@ -6,6 +6,36 @@ All computations are forced to run on CPU only.
 """
 
 import os
+import sys
+
+# 简单快速的环境变量设置（在导入torch之前）
+# 检查是否有 --optimize_cpu 参数
+if '--optimize_cpu' in sys.argv:
+    # 快速检测CPU核心数
+    import os
+    try:
+        # 尝试从环境变量或系统获取核心数
+        num_cores = int(os.environ.get('OMP_NUM_THREADS', os.cpu_count()))
+        # 对于高核心数系统，限制在合理范围
+        if num_cores > 64:
+            num_cores = 64
+        elif num_cores > 16:
+            # 对于高核心数服务器，使用物理核心数的估计值
+            num_cores = min(num_cores, int(num_cores * 0.8))
+    except:
+        num_cores = os.cpu_count()
+    
+    print(f"🚀 快速CPU优化: 设置线程数为 {num_cores}")
+    
+    # 设置关键环境变量
+    os.environ['OMP_NUM_THREADS'] = str(num_cores)
+    os.environ['MKL_NUM_THREADS'] = str(num_cores)
+    os.environ['OPENBLAS_NUM_THREADS'] = str(num_cores)
+    os.environ['NUMEXPR_NUM_THREADS'] = str(num_cores)
+    
+    # 简化的NUMA优化
+    os.environ['KMP_AFFINITY'] = 'compact'
+    os.environ['KMP_BLOCKTIME'] = '1'
 
 # Force CPU-only execution - disable all CUDA/GPU usage
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -13,6 +43,7 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
+# 现在才导入torch（环境变量已经设置好了）
 import torch
 import torch.multiprocessing as mp
 import os
@@ -693,8 +724,7 @@ def main():
     parser.add_argument('--save_dir', type=str, default='./checkpoints_modified', help='Save directory')
     parser.add_argument('--log_dir', type=str, default='./logs', help='Log directory for TensorBoard')
     parser.add_argument('--load_checkpoint', type=str, default='', help='Load checkpoint file')
-    parser.add_argument('--num_threads', type=int, default=None, help='Number of CPU threads for PyTorch (default: auto-detect based on CPU cores)')
-    parser.add_argument('--mkl_threads', type=int, default=None, help='Number of MKL threads (default: same as num_threads)')
+    parser.add_argument('--num_threads', type=int, default=None, help='Number of CPU threads for PyTorch (default: auto-detect)')
     parser.add_argument('--optimize_cpu', action='store_true', help='Enable CPU optimization for multi-core systems')
     # Device argument
     parser.add_argument('--device', type=str, default='cpu',
@@ -702,60 +732,23 @@ def main():
                        help='Device to use for training (cpu or cuda, default: cpu)')
     args = parser.parse_args()
 
-    # CPU优化配置
-    if args.optimize_cpu or args.device == 'cpu':
-        # 自动检测最佳线程数
-        import psutil
-        physical_cores = psutil.cpu_count(logical=False)
-        logical_cores = psutil.cpu_count(logical=True)
-        
-        # 如果用户没有指定线程数，使用智能检测
-        if args.num_threads is None:
-            # 对于高核心数的服务器，使用物理核心数
-            if physical_cores >= 16:
-                args.num_threads = physical_cores
-            else:
-                # 对于较少核心的机器，可以使用逻辑核心数
-                args.num_threads = logical_cores
-        
-        if args.mkl_threads is None:
-            args.mkl_threads = args.num_threads
-        
-        print(f"🖥️  CPU信息:")
-        print(f"   物理核心: {physical_cores}")
-        print(f"   逻辑核心: {logical_cores}")
-        print(f"   PyTorch线程数: {args.num_threads}")
-        print(f"   MKL线程数: {args.mkl_threads}")
-        
-        # 设置环境变量（在导入torch之前）
-        import os
-        os.environ['OMP_NUM_THREADS'] = str(args.num_threads)
-        os.environ['MKL_NUM_THREADS'] = str(args.mkl_threads)
-        os.environ['OPENBLAS_NUM_THREADS'] = str(args.num_threads)
-        os.environ['VECLIB_MAXIMUM_THREADS'] = str(args.num_threads)
-        os.environ['NUMEXPR_NUM_THREADS'] = str(args.num_threads)
-        
-        # 针对NUMA系统的优化
-        os.environ['KMP_AFFINITY'] = 'granularity=fine,verbose,compact,1,0'
-        os.environ['KMP_BLOCKTIME'] = '1'
-        os.environ['KMP_SETTINGS'] = '1'
-
-    # 设置PyTorch多进程启动方式（推荐spawn，避免fork导致的死锁和内存问题）
+    # 设置PyTorch多进程启动方式
     mp.set_start_method('spawn', force=True)
 
-    # 设置PyTorch线程数（在所有PyTorch操作之前设置）
+    # 设置PyTorch线程数
+    if args.num_threads is None:
+        args.num_threads = int(os.environ.get('OMP_NUM_THREADS', os.cpu_count()))
+    
     torch.set_num_threads(args.num_threads)
-    torch.set_num_interop_threads(min(4, args.num_threads))  # 限制interop线程数，避免过度订阅
+    torch.set_num_interop_threads(min(4, args.num_threads))
     
     if args.optimize_cpu:
-        # 启用CPU优化
         torch.backends.mkldnn.enabled = True
-        print(f"🚀 CPU优化已启用:")
+        print(f"✅ CPU优化状态:")
         print(f"   PyTorch线程数: {torch.get_num_threads()}")
-        print(f"   PyTorch interop线程数: {torch.get_num_interop_threads()}")
         print(f"   MKL-DNN: {torch.backends.mkldnn.enabled}")
     else:
-        print(f"PyTorch CPU线程数设置为: {args.num_threads}")
+        print(f"PyTorch线程数: {args.num_threads}")
     
     # Force SIONNA availability check - no fallback
     if not SIONNA_AVAILABLE:
