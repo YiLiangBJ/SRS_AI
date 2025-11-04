@@ -58,20 +58,49 @@ class ComplexConv1d(nn.Module):
     """
     复数卷积层
     将复数卷积分解为实部和虚部的运算
+    支持循环卷积（circular convolution）
     """
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True, circular=False):
         super().__init__()
+        self.circular = circular
+        self.kernel_size = kernel_size
+        self.stride = stride
+        
+        # 如果使用循环卷积，内部padding设为0，手动处理
+        internal_padding = 0 if circular else padding
+        
         # 实部和虚部各自的卷积
-        self.conv_real = nn.Conv1d(in_channels, out_channels, kernel_size, stride, padding, bias=bias)
-        self.conv_imag = nn.Conv1d(in_channels, out_channels, kernel_size, stride, padding, bias=bias)
+        self.conv_real = nn.Conv1d(in_channels, out_channels, kernel_size, stride, internal_padding, bias=bias)
+        self.conv_imag = nn.Conv1d(in_channels, out_channels, kernel_size, stride, internal_padding, bias=bias)
+        
+        # 如果不是循环卷积，保存padding用于后续
+        self.padding = padding if not circular else 0
     
     def forward(self, x):
         # x 是复数张量: (Batch, Channels, Length)
+        
+        # 如果使用循环卷积，先进行循环填充
+        if self.circular:
+            # 计算需要的填充量（kernel_size - 1）
+            # 对于 kernel_size=3: 左边填充1个，右边填充1个
+            pad_total = self.kernel_size - 1
+            pad_left = pad_total // 2
+            pad_right = pad_total - pad_left
+            
+            # 循环填充：使用序列的首尾元素
+            # 例如 [0,1,2,...,11] -> [11,0,1,2,...,11,0]
+            x_real_padded = F.pad(x.real, (pad_left, pad_right), mode='circular')
+            x_imag_padded = F.pad(x.imag, (pad_left, pad_right), mode='circular')
+            
+            x_padded = torch.complex(x_real_padded, x_imag_padded)
+        else:
+            x_padded = x
+        
         # 复数乘法: (a+bi)(c+di) = (ac-bd) + (ad+bc)i
-        real_real = self.conv_real(x.real)  # ac
-        real_imag = self.conv_real(x.imag)  # ad
-        imag_real = self.conv_imag(x.real)  # bc
-        imag_imag = self.conv_imag(x.imag)  # bd
+        real_real = self.conv_real(x_padded.real)  # ac
+        real_imag = self.conv_real(x_padded.imag)  # ad
+        imag_real = self.conv_imag(x_padded.real)  # bc
+        imag_imag = self.conv_imag(x_padded.imag)  # bd
         
         real_part = real_real - imag_imag  # ac - bd
         imag_part = real_imag + imag_real  # ad + bc
@@ -107,10 +136,14 @@ class ComplexAttention(nn.Module):
     def __init__(self, channels, reduction=16):
         super().__init__()
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        
+        # 确保 reduction 后的通道数至少为 1
+        reduced_channels = max(1, channels // reduction)
+        
         self.fc = nn.Sequential(
-            ComplexConv1d(channels, channels // reduction, 1, bias=False),
+            ComplexConv1d(channels, reduced_channels, 1, bias=False),
             ComplexReLU(),
-            ComplexConv1d(channels // reduction, channels, 1, bias=False)
+            ComplexConv1d(reduced_channels, channels, 1, bias=False)
         )
     
     def forward(self, x):
@@ -136,7 +169,7 @@ class ComplexResidualBlock(nn.Module):
     """
     复数残差块
     """
-    def __init__(self, in_channels, out_channels, use_attention=False, activation='modrelu'):
+    def __init__(self, in_channels, out_channels, use_attention=False, activation='modrelu', circular=True):
         super().__init__()
         
         # 选择激活函数
@@ -147,15 +180,16 @@ class ComplexResidualBlock(nn.Module):
             self.activation1 = ComplexReLU()
             self.activation2 = ComplexReLU()
         
-        self.conv1 = ComplexConv1d(in_channels, out_channels, kernel_size=3, padding=1, bias=False)
+        # 使用循环卷积保持序列长度不变
+        self.conv1 = ComplexConv1d(in_channels, out_channels, kernel_size=3, padding=1, bias=False, circular=circular)
         self.bn1 = ComplexBatchNorm1d(out_channels)
         
-        self.conv2 = ComplexConv1d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
+        self.conv2 = ComplexConv1d(out_channels, out_channels, kernel_size=3, padding=1, bias=False, circular=circular)
         self.bn2 = ComplexBatchNorm1d(out_channels)
         
         # 残差连接
         if in_channels != out_channels:
-            self.shortcut = ComplexConv1d(in_channels, out_channels, kernel_size=1, bias=False)
+            self.shortcut = ComplexConv1d(in_channels, out_channels, kernel_size=1, bias=False, circular=False)
         else:
             self.shortcut = nn.Identity()
         
@@ -231,7 +265,7 @@ class ComplexResidualUNet(nn.Module):
         - 去噪后的信道估计残差
     """
     def __init__(self, input_channels=2, output_channels=1, base_channels=32, 
-                 depth=3, attention_flag=False, activation='modrelu'):
+                 depth=3, attention_flag=False, activation='modrelu', circular=True):
         """
         Args:
             input_channels: 输入通道数 (默认2: 原始信号 + 位置编码)
@@ -240,10 +274,12 @@ class ComplexResidualUNet(nn.Module):
             depth: 网络深度
             attention_flag: 是否使用注意力
             activation: 激活函数类型 ('modrelu' 或 'relu')
+            circular: 是否使用循环卷积 (默认True，保持序列长度不变)
         """
         super().__init__()
         self.depth = depth
         self.attention_flag = attention_flag
+        self.circular = circular
         
         # 编码器
         self.enc_blocks = nn.ModuleList()
@@ -254,16 +290,16 @@ class ComplexResidualUNet(nn.Module):
         
         for i in range(depth):
             self.enc_blocks.append(
-                ComplexResidualBlock(in_ch, out_ch, use_attention=attention_flag, activation=activation)
+                ComplexResidualBlock(in_ch, out_ch, use_attention=attention_flag, activation=activation, circular=circular)
             )
             self.down_samples.append(
-                ComplexConv1d(out_ch, out_ch, kernel_size=2, stride=2)
+                ComplexConv1d(out_ch, out_ch, kernel_size=2, stride=2, circular=False)  # 下采样不使用循环
             )
             in_ch = out_ch
             out_ch = min(out_ch * 2, 256)
         
         # 瓶颈层
-        self.bottleneck = ComplexResidualBlock(in_ch, out_ch, use_attention=attention_flag, activation=activation)
+        self.bottleneck = ComplexResidualBlock(in_ch, out_ch, use_attention=attention_flag, activation=activation, circular=circular)
         
         # 解码器
         self.up_samples = nn.ModuleList()
@@ -281,12 +317,12 @@ class ComplexResidualUNet(nn.Module):
             in_ch_dec = out_ch // 2 + skip_ch
             
             self.dec_blocks.append(
-                ComplexResidualBlock(in_ch_dec, out_ch // 2, use_attention=attention_flag, activation=activation)
+                ComplexResidualBlock(in_ch_dec, out_ch // 2, use_attention=attention_flag, activation=activation, circular=circular)
             )
             out_ch = out_ch // 2
         
-        # 最终输出层
-        self.final_conv = ComplexConv1d(out_ch, output_channels, kernel_size=1)
+        # 最终输出层 - 使用循环卷积保持长度
+        self.final_conv = ComplexConv1d(out_ch, output_channels, kernel_size=1, circular=False)
     
     def forward(self, x):
         """
@@ -379,7 +415,7 @@ if __name__ == "__main__":
     model = ComplexResidualUNet(
         input_channels=2,
         output_channels=1,
-        base_channels=32,
+        base_channels=8,
         depth=3,
         attention_flag=True,
         activation='modrelu'
@@ -436,8 +472,28 @@ if __name__ == "__main__":
     
     # 计算参数量
     total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
     print("\n" + "=" * 80)
-    print(f"Total model parameters: {total_params:,}")
+    print("MODEL PARAMETERS")
+    print("=" * 80)
+    print(f"  Total parameters:      {total_params:,}")
+    print(f"  Trainable parameters:  {trainable_params:,}")
+    
+    # 按模块统计
+    module_params = {}
+    for name, param in model.named_parameters():
+        module_name = name.split('.')[0]
+        if module_name not in module_params:
+            module_params[module_name] = 0
+        module_params[module_name] += param.numel()
+    
+    print("\n  Parameters by module:")
+    for module_name in sorted(module_params.keys()):
+        params = module_params[module_name]
+        percentage = (params / total_params) * 100
+        print(f"    {module_name:<15} {params:>12,}  ({percentage:>5.2f}%)")
+    
     print("=" * 80)
     
     # 测试不同序列长度
