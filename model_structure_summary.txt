@@ -1,5 +1,5 @@
 # 模型结构分析报告
-# 生成时间: 2025-11-05 13:26:46
+# 生成时间: 2025-11-05 13:55:18
 # 模型名称: ComplexResidualUNet - 概览
 
 
@@ -38,6 +38,27 @@
 ========================================================================================================================
 📦 模型: ComplexResidualUNet
 ========================================================================================================================
+    
+    【数据流路径 Data Flow】
+      说明：forward()的实际执行顺序（自动从源码提取）
+    
+      ┌─ Loop: for i in range(self.depth)
+      │    1. x = self.enc_blocks[i](...)  # ComplexResidualBlock
+      │         Params: 624 params
+      │         → skips.append(x)  # save for later
+      │    2. x = self.down_samples[i](...)  # ComplexConv1d
+      │         Params: 272 params
+      └─
+      3. x = self.bottleneck(...)  # ComplexResidualBlock
+           Params: 10.8K params
+      ┌─ Loop: for i in range(self.depth)
+      │    4. x = self.up_samples[i](...)  # ComplexConvTranspose1d
+      │         Params: 2.1K params
+      │    5. x = self.dec_blocks[i](...)  # ComplexResidualBlock
+      │         Params: 5.9K params
+      └─
+      6. residual = self.final_conv(...)  # ComplexConv1d
+           Params: 18 params
     ├─ enc_blocks: ModuleList
     │   ├─ 0: ComplexResidualBlock
     │   │   

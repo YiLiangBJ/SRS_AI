@@ -27,6 +27,32 @@ def analyze_parameter(name, param):
     }
 
 
+def format_module_params_summary(module, module_type):
+    """
+    格式化模块参数的简要信息，用于数据流显示
+    
+    Returns:
+        str: 格式化的参数信息，如 "total: 1,234 params"
+    """
+    try:
+        # 统计总参数
+        total_params = sum(p.numel() for p in module.parameters())
+        trainable_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
+        
+        if total_params == 0:
+            return None
+        
+        # 简洁格式
+        if total_params < 1000:
+            return f"{total_params:,} params"
+        elif total_params < 1000000:
+            return f"{total_params/1000:.1f}K params"
+        else:
+            return f"{total_params/1000000:.1f}M params"
+    except:
+        return None
+
+
 def infer_tensor_shape_meaning(shape, module_type, param_name=""):
     """
     推断张量形状每个维度的含义
@@ -259,6 +285,93 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
         if io_info['shape_note']:
             print(f"{param_prefix}  说明: {io_info['shape_note']}")
     
+    # 🆕 显示数据流路径（特别是循环结构）
+    if depth == 0:  # 只在顶层显示
+        dataflow = extract_dataflow_from_forward(module)
+        if dataflow:
+            param_prefix = prefix + ("    " if is_last else "│   ")
+            print(f"{param_prefix}")
+            print(f"{param_prefix}【数据流路径 Data Flow】")
+            print(f"{param_prefix}  说明：forward()的实际执行顺序（自动从源码提取）")
+            print(f"{param_prefix}")
+            
+            step_num = 1
+            for item in dataflow:
+                if item['type'] == 'loop':
+                    # 显示循环结构
+                    loop_range = item['range']
+                    print(f"{param_prefix}  ┌─ Loop: for {item['var']} in range({loop_range})")
+                    
+                    for loop_step in item['steps']:
+                        if 'module_list' in loop_step:
+                            module_list = loop_step['module_list']
+                            index = loop_step['index']
+                            var_name = loop_step.get('var', 'x')
+                            
+                            # 尝试获取该ModuleList的信息
+                            if hasattr(module, module_list):
+                                module_list_obj = getattr(module, module_list)
+                                if isinstance(module_list_obj, nn.ModuleList) and len(module_list_obj) > 0:
+                                    # 获取第一个模块的类型作为示例
+                                    first_module = module_list_obj[0]
+                                    module_type = type(first_module).__name__
+                                    
+                                    # 获取输入输出形状信息
+                                    io_info = get_module_io_shape_info(first_module, module_type)
+                                    
+                                    # 获取参数信息
+                                    params_summary = format_module_params_summary(first_module, module_type)
+                                    
+                                    print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)  # {module_type}")
+                                    
+                                    # 显示形状和参数信息
+                                    if io_info['input_shape'] and io_info['output_shape']:
+                                        if params_summary:
+                                            print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
+                                        else:
+                                            print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']}")
+                                    elif params_summary:
+                                        print(f"{param_prefix}  │         Params: {params_summary}")
+                                else:
+                                    print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)")
+                            else:
+                                print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)")
+                            
+                            step_num += 1
+                        
+                        elif loop_step.get('type') == 'append':
+                            list_name = loop_step['list']
+                            value = loop_step['value']
+                            print(f"{param_prefix}  │         → {list_name}.append({value})  # save for later")
+                    
+                    print(f"{param_prefix}  └─")
+                
+                elif item['type'] == 'step':
+                    module_name = item['module']
+                    var_name = item['var']
+                    
+                    # 尝试获取该模块的信息
+                    if hasattr(module, module_name):
+                        submodule = getattr(module, module_name)
+                        submodule_type = type(submodule).__name__
+                        io_info = get_module_io_shape_info(submodule, submodule_type)
+                        params_summary = format_module_params_summary(submodule, submodule_type)
+                        
+                        print(f"{param_prefix}  {step_num}. {var_name} = self.{module_name}(...)  # {submodule_type}")
+                        
+                        # 显示形状和参数信息
+                        if io_info['input_shape'] and io_info['output_shape']:
+                            if params_summary:
+                                print(f"{param_prefix}       {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
+                            else:
+                                print(f"{param_prefix}       {io_info['input_shape']} → {io_info['output_shape']}")
+                        elif params_summary:
+                            print(f"{param_prefix}       Params: {params_summary}")
+                    else:
+                        print(f"{param_prefix}  {step_num}. {var_name} = self.{module_name}(...)")
+                    
+                    step_num += 1
+    
     # 尝试提取forward执行顺序（如果有）
     if show_forward_order and depth > 0:
         forward_order = extract_forward_order(module)
@@ -351,8 +464,8 @@ def extract_forward_order(module):
             if (not line or 
                 line.startswith('def ') or 
                 line.startswith('#') or 
-                line.startswith('return') or
-                line.startswith('"""') or
+                line.startswith('return') or 
+                line.startswith('"""') or 
                 line.startswith("'''")):
                 continue
             
@@ -370,6 +483,7 @@ def extract_forward_order(module):
                         matches = re.findall(r'self\.(\w+)', right)
                         if matches:
                             module_name = matches[0]
+                            # 保留完整的调用信息
                             steps.append(f"{left} = self.{module_name}(...)")
         
         # 只有在有实质内容时才返回
@@ -382,6 +496,125 @@ def extract_forward_order(module):
     
     return None
 
+
+def extract_dataflow_from_forward(module):
+    """
+    从forward方法提取数据流路径（特别处理ModuleList的循环）
+    返回数据流描述，包括循环结构
+    
+    Returns:
+        list of dict: [{'type': 'step'/'loop', 'content': str, 'details': ...}]
+    """
+    try:
+        import inspect
+        import re
+        
+        if not hasattr(module, 'forward'):
+            return None
+        
+        try:
+            source = inspect.getsource(module.forward)
+        except (OSError, TypeError):
+            return None
+        
+        lines = source.split('\n')
+        dataflow = []
+        in_loop = False
+        loop_var = None
+        loop_range = None
+        loop_steps = []
+        loop_indent = 0
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # 计算缩进
+            indent = len(line) - len(line.lstrip())
+            
+            # 检测for循环（特别是range(self.depth)这种）
+            if stripped.startswith('for ') and 'range' in stripped:
+                in_loop = True
+                loop_indent = indent
+                # 提取循环变量和范围
+                match = re.search(r'for\s+(\w+)\s+in\s+range\((.*?)\)', stripped)
+                if match:
+                    loop_var = match.group(1)
+                    loop_range = match.group(2)
+                    loop_steps = []
+                continue
+            
+            # 检测循环结束（缩进减少到循环之前的级别）
+            if in_loop and stripped and indent <= loop_indent and not stripped.startswith('#'):
+                # 保存循环信息
+                if loop_steps:
+                    dataflow.append({
+                        'type': 'loop',
+                        'var': loop_var,
+                        'range': loop_range,
+                        'steps': loop_steps
+                    })
+                in_loop = False
+                loop_var = None
+                loop_range = None
+                loop_steps = []
+                loop_indent = 0
+            
+            # 在循环内
+            if in_loop and stripped and not stripped.startswith('#'):
+                # 提取self.xxx[i]的调用
+                if 'self.' in stripped and '[' in stripped and '(' in stripped:
+                    # 匹配 x = self.enc_blocks[i](x) 这种形式
+                    match = re.search(r'(\w+)\s*=\s*self\.(\w+)\[(\w+)\]\(', stripped)
+                    if match:
+                        var_name = match.group(1)
+                        module_list = match.group(2)
+                        index_var = match.group(3)
+                        loop_steps.append({
+                            'var': var_name,
+                            'module_list': module_list,
+                            'index': index_var
+                        })
+                        continue
+                
+                # 提取其他操作（如skips.append(x)）
+                if '.append(' in stripped:
+                    match = re.search(r'(\w+)\.append\((.*?)\)', stripped)
+                    if match:
+                        list_name = match.group(1)
+                        value = match.group(2)
+                        loop_steps.append({
+                            'type': 'append',
+                            'list': list_name,
+                            'value': value
+                        })
+            
+            # 不在循环内的普通调用
+            elif not in_loop and 'self.' in stripped and '=' in stripped and '(' in stripped:
+                match = re.search(r'(\w+)\s*=\s*self\.(\w+)\(', stripped)
+                if match:
+                    var_name = match.group(1)
+                    module_name = match.group(2)
+                    dataflow.append({
+                        'type': 'step',
+                        'var': var_name,
+                        'module': module_name
+                    })
+        
+        # 处理最后可能还在循环中的情况
+        if in_loop and loop_steps:
+            dataflow.append({
+                'type': 'loop',
+                'var': loop_var,
+                'range': loop_range,
+                'steps': loop_steps
+            })
+        
+        return dataflow if dataflow else None
+    
+    except Exception as e:
+        pass
+    
+    return None
 def analyze_model_structure(model, model_name="Model", max_depth=None, show_forward_order=True, output_file=None):
     """
     分析模型结构的主函数
