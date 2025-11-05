@@ -73,28 +73,33 @@ def print_residual_block_details(in_ch, out_ch, use_attention=False, reduction=1
     conv1_params = count_complex_conv_params(in_ch, out_ch, 3, bias=False)
     print(f"  │   ├─ conv1: ComplexConv1d(in={in_ch}, out={out_ch}, kernel=3)")
     print(f"  │   │   = 2(复数) × in_ch × out_ch × kernel")
-    print(f"  │   │   = 2 × {in_ch} × {out_ch} × 3 = {conv1_params}")
+    print(f"  │   │   = 2(复数) × {in_ch}(输入通道) × {out_ch}(输出通道) × 3(卷积核大小)")
+    print(f"  │   │   = {conv1_params}")
     
     # bn1
     bn1_params = count_complex_bn_params(out_ch)
     print(f"  │   ├─ bn1: ComplexBatchNorm1d({out_ch})")
     print(f"  │   │   = 4(实部γ+β,虚部γ+β) × features")
-    print(f"  │   │   = 4 × {out_ch} = {bn1_params}")
+    print(f"  │   │   = 4(两组参数) × {out_ch}(通道数)")
+    print(f"  │   │   = {bn1_params}")
     
     # modReLU1
     modrelu1_params = count_modrelu_params(out_ch)
     print(f"  │   ├─ modReLU1: ComplexModReLU({out_ch})")
-    print(f"  │   │   = {modrelu1_params} (每通道1个bias)")
+    print(f"  │   │   = {modrelu1_params}(通道数) (每通道1个bias参数)")
     
     # conv2
     conv2_params = count_complex_conv_params(out_ch, out_ch, 3, bias=False)
     print(f"  │   ├─ conv2: ComplexConv1d(in={out_ch}, out={out_ch}, kernel=3)")
-    print(f"  │   │   = 2 × {out_ch} × {out_ch} × 3 = {conv2_params}")
+    print(f"  │   │   = 2(复数) × in_ch × out_ch × kernel")
+    print(f"  │   │   = 2(复数) × {out_ch}(输入通道) × {out_ch}(输出通道) × 3(卷积核大小)")
+    print(f"  │   │   = {conv2_params}")
     
     # bn2
     bn2_params = count_complex_bn_params(out_ch)
     print(f"  │   ├─ bn2: ComplexBatchNorm1d({out_ch})")
-    print(f"  │   │   = 4 × {out_ch} = {bn2_params}")
+    print(f"  │   │   = 4(实部γ+β,虚部γ+β) × {out_ch}(通道数)")
+    print(f"  │   │   = {bn2_params}")
     
     total = conv1_params + bn1_params + modrelu1_params + conv2_params + bn2_params
     
@@ -106,31 +111,33 @@ def print_residual_block_details(in_ch, out_ch, use_attention=False, reduction=1
         att_total = att1_params + att2_params
         print(f"  │   ├─ attention: ComplexAttention(ch={out_ch}, reduction={reduction})")
         print(f"  │   │   reduced_ch = max(1, {out_ch}//{reduction}) = {reduced_ch}")
-        print(f"  │   │   fc1: 2×{out_ch}×{reduced_ch}×1 = {att1_params}")
-        print(f"  │   │   fc2: 2×{reduced_ch}×{out_ch}×1 = {att2_params}")
-        print(f"  │   │   小计 = {att_total}")
+        print(f"  │   │   fc1: 2(复数) × {out_ch}(输入) × {reduced_ch}(降维后) × 1(1x1卷积) = {att1_params}")
+        print(f"  │   │   fc2: 2(复数) × {reduced_ch}(降维后) × {out_ch}(恢复) × 1(1x1卷积) = {att2_params}")
+        print(f"  │   │   小计 = {att1_params} + {att2_params} = {att_total}")
         total += att_total
     
     # shortcut
     if in_ch != out_ch:
         shortcut_params = count_complex_conv_params(in_ch, out_ch, 1, bias=False)
         print(f"  │   ├─ shortcut: ComplexConv1d(in={in_ch}, out={out_ch}, kernel=1)")
-        print(f"  │   │   = 2 × {in_ch} × {out_ch} × 1 = {shortcut_params}")
+        print(f"  │   │   = 2(复数) × {in_ch}(输入通道) × {out_ch}(输出通道) × 1(1x1投影)")
+        print(f"  │   │   = {shortcut_params}")
         total += shortcut_params
     
     # modReLU2
     modrelu2_params = count_modrelu_params(out_ch)
     print(f"  │   └─ modReLU2: ComplexModReLU({out_ch})")
-    print(f"  │       = {modrelu2_params}")
+    print(f"  │       = {modrelu2_params}(通道数) (每通道1个bias参数)")
     total += modrelu2_params
     
     print(f"  │   ")
-    print(f"  │   总计 = {conv1_params} + {bn1_params} + {modrelu1_params} + {conv2_params} + {bn2_params}", end="")
+    print(f"  │   总计 = {conv1_params}(conv1) + {bn1_params}(bn1) + {modrelu1_params}(modReLU1) + {conv2_params}(conv2) + {bn2_params}(bn2)", end="")
     if use_attention:
-        print(f" + {att_total}", end="")
+        print(f" + {att_total}(attention)", end="")
     if in_ch != out_ch:
-        print(f" + {shortcut_params}", end="")
-    print(f" + {modrelu2_params} = {total}")
+        print(f" + {shortcut_params}(shortcut)", end="")
+    print(f" + {modrelu2_params}(modReLU2)")
+    print(f"  │        = {total}")
     
     return total
 
@@ -178,7 +185,12 @@ def analyze_model_params(input_channels=2, output_channels=1, base_channels=32,
             print(f"  ├─ down_samples[{i}]: ComplexConv1d(stride=2)")
             print(f"  │   维度:  (B, C={out_ch:>3}, L) → (B, C={out_ch:>3}, L//2)")
             down_params = count_complex_conv_params(out_ch, out_ch, 2, bias=True)
-            print(f"  │   计算:  2×{out_ch}×{out_ch}×2(权重) + 2×{out_ch}(偏置) = {down_params:,}")
+            weight_params = 2 * out_ch * out_ch * 2
+            bias_params = 2 * out_ch
+            print(f"  │   = 2(复数) × in_ch × out_ch × kernel + 2(复数) × out_ch(偏置)")
+            print(f"  │   = 2(复数) × {out_ch}(输入通道) × {out_ch}(输出通道) × 2(卷积核) + 2(复数) × {out_ch}(偏置)")
+            print(f"  │   = {weight_params}(权重) + {bias_params}(偏置)")
+            print(f"  │   = {down_params}")
             print(f"  │   参数量: {down_params:,}")
             total_params += down_params
     
@@ -212,7 +224,9 @@ def analyze_model_params(input_channels=2, output_channels=1, base_channels=32,
         print(f"\n  ├─ up_samples[{i}]: ComplexConvTranspose1d(stride=2)")
         print(f"  │   维度:  (B, C={up_in_ch:>3}, L) → (B, C={up_out_ch:>3}, L*2)")
         up_params = 2 * (up_in_ch * up_out_ch * 2)
-        print(f"  │   计算:  2(复数) × {up_in_ch} × {up_out_ch} × 2(kernel) = {up_params:,}")
+        print(f"  │   = 2(复数) × in_ch × out_ch × kernel")
+        print(f"  │   = 2(复数) × {up_in_ch}(输入通道) × {up_out_ch}(输出通道) × 2(转置卷积核)")
+        print(f"  │   = {up_params}")
         print(f"  │   参数量: {up_params:,}")
         total_params += up_params
         
@@ -243,7 +257,10 @@ def analyze_model_params(input_channels=2, output_channels=1, base_channels=32,
     final_params = count_complex_conv_params(encoder_channels[0], output_channels, 1, bias=True)
     weight_params = 2 * encoder_channels[0] * output_channels * 1
     bias_params = 2 * output_channels
-    print(f"    计算:  2×{encoder_channels[0]}×{output_channels}×1(权重) + 2×{output_channels}(偏置) = {weight_params} + {bias_params} = {final_params}")
+    print(f"    = 2(复数) × in_ch × out_ch × kernel + 2(复数) × out_ch(偏置)")
+    print(f"    = 2(复数) × {encoder_channels[0]}(输入通道) × {output_channels}(输出通道) × 1(1x1卷积) + 2(复数) × {output_channels}(偏置)")
+    print(f"    = {weight_params}(权重) + {bias_params}(偏置)")
+    print(f"    = {final_params}")
     print(f"    参数量: {final_params}")
     total_params += final_params
     
