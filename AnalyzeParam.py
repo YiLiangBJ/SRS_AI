@@ -63,6 +63,79 @@ def count_residual_block_params(in_ch, out_ch, use_attention=False, reduction=16
     return params
 
 
+def print_residual_block_details(in_ch, out_ch, use_attention=False, reduction=16):
+    """Print detailed parameter calculation for one ComplexResidualBlock"""
+    
+    print(f"  │   ")
+    print(f"  │   【详细参数计算】")
+    
+    # conv1
+    conv1_params = count_complex_conv_params(in_ch, out_ch, 3, bias=False)
+    print(f"  │   ├─ conv1: ComplexConv1d(in={in_ch}, out={out_ch}, kernel=3)")
+    print(f"  │   │   = 2(复数) × in_ch × out_ch × kernel")
+    print(f"  │   │   = 2 × {in_ch} × {out_ch} × 3 = {conv1_params}")
+    
+    # bn1
+    bn1_params = count_complex_bn_params(out_ch)
+    print(f"  │   ├─ bn1: ComplexBatchNorm1d({out_ch})")
+    print(f"  │   │   = 4(实部γ+β,虚部γ+β) × features")
+    print(f"  │   │   = 4 × {out_ch} = {bn1_params}")
+    
+    # modReLU1
+    modrelu1_params = count_modrelu_params(out_ch)
+    print(f"  │   ├─ modReLU1: ComplexModReLU({out_ch})")
+    print(f"  │   │   = {modrelu1_params} (每通道1个bias)")
+    
+    # conv2
+    conv2_params = count_complex_conv_params(out_ch, out_ch, 3, bias=False)
+    print(f"  │   ├─ conv2: ComplexConv1d(in={out_ch}, out={out_ch}, kernel=3)")
+    print(f"  │   │   = 2 × {out_ch} × {out_ch} × 3 = {conv2_params}")
+    
+    # bn2
+    bn2_params = count_complex_bn_params(out_ch)
+    print(f"  │   ├─ bn2: ComplexBatchNorm1d({out_ch})")
+    print(f"  │   │   = 4 × {out_ch} = {bn2_params}")
+    
+    total = conv1_params + bn1_params + modrelu1_params + conv2_params + bn2_params
+    
+    # attention
+    if use_attention:
+        reduced_ch = max(1, out_ch // reduction)
+        att1_params = count_complex_conv_params(out_ch, reduced_ch, 1, bias=False)
+        att2_params = count_complex_conv_params(reduced_ch, out_ch, 1, bias=False)
+        att_total = att1_params + att2_params
+        print(f"  │   ├─ attention: ComplexAttention(ch={out_ch}, reduction={reduction})")
+        print(f"  │   │   reduced_ch = max(1, {out_ch}//{reduction}) = {reduced_ch}")
+        print(f"  │   │   fc1: 2×{out_ch}×{reduced_ch}×1 = {att1_params}")
+        print(f"  │   │   fc2: 2×{reduced_ch}×{out_ch}×1 = {att2_params}")
+        print(f"  │   │   小计 = {att_total}")
+        total += att_total
+    
+    # shortcut
+    if in_ch != out_ch:
+        shortcut_params = count_complex_conv_params(in_ch, out_ch, 1, bias=False)
+        print(f"  │   ├─ shortcut: ComplexConv1d(in={in_ch}, out={out_ch}, kernel=1)")
+        print(f"  │   │   = 2 × {in_ch} × {out_ch} × 1 = {shortcut_params}")
+        total += shortcut_params
+    
+    # modReLU2
+    modrelu2_params = count_modrelu_params(out_ch)
+    print(f"  │   └─ modReLU2: ComplexModReLU({out_ch})")
+    print(f"  │       = {modrelu2_params}")
+    total += modrelu2_params
+    
+    print(f"  │   ")
+    print(f"  │   总计 = {conv1_params} + {bn1_params} + {modrelu1_params} + {conv2_params} + {bn2_params}", end="")
+    if use_attention:
+        print(f" + {att_total}", end="")
+    if in_ch != out_ch:
+        print(f" + {shortcut_params}", end="")
+    print(f" + {modrelu2_params} = {total}")
+    
+    return total
+
+
+
 def analyze_model_params(input_channels=2, output_channels=1, base_channels=32, 
                         depth=3, attention_flag=False, activation='modrelu'):
     """Analyze model parameters in detail"""
@@ -95,7 +168,8 @@ def analyze_model_params(input_channels=2, output_channels=1, base_channels=32,
         print(f"\n  ├─ enc_blocks[{i}]: ComplexResidualBlock")
         print(f"  │   维度:  (B, C={in_ch:>3}, L) → (B, C={out_ch:>3}, L)")
         
-        block_params = count_residual_block_params(in_ch, out_ch, attention_flag)
+        # 使用详细打印函数
+        block_params = print_residual_block_details(in_ch, out_ch, attention_flag)
         print(f"  │   参数量: {block_params:,}")
         total_params += block_params
         
@@ -104,6 +178,7 @@ def analyze_model_params(input_channels=2, output_channels=1, base_channels=32,
             print(f"  ├─ down_samples[{i}]: ComplexConv1d(stride=2)")
             print(f"  │   维度:  (B, C={out_ch:>3}, L) → (B, C={out_ch:>3}, L//2)")
             down_params = count_complex_conv_params(out_ch, out_ch, 2, bias=True)
+            print(f"  │   计算:  2×{out_ch}×{out_ch}×2(权重) + 2×{out_ch}(偏置) = {down_params:,}")
             print(f"  │   参数量: {down_params:,}")
             total_params += down_params
     
@@ -137,6 +212,7 @@ def analyze_model_params(input_channels=2, output_channels=1, base_channels=32,
         print(f"\n  ├─ up_samples[{i}]: ComplexConvTranspose1d(stride=2)")
         print(f"  │   维度:  (B, C={up_in_ch:>3}, L) → (B, C={up_out_ch:>3}, L*2)")
         up_params = 2 * (up_in_ch * up_out_ch * 2)
+        print(f"  │   计算:  2(复数) × {up_in_ch} × {up_out_ch} × 2(kernel) = {up_params:,}")
         print(f"  │   参数量: {up_params:,}")
         total_params += up_params
         
@@ -152,7 +228,7 @@ def analyze_model_params(input_channels=2, output_channels=1, base_channels=32,
         print(f"  │   跳跃连接: (B, C={skip_ch:>3}, L) ← 来自 enc_blocks[{idx}]")
         print(f"  │   拼接后: (B, C={dec_in_ch:>3}, L) → 输出: (B, C={dec_out_ch:>3}, L)")
         
-        dec_params = count_residual_block_params(dec_in_ch, dec_out_ch, attention_flag)
+        dec_params = print_residual_block_details(dec_in_ch, dec_out_ch, attention_flag)
         print(f"  │   参数量: {dec_params:,}")
         total_params += dec_params
     
@@ -165,6 +241,9 @@ def analyze_model_params(input_channels=2, output_channels=1, base_channels=32,
     print(f"    维度:  (B, C={encoder_channels[0]:>3}, L) → (B, C={output_channels:>3}, L)")
     
     final_params = count_complex_conv_params(encoder_channels[0], output_channels, 1, bias=True)
+    weight_params = 2 * encoder_channels[0] * output_channels * 1
+    bias_params = 2 * output_channels
+    print(f"    计算:  2×{encoder_channels[0]}×{output_channels}×1(权重) + 2×{output_channels}(偏置) = {weight_params} + {bias_params} = {final_params}")
     print(f"    参数量: {final_params}")
     total_params += final_params
     
@@ -219,21 +298,21 @@ if __name__ == "__main__":
                         depth=2, attention_flag=True, activation='modrelu')
     results.append(("配置1: depth=2, base=8, attention=True", calc1, actual1))
     
-    # Test configuration 2
-    print("\n\n" + "█" * 120)
-    print(" " * 50 + "配置 2")
-    print("█" * 120)
-    calc2, actual2 = analyze_model_params(input_channels=2, output_channels=1, base_channels=32, 
-                        depth=3, attention_flag=True, activation='modrelu')
-    results.append(("配置2: depth=3, base=32, attention=True", calc2, actual2))
+    # # Test configuration 2
+    # print("\n\n" + "█" * 120)
+    # print(" " * 50 + "配置 2")
+    # print("█" * 120)
+    # calc2, actual2 = analyze_model_params(input_channels=2, output_channels=1, base_channels=32, 
+    #                     depth=3, attention_flag=True, activation='modrelu')
+    # results.append(("配置2: depth=3, base=32, attention=True", calc2, actual2))
     
-    # Test configuration 3
-    print("\n\n" + "█" * 120)
-    print(" " * 50 + "配置 3")
-    print("█" * 120)
-    calc3, actual3 = analyze_model_params(input_channels=2, output_channels=1, base_channels=16, 
-                        depth=3, attention_flag=False, activation='modrelu')
-    results.append(("配置3: depth=3, base=16, attention=False", calc3, actual3))
+    # # Test configuration 3
+    # print("\n\n" + "█" * 120)
+    # print(" " * 50 + "配置 3")
+    # print("█" * 120)
+    # calc3, actual3 = analyze_model_params(input_channels=2, output_channels=1, base_channels=16, 
+    #                     depth=3, attention_flag=False, activation='modrelu')
+    # results.append(("配置3: depth=3, base=16, attention=False", calc3, actual3))
     
     # Final summary
     print("\n\n" + "█" * 120)
