@@ -282,18 +282,6 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
     else:
         print(f"{prefix}{connector}{parent_name}: {module_type}")
     
-    # 显示输入输出形状信息
-    if io_info['input_shape'] or io_info['output_shape']:
-        param_prefix = prefix + ("    " if is_last else "│   ")
-        print(f"{param_prefix}")
-        print(f"{param_prefix}【张量形状 Tensor Shapes】")
-        if io_info['input_shape']:
-            print(f"{param_prefix}  Input:  {io_info['input_shape']}")
-        if io_info['output_shape']:
-            print(f"{param_prefix}  Output: {io_info['output_shape']}")
-        if io_info['shape_note']:
-            print(f"{param_prefix}  说明: {io_info['shape_note']}")
-    
     # 🆕 显示数据流路径（特别是循环结构）
     if depth == 0:  # 只在顶层显示
         dataflow = extract_dataflow_from_forward(module)
@@ -360,6 +348,9 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
                                                     print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
                                                 else:
                                                     print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']}")
+                                                # 显示形状说明（如果有）
+                                                if io_info['shape_note']:
+                                                    print(f"{param_prefix}  │         {io_info['shape_note']}")
                                             elif params_summary:
                                                 print(f"{param_prefix}  │         {params_summary}")
                                             
@@ -417,6 +408,9 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
                                                 print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
                                             else:
                                                 print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']}")
+                                            # 显示形状说明（如果有）
+                                            if io_info['shape_note']:
+                                                print(f"{param_prefix}  │         {io_info['shape_note']}")
                                         elif params_summary:
                                             print(f"{param_prefix}  │         {params_summary}")
                                     else:
@@ -452,6 +446,9 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
                                 print(f"{param_prefix}       {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
                             else:
                                 print(f"{param_prefix}       {io_info['input_shape']} → {io_info['output_shape']}")
+                            # 显示形状说明（如果有）
+                            if io_info['shape_note']:
+                                print(f"{param_prefix}       {io_info['shape_note']}")
                         elif params_summary:
                             print(f"{param_prefix}       Params: {params_summary}")
                     else:
@@ -468,6 +465,18 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
             print(f"{param_prefix}【执行顺序 Forward Flow】")
             for idx, step in enumerate(forward_order, 1):
                 print(f"{param_prefix}  {idx}. {step}")
+    
+    # 显示张量形状信息（仅在非顶层显示，作为参考）
+    if depth > 0 and (io_info['input_shape'] or io_info['output_shape']):
+        param_prefix = prefix + ("    " if is_last else "│   ")
+        print(f"{param_prefix}")
+        print(f"{param_prefix}【张量形状 Tensor Shapes】(参考)")
+        if io_info['input_shape']:
+            print(f"{param_prefix}  Input:  {io_info['input_shape']}")
+        if io_info['output_shape']:
+            print(f"{param_prefix}  Output: {io_info['output_shape']}")
+        if io_info['shape_note']:
+            print(f"{param_prefix}  说明: {io_info['shape_note']}")
     
     # 打印参数统计
     if direct_params_count > 0 or len(params_info) > 0:
