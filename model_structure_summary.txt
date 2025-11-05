@@ -1,5 +1,5 @@
 # 模型结构分析报告
-# 生成时间: 2025-11-05 15:17:37
+# 生成时间: 2025-11-05 15:28:45
 # 模型名称: ComplexResidualUNet - 概览
 
 
@@ -47,36 +47,46 @@
       │
       │  ─── 迭代 i=0 ───
       │    1. x = self.enc_blocks[0](...)  # ComplexResidualBlock
-      │         624 params
+      │         Shape: (B, 2, L) → (B, 8, L)
+      │         Params: 624 params
       │         → skips.append(x)
       │    2. x = self.down_samples[0](...)  # ComplexConv1d
-      │         272 params
+      │         Shape: (B, 8, L) → (B, 8, L/2)
+      │         Params: 272 params
       │
       │  ─── 迭代 i=1 ───
       │    3. x = self.enc_blocks[1](...)  # ComplexResidualBlock
-      │         2,784 params
+      │         Shape: (B, 8, L) → (B, 16, L)
+      │         Params: 2,784 params
       │         → skips.append(x)
       │    4. x = self.down_samples[1](...)  # ComplexConv1d
-      │         1,056 params
+      │         Shape: (B, 16, L) → (B, 16, L/2)
+      │         Params: 1,056 params
       └─
       5. x = self.bottleneck(...)  # ComplexResidualBlock
+           Shape: (B, 16, L) → (B, 32, L)
            Params: 10,816 params
       ┌─ Loop: for i in range(self.depth)
       │    (展开显示每次迭代的实际参数量)
       │
       │  ─── 迭代 i=0 ───
       │    6. x = self.up_samples[0](...)  # ComplexConvTranspose1d
-      │         2,080 params
+      │         Shape: (B, 32, L) → (B, 16, L×2)
+      │         Params: 2,080 params
       │    7. x = self.dec_blocks[0](...)  # ComplexResidualBlock
-      │         5,856 params
+      │         Shape: (B, 32, L) → (B, 16, L)
+      │         Params: 5,856 params
       │
       │  ─── 迭代 i=1 ───
       │    8. x = self.up_samples[1](...)  # ComplexConvTranspose1d
-      │         528 params
+      │         Shape: (B, 16, L) → (B, 8, L×2)
+      │         Params: 528 params
       │    9. x = self.dec_blocks[1](...)  # ComplexResidualBlock
-      │         1,520 params
+      │         Shape: (B, 16, L) → (B, 8, L)
+      │         Params: 1,520 params
       └─
       10. residual = self.final_conv(...)  # ComplexConv1d
+           Shape: (B, 8, L) → (B, 1, L)
            Params: 18 params
     ├─ enc_blocks: ModuleList
     │   ├─ 0: ComplexResidualBlock
@@ -90,6 +100,11 @@
     │   │     6. out = self.bn2(...)
     │   │     7. out = self.attention(...)
     │   │     8. out = self.activation2(...)
+    │   │   
+    │   │   【张量形状 Tensor Shapes】(参考)
+    │   │     Input:  (B, 2, L)
+    │   │     Output: (B, 8, L)
+    │   │     说明: B=batch, L=length, complex tensor
     │   └─ 1: ComplexResidualBlock
     │       
     │       【执行顺序 Forward Flow】
@@ -101,6 +116,11 @@
     │         6. out = self.bn2(...)
     │         7. out = self.attention(...)
     │         8. out = self.activation2(...)
+    │       
+    │       【张量形状 Tensor Shapes】(参考)
+    │         Input:  (B, 8, L)
+    │         Output: (B, 16, L)
+    │         说明: B=batch, L=length, complex tensor
     ├─ down_samples: ModuleList
     │   ├─ 0: ComplexConv1d
     │   │   
@@ -110,6 +130,11 @@
     │   │     3. real_imag = self.conv_real(...)
     │   │     4. imag_real = self.conv_imag(...)
     │   │     5. imag_imag = self.conv_imag(...)
+    │   │   
+    │   │   【张量形状 Tensor Shapes】(参考)
+    │   │     Input:  (B, 8, L)
+    │   │     Output: (B, 8, L/2)
+    │   │     说明: B=batch, L=length, complex tensor
     │   └─ 1: ComplexConv1d
     │       
     │       【执行顺序 Forward Flow】
@@ -118,6 +143,11 @@
     │         3. real_imag = self.conv_real(...)
     │         4. imag_real = self.conv_imag(...)
     │         5. imag_imag = self.conv_imag(...)
+    │       
+    │       【张量形状 Tensor Shapes】(参考)
+    │         Input:  (B, 16, L)
+    │         Output: (B, 16, L/2)
+    │         说明: B=batch, L=length, complex tensor
     ├─ bottleneck: ComplexResidualBlock
     │   
     │   【执行顺序 Forward Flow】
@@ -129,6 +159,11 @@
     │     6. out = self.bn2(...)
     │     7. out = self.attention(...)
     │     8. out = self.activation2(...)
+    │   
+    │   【张量形状 Tensor Shapes】(参考)
+    │     Input:  (B, 16, L)
+    │     Output: (B, 32, L)
+    │     说明: B=batch, L=length, complex tensor
     │   ├─ activation1: ComplexModReLU
     │   │   
     │   │   【张量形状 Tensor Shapes】(参考)
@@ -159,7 +194,17 @@
     │   │     3. real_imag = self.conv_real(...)
     │   │     4. imag_real = self.conv_imag(...)
     │   │     5. imag_imag = self.conv_imag(...)
+    │   │   
+    │   │   【张量形状 Tensor Shapes】(参考)
+    │   │     Input:  (B, 16, L)
+    │   │     Output: (B, 32, L)
+    │   │     说明: B=batch, L=length, complex tensor
     │   ├─ bn1: ComplexBatchNorm1d
+    │   │   
+    │   │   【张量形状 Tensor Shapes】(参考)
+    │   │     Input:  (B, 32, L)
+    │   │     Output: (B, 32, L)
+    │   │     说明: B=batch, L=length, complex tensor
     │   ├─ conv2: ComplexConv1d
     │   │   
     │   │   【执行顺序 Forward Flow】
@@ -168,7 +213,17 @@
     │   │     3. real_imag = self.conv_real(...)
     │   │     4. imag_real = self.conv_imag(...)
     │   │     5. imag_imag = self.conv_imag(...)
+    │   │   
+    │   │   【张量形状 Tensor Shapes】(参考)
+    │   │     Input:  (B, 32, L)
+    │   │     Output: (B, 32, L)
+    │   │     说明: B=batch, L=length, complex tensor
     │   ├─ bn2: ComplexBatchNorm1d
+    │   │   
+    │   │   【张量形状 Tensor Shapes】(参考)
+    │   │     Input:  (B, 32, L)
+    │   │     Output: (B, 32, L)
+    │   │     说明: B=batch, L=length, complex tensor
     │   ├─ shortcut: ComplexConv1d
     │   │   
     │   │   【执行顺序 Forward Flow】
@@ -177,6 +232,11 @@
     │   │     3. real_imag = self.conv_real(...)
     │   │     4. imag_real = self.conv_imag(...)
     │   │     5. imag_imag = self.conv_imag(...)
+    │   │   
+    │   │   【张量形状 Tensor Shapes】(参考)
+    │   │     Input:  (B, 16, L)
+    │   │     Output: (B, 32, L)
+    │   │     说明: B=batch, L=length, complex tensor
     │   └─ attention: ComplexAttention
     ├─ up_samples: ModuleList
     │   ├─ 0: ComplexConvTranspose1d
@@ -186,6 +246,11 @@
     │   │     2. real_imag = self.conv_real(...)
     │   │     3. imag_real = self.conv_imag(...)
     │   │     4. imag_imag = self.conv_imag(...)
+    │   │   
+    │   │   【张量形状 Tensor Shapes】(参考)
+    │   │     Input:  (B, 32, L)
+    │   │     Output: (B, 16, L×2)
+    │   │     说明: B=batch, L=length, complex tensor
     │   └─ 1: ComplexConvTranspose1d
     │       
     │       【执行顺序 Forward Flow】
@@ -193,6 +258,11 @@
     │         2. real_imag = self.conv_real(...)
     │         3. imag_real = self.conv_imag(...)
     │         4. imag_imag = self.conv_imag(...)
+    │       
+    │       【张量形状 Tensor Shapes】(参考)
+    │         Input:  (B, 16, L)
+    │         Output: (B, 8, L×2)
+    │         说明: B=batch, L=length, complex tensor
     ├─ dec_blocks: ModuleList
     │   ├─ 0: ComplexResidualBlock
     │   │   
@@ -205,6 +275,11 @@
     │   │     6. out = self.bn2(...)
     │   │     7. out = self.attention(...)
     │   │     8. out = self.activation2(...)
+    │   │   
+    │   │   【张量形状 Tensor Shapes】(参考)
+    │   │     Input:  (B, 32, L)
+    │   │     Output: (B, 16, L)
+    │   │     说明: B=batch, L=length, complex tensor
     │   └─ 1: ComplexResidualBlock
     │       
     │       【执行顺序 Forward Flow】
@@ -216,6 +291,11 @@
     │         6. out = self.bn2(...)
     │         7. out = self.attention(...)
     │         8. out = self.activation2(...)
+    │       
+    │       【张量形状 Tensor Shapes】(参考)
+    │         Input:  (B, 16, L)
+    │         Output: (B, 8, L)
+    │         说明: B=batch, L=length, complex tensor
     └─ final_conv: ComplexConv1d
         
         【执行顺序 Forward Flow】
@@ -224,6 +304,11 @@
           3. real_imag = self.conv_real(...)
           4. imag_real = self.conv_imag(...)
           5. imag_imag = self.conv_imag(...)
+        
+        【张量形状 Tensor Shapes】(参考)
+          Input:  (B, 8, L)
+          Output: (B, 1, L)
+          说明: B=batch, L=length, complex tensor
         ├─ conv_real: Conv1d
         │   
         │   【张量形状 Tensor Shapes】(参考)

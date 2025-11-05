@@ -134,6 +134,44 @@ def get_module_io_shape_info(module, module_type):
     }
     
     try:
+        # 优先处理自定义的Complex模块
+        if 'ComplexConv1d' in module_type or 'ComplexConvTranspose1d' in module_type:
+            # ComplexConv1d包含conv_real和conv_imag
+            if hasattr(module, 'conv_real'):
+                in_ch = module.conv_real.in_channels
+                out_ch = module.conv_real.out_channels
+                if 'ComplexConvTranspose1d' in module_type:
+                    info['input_shape'] = f"(B, {in_ch}, L)"
+                    info['output_shape'] = f"(B, {out_ch}, L×2)"
+                    info['shape_note'] = "B=batch, L=length, complex tensor"
+                else:
+                    info['input_shape'] = f"(B, {in_ch}, L)"
+                    if hasattr(module, 'stride') and module.stride > 1:
+                        info['output_shape'] = f"(B, {out_ch}, L/{module.stride})"
+                    else:
+                        info['output_shape'] = f"(B, {out_ch}, L)"
+                    info['shape_note'] = "B=batch, L=length, complex tensor"
+                return info
+        
+        elif 'ComplexResidualBlock' in module_type:
+            # ComplexResidualBlock包含conv1
+            if hasattr(module, 'conv1') and hasattr(module.conv1, 'conv_real'):
+                in_ch = module.conv1.conv_real.in_channels
+                out_ch = module.conv1.conv_real.out_channels
+                info['input_shape'] = f"(B, {in_ch}, L)"
+                info['output_shape'] = f"(B, {out_ch}, L)"
+                info['shape_note'] = "B=batch, L=length, complex tensor"
+                return info
+        
+        elif 'ComplexBatchNorm1d' in module_type:
+            # ComplexBatchNorm1d包含bn_real
+            if hasattr(module, 'bn_real'):
+                nf = module.bn_real.num_features
+                info['input_shape'] = f"(B, {nf}, L)"
+                info['output_shape'] = f"(B, {nf}, L)"
+                info['shape_note'] = "B=batch, L=length, complex tensor"
+                return info
+        
         # 从模块属性推断
         if hasattr(module, 'in_channels') and hasattr(module, 'out_channels'):
             # Conv layers
@@ -342,17 +380,15 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
                                             
                                             print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{iteration}](...)  # {module_type}")
                                             
-                                            # 显示形状和参数信息
-                                            if io_info['input_shape'] and io_info['output_shape']:
-                                                if params_summary:
-                                                    print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
-                                                else:
-                                                    print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']}")
-                                                # 显示形状说明（如果有）
-                                                if io_info['shape_note']:
-                                                    print(f"{param_prefix}  │         {io_info['shape_note']}")
-                                            elif params_summary:
-                                                print(f"{param_prefix}  │         {params_summary}")
+                                            # 优先显示形状信息
+                                            if io_info['input_shape'] or io_info['output_shape']:
+                                                input_str = io_info['input_shape'] if io_info['input_shape'] else "?"
+                                                output_str = io_info['output_shape'] if io_info['output_shape'] else "?"
+                                                print(f"{param_prefix}  │         Shape: {input_str} → {output_str}")
+                                            
+                                            # 然后显示参数量
+                                            if params_summary:
+                                                print(f"{param_prefix}  │         Params: {params_summary}")
                                             
                                             step_num += 1
                                 
@@ -403,16 +439,15 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
                                         
                                         print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)  # {module_type}")
                                         
-                                        if io_info['input_shape'] and io_info['output_shape']:
-                                            if params_summary:
-                                                print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
-                                            else:
-                                                print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']}")
-                                            # 显示形状说明（如果有）
-                                            if io_info['shape_note']:
-                                                print(f"{param_prefix}  │         {io_info['shape_note']}")
-                                        elif params_summary:
-                                            print(f"{param_prefix}  │         {params_summary}")
+                                        # 优先显示形状信息
+                                        if io_info['input_shape'] or io_info['output_shape']:
+                                            input_str = io_info['input_shape'] if io_info['input_shape'] else "?"
+                                            output_str = io_info['output_shape'] if io_info['output_shape'] else "?"
+                                            print(f"{param_prefix}  │         Shape: {input_str} → {output_str}")
+                                        
+                                        # 然后显示参数量
+                                        if params_summary:
+                                            print(f"{param_prefix}  │         Params: {params_summary}")
                                     else:
                                         print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)")
                                 else:
@@ -440,16 +475,14 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
                         
                         print(f"{param_prefix}  {step_num}. {var_name} = self.{module_name}(...)  # {submodule_type}")
                         
-                        # 显示形状和参数信息
-                        if io_info['input_shape'] and io_info['output_shape']:
-                            if params_summary:
-                                print(f"{param_prefix}       {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
-                            else:
-                                print(f"{param_prefix}       {io_info['input_shape']} → {io_info['output_shape']}")
-                            # 显示形状说明（如果有）
-                            if io_info['shape_note']:
-                                print(f"{param_prefix}       {io_info['shape_note']}")
-                        elif params_summary:
+                        # 优先显示形状信息
+                        if io_info['input_shape'] or io_info['output_shape']:
+                            input_str = io_info['input_shape'] if io_info['input_shape'] else "?"
+                            output_str = io_info['output_shape'] if io_info['output_shape'] else "?"
+                            print(f"{param_prefix}       Shape: {input_str} → {output_str}")
+                        
+                        # 然后显示参数量
+                        if params_summary:
                             print(f"{param_prefix}       Params: {params_summary}")
                     else:
                         print(f"{param_prefix}  {step_num}. {var_name} = self.{module_name}(...)")
