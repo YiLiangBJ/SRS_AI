@@ -27,25 +27,143 @@ def analyze_parameter(name, param):
     }
 
 
-def get_module_parameters_detail(module, module_name=""):
-    """获取模块的所有参数详细信息"""
-    params_info = []
-    buffers_info = []
+def infer_tensor_shape_meaning(shape, module_type, param_name=""):
+    """
+    推断张量形状每个维度的含义
     
-    # 分析参数（可训练和不可训练）
-    for name, param in module.named_parameters(recurse=False):
-        params_info.append(analyze_parameter(name, param))
+    Args:
+        shape: 张量形状 tuple
+        module_type: 模块类型名称
+        param_name: 参数名称（weight, bias等）
     
-    # 分析缓冲区（如BatchNorm的running_mean, running_var等）
-    for name, buffer in module.named_buffers(recurse=False):
-        buffers_info.append({
-            'name': name,
-            'shape': tuple(buffer.shape),
-            'numel': buffer.numel(),
-            'dtype': str(buffer.dtype)
-        })
+    Returns:
+        带标注的形状字符串
+    """
+    if not shape or len(shape) == 0:
+        return "()"
     
-    return params_info, buffers_info
+    # 参数张量的维度含义
+    if param_name:
+        if 'Conv1d' in module_type or 'ConvTranspose1d' in module_type:
+            if param_name == 'weight':
+                if len(shape) == 3:
+                    return f"({shape[0]}, {shape[1]}, {shape[2]})  # (out_channels, in_channels, kernel_size)"
+                elif len(shape) == 1:
+                    return f"({shape[0]},)  # (out_channels,)"
+            elif param_name == 'bias':
+                return f"({shape[0]},)  # (out_channels,)" if len(shape) == 1 else str(tuple(shape))
+        
+        elif 'Conv2d' in module_type or 'ConvTranspose2d' in module_type:
+            if param_name == 'weight' and len(shape) == 4:
+                return f"({shape[0]}, {shape[1]}, {shape[2]}, {shape[3]})  # (out_ch, in_ch, kH, kW)"
+            elif param_name == 'bias' and len(shape) == 1:
+                return f"({shape[0]},)  # (out_channels,)"
+        
+        elif 'BatchNorm' in module_type or 'LayerNorm' in module_type:
+            if param_name in ['weight', 'bias'] and len(shape) == 1:
+                return f"({shape[0]},)  # (num_features,)"
+        
+        elif 'Linear' in module_type:
+            if param_name == 'weight' and len(shape) == 2:
+                return f"({shape[0]}, {shape[1]})  # (out_features, in_features)"
+            elif param_name == 'bias' and len(shape) == 1:
+                return f"({shape[0]},)  # (out_features,)"
+        
+        elif 'Embedding' in module_type:
+            if param_name == 'weight' and len(shape) == 2:
+                return f"({shape[0]}, {shape[1]})  # (num_embeddings, embedding_dim)"
+    
+    # 默认返回原始形状
+    return str(tuple(shape))
+
+
+def get_module_io_shape_info(module, module_type):
+    """
+    尝试推断模块的输入输出形状信息
+    
+    Returns:
+        dict with 'input_shape', 'output_shape', 'shape_note'
+    """
+    info = {
+        'input_shape': None,
+        'output_shape': None,
+        'shape_note': None
+    }
+    
+    try:
+        # 从模块属性推断
+        if hasattr(module, 'in_channels') and hasattr(module, 'out_channels'):
+            # Conv layers
+            in_ch = module.in_channels
+            out_ch = module.out_channels
+            if 'Conv1d' in module_type or 'ConvTranspose1d' in module_type:
+                info['input_shape'] = f"(B, {in_ch}, L)"
+                info['output_shape'] = f"(B, {out_ch}, L')"
+                info['shape_note'] = "B=batch, L=length"
+            elif 'Conv2d' in module_type or 'ConvTranspose2d' in module_type:
+                info['input_shape'] = f"(B, {in_ch}, H, W)"
+                info['output_shape'] = f"(B, {out_ch}, H', W')"
+                info['shape_note'] = "B=batch, H=height, W=width"
+        
+        elif hasattr(module, 'num_features'):
+            # BatchNorm layers
+            nf = module.num_features
+            if 'BatchNorm1d' in module_type:
+                info['input_shape'] = f"(B, {nf}, L)"
+                info['output_shape'] = f"(B, {nf}, L)"
+                info['shape_note'] = "B=batch, L=length"
+            elif 'BatchNorm2d' in module_type:
+                info['input_shape'] = f"(B, {nf}, H, W)"
+                info['output_shape'] = f"(B, {nf}, H, W)"
+                info['shape_note'] = "B=batch, H=height, W=width"
+        
+        elif hasattr(module, 'in_features') and hasattr(module, 'out_features'):
+            # Linear layers
+            in_f = module.in_features
+            out_f = module.out_features
+            info['input_shape'] = f"(B, {in_f})"
+            info['output_shape'] = f"(B, {out_f})"
+            info['shape_note'] = "B=batch"
+        
+        elif hasattr(module, 'num_embeddings') and hasattr(module, 'embedding_dim'):
+            # Embedding layers
+            num_emb = module.num_embeddings
+            emb_dim = module.embedding_dim
+            info['input_shape'] = f"(B, L)"
+            info['output_shape'] = f"(B, L, {emb_dim})"
+            info['shape_note'] = "B=batch, L=sequence_length"
+        
+        elif 'Pool' in module_type:
+            # Pooling layers
+            if 'AdaptiveAvgPool1d' in module_type:
+                info['input_shape'] = "(B, C, L)"
+                info['output_shape'] = f"(B, C, {module.output_size})"
+                info['shape_note'] = "B=batch, C=channels, L=length"
+            elif 'Pool1d' in module_type:
+                info['input_shape'] = "(B, C, L)"
+                info['output_shape'] = "(B, C, L')"
+                info['shape_note'] = "B=batch, C=channels"
+            elif 'Pool2d' in module_type:
+                info['input_shape'] = "(B, C, H, W)"
+                info['output_shape'] = "(B, C, H', W')"
+                info['shape_note'] = "B=batch, C=channels"
+        
+        elif 'ReLU' in module_type or 'Dropout' in module_type or 'Identity' in module_type:
+            # Element-wise operations
+            info['input_shape'] = "(*, ...)"
+            info['output_shape'] = "(*, ...)"
+            info['shape_note'] = "shape unchanged"
+        
+        elif 'ModReLU' in module_type:
+            # Complex activation
+            info['input_shape'] = "(*, ...)"
+            info['output_shape'] = "(*, ...)"
+            info['shape_note'] = "complex tensor, shape unchanged"
+    
+    except:
+        pass
+    
+    return info
 
 
 def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, max_depth=None, show_forward_order=True):
@@ -68,8 +186,29 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
     # 获取当前模块的类型
     module_type = type(module).__name__
     
+    # 获取输入输出形状信息
+    io_info = get_module_io_shape_info(module, module_type)
+    
     # 获取当前模块的参数信息（不递归）
-    params_info, buffers_info = get_module_parameters_detail(module)
+    params_info, buffers_info = [], []
+    
+    # 分析参数
+    for name, param in module.named_parameters(recurse=False):
+        param_info = analyze_parameter(name, param)
+        param_type = name.split('.')[-1]
+        param_info['shape_with_meaning'] = infer_tensor_shape_meaning(
+            param.shape, module_type, param_type
+        )
+        params_info.append(param_info)
+    
+    # 分析缓冲区
+    for name, buffer in module.named_buffers(recurse=False):
+        buffers_info.append({
+            'name': name,
+            'shape': tuple(buffer.shape),
+            'numel': buffer.numel(),
+            'dtype': str(buffer.dtype)
+        })
     
     # 计算当前模块的直接参数总数
     direct_params_count = sum(p['numel'] for p in params_info)
@@ -87,6 +226,18 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
         print(f"{'='*120}")
     else:
         print(f"{prefix}{connector}{parent_name}: {module_type}")
+    
+    # 显示输入输出形状信息
+    if io_info['input_shape'] or io_info['output_shape']:
+        param_prefix = prefix + ("    " if is_last else "│   ")
+        print(f"{param_prefix}")
+        print(f"{param_prefix}【张量形状 Tensor Shapes】")
+        if io_info['input_shape']:
+            print(f"{param_prefix}  Input:  {io_info['input_shape']}")
+        if io_info['output_shape']:
+            print(f"{param_prefix}  Output: {io_info['output_shape']}")
+        if io_info['shape_note']:
+            print(f"{param_prefix}  说明: {io_info['shape_note']}")
     
     # 尝试提取forward执行顺序（如果有）
     if show_forward_order and depth > 0:
@@ -115,7 +266,9 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
             for param_type, params in sorted(param_groups.items()):
                 for p in params:
                     grad_status = "✓可训练" if p['requires_grad'] else "✗冻结"
-                    print(f"{param_prefix}    • {p['name']}: {p['shape']} = {p['numel']:,} ({grad_status})")
+                    # 使用带维度含义的形状
+                    shape_str = p.get('shape_with_meaning', str(p['shape']))
+                    print(f"{param_prefix}    • {p['name']}: {shape_str} = {p['numel']:,} ({grad_status})")
         
         if total_params > direct_params_count:
             print(f"{param_prefix}  子模块参数: {total_params - direct_params_count:,} 个")

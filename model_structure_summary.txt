@@ -1,5 +1,5 @@
 # 模型结构分析报告
-# 生成时间: 2025-11-05 13:09:54
+# 生成时间: 2025-11-05 13:17:43
 # 模型名称: ComplexResidualUNet - 概览
 
 
@@ -91,11 +91,21 @@
     │     8. out = self.activation2(...)
     │   ├─ activation1: ComplexModReLU
     │   │   
+    │   │   【张量形状 Tensor Shapes】
+    │   │     Input:  (*, ...)
+    │   │     Output: (*, ...)
+    │   │     说明: shape unchanged
+    │   │   
     │   │   【参数统计】
     │   │     直接参数: 32 个
     │   │       • bias: (32,) = 32 (✓可训练)
     │   │     总参数: 32 个
     │   ├─ activation2: ComplexModReLU
+    │   │   
+    │   │   【张量形状 Tensor Shapes】
+    │   │     Input:  (*, ...)
+    │   │     Output: (*, ...)
+    │   │     说明: shape unchanged
     │   │   
     │   │   【参数统计】
     │   │     直接参数: 32 个
@@ -176,17 +186,27 @@
           5. imag_imag = self.conv_imag(...)
         ├─ conv_real: Conv1d
         │   
+        │   【张量形状 Tensor Shapes】
+        │     Input:  (B, 8, L)
+        │     Output: (B, 1, L')
+        │     说明: B=batch, L=length
+        │   
         │   【参数统计】
         │     直接参数: 9 个
-        │       • bias: (1,) = 1 (✓可训练)
-        │       • weight: (1, 8, 1) = 8 (✓可训练)
+        │       • bias: (1,)  # (out_channels,) = 1 (✓可训练)
+        │       • weight: (1, 8, 1)  # (out_channels, in_channels, kernel_size) = 8 (✓可训练)
         │     总参数: 9 个
         └─ conv_imag: Conv1d
             
+            【张量形状 Tensor Shapes】
+              Input:  (B, 8, L)
+              Output: (B, 1, L')
+              说明: B=batch, L=length
+            
             【参数统计】
               直接参数: 9 个
-                • bias: (1,) = 1 (✓可训练)
-                • weight: (1, 8, 1) = 8 (✓可训练)
+                • bias: (1,)  # (out_channels,) = 1 (✓可训练)
+                • weight: (1, 8, 1)  # (out_channels, in_channels, kernel_size) = 8 (✓可训练)
               总参数: 9 个
 
 ========================================================================================================================
