@@ -416,7 +416,7 @@ if __name__ == "__main__":
         input_channels=2,
         output_channels=1,
         base_channels=8,
-        depth=3,
+        depth=2,
         attention_flag=True,
         activation='modrelu'
     ).to(device)
