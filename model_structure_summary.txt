@@ -1,0 +1,196 @@
+# 模型结构分析报告
+# 生成时间: 2025-11-05 13:09:54
+# 模型名称: ComplexResidualUNet - 概览
+
+
+████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
+                                             🔍 ComplexResidualUNet - 概览 结构分析
+████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
+
+【整体统计】
+  总参数量:     25,554
+  可训练参数:   25,554
+  冻结参数:     0
+  缓冲区元素:   660
+  总模块数:     160
+
+【参数类型分布】
+  类型                          张量数量          参数总数        占比
+  --------------------  ----------  ------------  --------
+  weight                        80        24,976     97.7%
+  bias                          40           578      2.3%
+  --------------------  ----------  ------------  --------
+  总计                           120        25,554    100.0%
+
+  💡 说明：
+     - 张量数量：该类型参数在模型中出现的次数（如有80个名为'weight'的参数张量）
+     - 参数总数：这些张量包含的标量参数总和（如这80个weight张量共包含24,976个标量）
+
+========================================================================================================================
+                                             📊 详细层级结构
+========================================================================================================================
+
+（显示深度限制为 2 层）
+
+💡 【执行顺序 Forward Flow】显示模块在forward()中的调用顺序
+
+
+========================================================================================================================
+📦 模型: ComplexResidualUNet
+========================================================================================================================
+    ├─ enc_blocks: ModuleList
+    │   ├─ 0: ComplexResidualBlock
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. residual = self.shortcut(...)
+    │   │     2. out = self.conv1(...)
+    │   │     3. out = self.bn1(...)
+    │   │     4. out = self.activation1(...)
+    │   │     5. out = self.conv2(...)
+    │   │     6. out = self.bn2(...)
+    │   │     7. out = self.attention(...)
+    │   │     8. out = self.activation2(...)
+    │   └─ 1: ComplexResidualBlock
+    │       
+    │       【执行顺序 Forward Flow】
+    │         1. residual = self.shortcut(...)
+    │         2. out = self.conv1(...)
+    │         3. out = self.bn1(...)
+    │         4. out = self.activation1(...)
+    │         5. out = self.conv2(...)
+    │         6. out = self.bn2(...)
+    │         7. out = self.attention(...)
+    │         8. out = self.activation2(...)
+    ├─ down_samples: ModuleList
+    │   ├─ 0: ComplexConv1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. pad_total = self.kernel_size(...)
+    │   │     2. real_real = self.conv_real(...)
+    │   │     3. real_imag = self.conv_real(...)
+    │   │     4. imag_real = self.conv_imag(...)
+    │   │     5. imag_imag = self.conv_imag(...)
+    │   └─ 1: ComplexConv1d
+    │       
+    │       【执行顺序 Forward Flow】
+    │         1. pad_total = self.kernel_size(...)
+    │         2. real_real = self.conv_real(...)
+    │         3. real_imag = self.conv_real(...)
+    │         4. imag_real = self.conv_imag(...)
+    │         5. imag_imag = self.conv_imag(...)
+    ├─ bottleneck: ComplexResidualBlock
+    │   
+    │   【执行顺序 Forward Flow】
+    │     1. residual = self.shortcut(...)
+    │     2. out = self.conv1(...)
+    │     3. out = self.bn1(...)
+    │     4. out = self.activation1(...)
+    │     5. out = self.conv2(...)
+    │     6. out = self.bn2(...)
+    │     7. out = self.attention(...)
+    │     8. out = self.activation2(...)
+    │   ├─ activation1: ComplexModReLU
+    │   │   
+    │   │   【参数统计】
+    │   │     直接参数: 32 个
+    │   │       • bias: (32,) = 32 (✓可训练)
+    │   │     总参数: 32 个
+    │   ├─ activation2: ComplexModReLU
+    │   │   
+    │   │   【参数统计】
+    │   │     直接参数: 32 个
+    │   │       • bias: (32,) = 32 (✓可训练)
+    │   │     总参数: 32 个
+    │   ├─ conv1: ComplexConv1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. pad_total = self.kernel_size(...)
+    │   │     2. real_real = self.conv_real(...)
+    │   │     3. real_imag = self.conv_real(...)
+    │   │     4. imag_real = self.conv_imag(...)
+    │   │     5. imag_imag = self.conv_imag(...)
+    │   ├─ bn1: ComplexBatchNorm1d
+    │   ├─ conv2: ComplexConv1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. pad_total = self.kernel_size(...)
+    │   │     2. real_real = self.conv_real(...)
+    │   │     3. real_imag = self.conv_real(...)
+    │   │     4. imag_real = self.conv_imag(...)
+    │   │     5. imag_imag = self.conv_imag(...)
+    │   ├─ bn2: ComplexBatchNorm1d
+    │   ├─ shortcut: ComplexConv1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. pad_total = self.kernel_size(...)
+    │   │     2. real_real = self.conv_real(...)
+    │   │     3. real_imag = self.conv_real(...)
+    │   │     4. imag_real = self.conv_imag(...)
+    │   │     5. imag_imag = self.conv_imag(...)
+    │   └─ attention: ComplexAttention
+    ├─ up_samples: ModuleList
+    │   ├─ 0: ComplexConvTranspose1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. real_real = self.conv_real(...)
+    │   │     2. real_imag = self.conv_real(...)
+    │   │     3. imag_real = self.conv_imag(...)
+    │   │     4. imag_imag = self.conv_imag(...)
+    │   └─ 1: ComplexConvTranspose1d
+    │       
+    │       【执行顺序 Forward Flow】
+    │         1. real_real = self.conv_real(...)
+    │         2. real_imag = self.conv_real(...)
+    │         3. imag_real = self.conv_imag(...)
+    │         4. imag_imag = self.conv_imag(...)
+    ├─ dec_blocks: ModuleList
+    │   ├─ 0: ComplexResidualBlock
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. residual = self.shortcut(...)
+    │   │     2. out = self.conv1(...)
+    │   │     3. out = self.bn1(...)
+    │   │     4. out = self.activation1(...)
+    │   │     5. out = self.conv2(...)
+    │   │     6. out = self.bn2(...)
+    │   │     7. out = self.attention(...)
+    │   │     8. out = self.activation2(...)
+    │   └─ 1: ComplexResidualBlock
+    │       
+    │       【执行顺序 Forward Flow】
+    │         1. residual = self.shortcut(...)
+    │         2. out = self.conv1(...)
+    │         3. out = self.bn1(...)
+    │         4. out = self.activation1(...)
+    │         5. out = self.conv2(...)
+    │         6. out = self.bn2(...)
+    │         7. out = self.attention(...)
+    │         8. out = self.activation2(...)
+    └─ final_conv: ComplexConv1d
+        
+        【执行顺序 Forward Flow】
+          1. pad_total = self.kernel_size(...)
+          2. real_real = self.conv_real(...)
+          3. real_imag = self.conv_real(...)
+          4. imag_real = self.conv_imag(...)
+          5. imag_imag = self.conv_imag(...)
+        ├─ conv_real: Conv1d
+        │   
+        │   【参数统计】
+        │     直接参数: 9 个
+        │       • bias: (1,) = 1 (✓可训练)
+        │       • weight: (1, 8, 1) = 8 (✓可训练)
+        │     总参数: 9 个
+        └─ conv_imag: Conv1d
+            
+            【参数统计】
+              直接参数: 9 个
+                • bias: (1,) = 1 (✓可训练)
+                • weight: (1, 8, 1) = 8 (✓可训练)
+              总参数: 9 个
+
+========================================================================================================================
+                                        ✓ 分析完成
+========================================================================================================================
+
+📄 报告已保存到: model_structure_summary.txt

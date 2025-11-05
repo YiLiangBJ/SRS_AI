@@ -2,7 +2,7 @@
 
 ## 📋 概述
 
-`AnalyzeModelStructure.py` 是一个**完全通用的PyTorch模型分析工具**，无需任何硬编码，可以分析任何PyTorch模型的详细结构。
+`AnalyzeModelStructure.py` 是一个**完全通用的PyTorch模型分析工具**，无需任何硬编码，可以分析任何PyTorch模型的详细结构，并显示**Forward执行顺序**。
 
 ## ✨ 核心特性
 
@@ -16,7 +16,12 @@
 - 🌳 树状结构显示，层级关系清晰
 - 🔢 每个模块显示所有参数详情
 
-### 3. **参数详细信息**
+### 3. **🆕 Forward执行顺序可视化**
+- 🔄 自动提取forward()方法中的执行顺序
+- 📍 显示模块的实际调用顺序（而非定义顺序）
+- 💡 帮助理解数据流动路径
+
+### 4. **参数详细信息**
 对每个模块显示：
 - **参数名称**：如 `weight`, `bias`
 - **参数形状**：如 `(8, 2, 3)`
@@ -24,7 +29,7 @@
 - **训练状态**：✓可训练 / ✗冻结
 - **缓冲区**：如 `running_mean`, `running_var`（非可训练）
 
-### 4. **整体统计**
+### 5. **整体统计**
 - 总参数量
 - 可训练参数 vs 冻结参数
 - 缓冲区元素统计
@@ -41,7 +46,7 @@ import torch.nn as nn
 # 创建任意PyTorch模型
 model = YourModel()
 
-# 完整分析（到最底层）
+# 完整分析（到最底层，显示执行顺序）
 analyze_model_structure(model, "Your Model Name")
 ```
 
@@ -52,7 +57,43 @@ analyze_model_structure(model, "Your Model Name")
 analyze_model_structure(model, "Model Overview", max_depth=2)
 ```
 
+### 🆕 控制Forward执行顺序显示
+
+```python
+# 不显示执行顺序（只显示结构）
+analyze_model_structure(model, "Model Structure", show_forward_order=False)
+
+# 显示执行顺序（默认）
+analyze_model_structure(model, "Model with Flow", show_forward_order=True)
+```
+
 ## 📊 输出示例
+
+### Forward执行顺序示例
+
+```
+├─ 0: ComplexResidualBlock
+│   
+│   【执行顺序 Forward Flow】  ← 🆕 显示实际调用顺序
+│     1. residual = self.shortcut(...)     ← 第1步：保存残差
+│     2. out = self.conv1(...)              ← 第2步：第一个卷积
+│     3. out = self.bn1(...)                ← 第3步：批归一化
+│     4. out = self.activation1(...)        ← 第4步：激活函数
+│     5. out = self.conv2(...)              ← 第5步：第二个卷积
+│     6. out = self.bn2(...)                ← 第6步：批归一化
+│     7. out = self.attention(...)          ← 第7步：注意力机制
+│     8. out = self.activation2(...)        ← 第8步：最终激活
+│   
+│   ├─ activation1: ComplexModReLU         ← 按定义顺序显示子模块
+│   │   【参数统计】
+│   │     • bias: (8,) = 8 (✓可训练)
+│   ├─ conv1: ComplexConv1d
+│   │   【参数统计】
+│   │     • weight: (8, 2, 3) = 48 (✓可训练)
+│   ...
+```
+
+### 整体统计示例
 
 ```
 【整体统计】
@@ -65,34 +106,22 @@ analyze_model_structure(model, "Model Overview", max_depth=2)
 【参数类型分布】
   weight              :  80 个,     24,976 参数
   bias                :  40 个,        578 参数
+```
 
-========================================================================================================================
-📦 模型: ComplexResidualUNet
-========================================================================================================================
-    ├─ enc_blocks: ModuleList
-    │   ├─ 0: ComplexResidualBlock
-    │   │   ├─ conv1: ComplexConv1d
-    │   │   │   ├─ conv_real: Conv1d
-    │   │   │   │   【参数统计】
-    │   │   │   │     直接参数: 48 个
-    │   │   │   │       • weight: (8, 2, 3) = 48 (✓可训练)
-    │   │   │   │     总参数: 48 个
-    │   │   │   └─ conv_imag: Conv1d
-    │   │   │       【参数统计】
-    │   │   │         直接参数: 48 个
-    │   │   │           • weight: (8, 2, 3) = 48 (✓可训练)
-    │   │   │         总参数: 48 个
-    │   │   ├─ bn1: ComplexBatchNorm1d
-    │   │   │   ├─ bn_real: BatchNorm1d
-    │   │   │   │   【参数统计】
-    │   │   │   │     直接参数: 16 个
-    │   │   │   │       • bias: (8,) = 8 (✓可训练)
-    │   │   │   │       • weight: (8,) = 8 (✓可训练)
-    │   │   │   │     总参数: 16 个
-    │   │   │   │   【缓冲区】(非可训练)
-    │   │   │   │     • running_mean: (8,) = 8
-    │   │   │   │     • running_var: (8,) = 8
-    │   │   │   │     • num_batches_tracked: () = 1
+### 详细参数示例
+
+```
+├─ bn1: ComplexBatchNorm1d          # 模块名称和类型
+│   ├─ bn_real: BatchNorm1d         # 子模块
+│   │   【参数统计】
+│   │     直接参数: 16 个            # 该层直接拥有的参数
+│   │       • bias: (8,) = 8 (✓可训练)   # 参数名、形状、数量、是否可训练
+│   │       • weight: (8,) = 8 (✓可训练)
+│   │     总参数: 16 个              # 包含子模块的总参数
+│   │   【缓冲区】(非可训练)
+│   │     • running_mean: (8,) = 8  # 缓冲区（如BatchNorm的统计量）
+│   │     • running_var: (8,) = 8
+│   │     • num_batches_tracked: () = 1
 ```
 
 ## 🎯 关键优势
@@ -106,7 +135,35 @@ analyze_model_structure(model, "Model Overview", max_depth=2)
 | 分析深度 | ⚠️ 只到主要模块 | ✅ 分析到最底层 |
 | 参数详情 | ⚠️ 仅显示总数 | ✅ 每个参数的shape和类型 |
 | 缓冲区 | ❌ 不显示 | ✅ 显示所有缓冲区 |
+| Forward流程 | ❌ 不显示 | ✅ **自动提取执行顺序** |
 | 维护成本 | ❌ 模型改变需修改代码 | ✅ 零维护，自动适配 |
+
+### 🆕 Forward执行顺序的价值
+
+**问题**：模块的**定义顺序**（在`__init__`中）≠ **执行顺序**（在`forward`中）
+
+**示例**：
+```python
+class ResBlock(nn.Module):
+    def __init__(self):
+        # 定义顺序：
+        self.activation1 = ReLU()    # 第1个定义
+        self.activation2 = ReLU()    # 第2个定义
+        self.conv1 = Conv()          # 第3个定义
+        self.conv2 = Conv()          # 第4个定义
+    
+    def forward(self, x):
+        # 执行顺序：
+        out = self.conv1(x)          # 第1个执行 ←不同！
+        out = self.activation1(out)  # 第2个执行
+        out = self.conv2(out)        # 第3个执行
+        out = self.activation2(out)  # 第4个执行
+        return out
+```
+
+**解决方案**：新工具显示**两种顺序**
+- 子模块列表：按定义顺序（`named_children()`）
+- 【执行顺序 Forward Flow】：按实际调用顺序（从源码提取）
 
 ## 💡 实际应用
 

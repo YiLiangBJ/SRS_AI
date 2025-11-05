@@ -48,7 +48,7 @@ def get_module_parameters_detail(module, module_name=""):
     return params_info, buffers_info
 
 
-def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, max_depth=None):
+def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, max_depth=None, show_forward_order=True):
     """
     递归打印模型的树状结构，显示每个模块的参数详情
     
@@ -59,6 +59,7 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
         parent_name: 父模块名称
         depth: 当前深度
         max_depth: 最大递归深度（None表示无限制）
+        show_forward_order: 是否尝试显示forward执行顺序
     """
     
     if max_depth is not None and depth > max_depth:
@@ -86,6 +87,16 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
         print(f"{'='*120}")
     else:
         print(f"{prefix}{connector}{parent_name}: {module_type}")
+    
+    # 尝试提取forward执行顺序（如果有）
+    if show_forward_order and depth > 0:
+        forward_order = extract_forward_order(module)
+        if forward_order:
+            param_prefix = prefix + ("    " if is_last else "│   ")
+            print(f"{param_prefix}")
+            print(f"{param_prefix}【执行顺序 Forward Flow】")
+            for idx, step in enumerate(forward_order, 1):
+                print(f"{param_prefix}  {idx}. {step}")
     
     # 打印参数统计
     if direct_params_count > 0 or len(params_info) > 0:
@@ -132,11 +143,73 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
                 is_last=is_last_child,
                 parent_name=name,
                 depth=depth + 1,
-                max_depth=max_depth
+                max_depth=max_depth,
+                show_forward_order=show_forward_order
             )
 
 
-def analyze_model_structure(model, model_name="Model", max_depth=None):
+def extract_forward_order(module):
+    """
+    尝试从模块的forward方法源码中提取执行顺序
+    返回执行步骤列表，如果无法提取则返回None
+    """
+    try:
+        import inspect
+        
+        # 检查是否有forward方法
+        if not hasattr(module, 'forward'):
+            return None
+        
+        # 获取forward方法源码（设置超时保护）
+        try:
+            source = inspect.getsource(module.forward)
+        except (OSError, TypeError):
+            # 无法获取源码（可能是内置模块或C扩展）
+            return None
+        
+        lines = source.split('\n')
+        
+        # 解析执行顺序
+        steps = []
+        for line in lines:
+            line = line.strip()
+            
+            # 跳过定义行、注释、空行、return语句
+            if (not line or 
+                line.startswith('def ') or 
+                line.startswith('#') or 
+                line.startswith('return') or
+                line.startswith('"""') or
+                line.startswith("'''")):
+                continue
+            
+            # 提取有用的执行语句
+            if '=' in line and 'self.' in line:
+                # 提取模块调用，如: out = self.conv1(x)
+                parts = line.split('=')
+                if len(parts) >= 2:
+                    left = parts[0].strip()
+                    right = parts[1].strip()
+                    
+                    # 提取模块名称
+                    if 'self.' in right:
+                        import re
+                        matches = re.findall(r'self\.(\w+)', right)
+                        if matches:
+                            module_name = matches[0]
+                            steps.append(f"{left} = self.{module_name}(...)")
+        
+        # 只有在有实质内容时才返回
+        if len(steps) > 2:  # 至少要有几个步骤才有意义
+            return steps
+        
+    except Exception as e:
+        # 任何异常都静默处理
+        pass
+    
+    return None
+
+def analyze_model_structure(model, model_name="Model", max_depth=None, show_forward_order=True, output_file=None):
     """
     分析模型结构的主函数
     
@@ -144,52 +217,102 @@ def analyze_model_structure(model, model_name="Model", max_depth=None):
         model: PyTorch模型实例
         model_name: 模型名称
         max_depth: 最大分析深度（None表示分析到最底层）
+        show_forward_order: 是否尝试显示forward执行顺序
+        output_file: 输出文件路径（None表示输出到终端）
     """
     
-    print("\n" + "█" * 120)
-    print(f" " * 45 + f"🔍 {model_name} 结构分析")
-    print("█" * 120)
+    # 如果指定了输出文件，重定向输出
+    original_stdout = None
+    file_handle = None
     
-    # 整体统计
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    total_buffers = sum(b.numel() for b in model.buffers())
+    if output_file:
+        import os
+        # 确保目录存在
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # 打开文件并重定向stdout
+        original_stdout = sys.stdout
+        file_handle = open(output_file, 'w', encoding='utf-8')
+        sys.stdout = file_handle
+        
+        print(f"# 模型结构分析报告")
+        print(f"# 生成时间: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"# 模型名称: {model_name}")
+        print()
     
-    print(f"\n【整体统计】")
-    print(f"  总参数量:     {total_params:,}")
-    print(f"  可训练参数:   {trainable_params:,}")
-    print(f"  冻结参数:     {total_params - trainable_params:,}")
-    print(f"  缓冲区元素:   {total_buffers:,}")
-    print(f"  总模块数:     {len(list(model.modules()))}")
+    try:
+        print("\n" + "█" * 120)
+        print(f" " * 45 + f"🔍 {model_name} 结构分析")
+        print("█" * 120)
+        
+        # 整体统计
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        total_buffers = sum(b.numel() for b in model.buffers())
+        
+        print(f"\n【整体统计】")
+        print(f"  总参数量:     {total_params:,}")
+        print(f"  可训练参数:   {trainable_params:,}")
+        print(f"  冻结参数:     {total_params - trainable_params:,}")
+        print(f"  缓冲区元素:   {total_buffers:,}")
+        print(f"  总模块数:     {len(list(model.modules()))}")
+        
+        # 参数类型分布统计
+        print(f"\n【参数类型分布】")
+        param_types = defaultdict(lambda: {'count': 0, 'numel': 0})
+        
+        for name, param in model.named_parameters():
+            # 提取参数类型（如weight, bias等）
+            param_type = name.split('.')[-1]
+            param_types[param_type]['count'] += 1
+            param_types[param_type]['numel'] += param.numel()
+        
+        print(f"  {'类型':<20s}  {'张量数量':>10s}  {'参数总数':>12s}  {'占比':>8s}")
+        print(f"  {'-'*20}  {'-'*10}  {'-'*12}  {'-'*8}")
+        
+        for ptype, info in sorted(param_types.items(), key=lambda x: x[1]['numel'], reverse=True):
+            percentage = (info['numel'] / total_params * 100) if total_params > 0 else 0
+            print(f"  {ptype:<20s}  {info['count']:>10,d}  {info['numel']:>12,d}  {percentage:>7.1f}%")
+        
+        print(f"  {'-'*20}  {'-'*10}  {'-'*12}  {'-'*8}")
+        print(f"  {'总计':<20s}  {sum(p['count'] for p in param_types.values()):>10,d}  {total_params:>12,d}  {'100.0%':>8s}")
+        print()
+        print(f"  💡 说明：")
+        print(f"     - 张量数量：该类型参数在模型中出现的次数（如有80个名为'weight'的参数张量）")
+        print(f"     - 参数总数：这些张量包含的标量参数总和（如这80个weight张量共包含24,976个标量）")
+        
+        # 打印详细的树状结构
+        print(f"\n{'='*120}")
+        print(f" " * 45 + "📊 详细层级结构")
+        print(f"{'='*120}")
+        
+        if max_depth is not None:
+            print(f"\n（显示深度限制为 {max_depth} 层）\n")
+        else:
+            print(f"\n（显示所有层级，深度不限）\n")
+        
+        if show_forward_order:
+            print(f"💡 【执行顺序 Forward Flow】显示模块在forward()中的调用顺序\n")
+        
+        print_module_tree(model, max_depth=max_depth, show_forward_order=show_forward_order)
+        
+        print("\n" + "=" * 120)
+        print(f" " * 40 + "✓ 分析完成")
+        print("=" * 120)
+        
+        if output_file:
+            print(f"\n📄 报告已保存到: {output_file}")
     
-    # 参数类型分布统计
-    print(f"\n【参数类型分布】")
-    param_types = defaultdict(lambda: {'count': 0, 'numel': 0})
-    
-    for name, param in model.named_parameters():
-        # 提取参数类型（如weight, bias等）
-        param_type = name.split('.')[-1]
-        param_types[param_type]['count'] += 1
-        param_types[param_type]['numel'] += param.numel()
-    
-    for ptype, info in sorted(param_types.items(), key=lambda x: x[1]['numel'], reverse=True):
-        print(f"  {ptype:20s}: {info['count']:3d} 个, {info['numel']:10,} 参数")
-    
-    # 打印详细的树状结构
-    print(f"\n{'='*120}")
-    print(f" " * 45 + "📊 详细层级结构")
-    print(f"{'='*120}")
-    
-    if max_depth is not None:
-        print(f"\n（显示深度限制为 {max_depth} 层）\n")
-    else:
-        print(f"\n（显示所有层级，深度不限）\n")
-    
-    print_module_tree(model, max_depth=max_depth)
-    
-    print("\n" + "=" * 120)
-    print(f" " * 40 + "✓ 分析完成")
-    print("=" * 120)
+    finally:
+        # 恢复stdout并关闭文件
+        if original_stdout:
+            sys.stdout = original_stdout
+            if file_handle:
+                file_handle.close()
+            print(f"\n✓ 分析完成！报告已保存到: {output_file}")
+            print(f"  文件大小: {os.path.getsize(output_file):,} 字节")
 
 
 if __name__ == "__main__":
@@ -208,11 +331,32 @@ if __name__ == "__main__":
         activation='modrelu'
     )
     
-    # 分析到所有层级（max_depth=None）
-    analyze_model_structure(model1, "ComplexResidualUNet (depth=2, base=8)", max_depth=None)
+    # 分析到所有层级并保存到文件
+    output_path = "model_structure_analysis.txt"
+    print(f"\n开始分析模型结构...")
+    print(f"输出文件: {output_path}")
     
-    # # 可以限制深度，只看主要结构
-    # print("\n\n" + "█" * 120)
-    # print(" " * 40 + "主要结构概览（深度限制=2）")
-    # print("█" * 120)
-    # analyze_model_structure(model1, "ComplexResidualUNet 概览", max_depth=2)
+    analyze_model_structure(
+        model1, 
+        "ComplexResidualUNet (depth=2, base=8)", 
+        max_depth=None,
+        output_file=output_path
+    )
+    
+    # 也可以生成一个简化版本（限制深度）
+    output_path_short = "model_structure_summary.txt"
+    print(f"\n生成简化版本...")
+    print(f"输出文件: {output_path_short}")
+    
+    analyze_model_structure(
+        model1, 
+        "ComplexResidualUNet - 概览", 
+        max_depth=2,
+        output_file=output_path_short
+    )
+    
+    print("\n" + "="*120)
+    print("✓ 完成！生成了以下报告文件：")
+    print(f"  1. {output_path} - 完整详细分析（所有层级）")
+    print(f"  2. {output_path_short} - 简化概览（depth=2）")
+    print("="*120)

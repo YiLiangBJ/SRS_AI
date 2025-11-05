@@ -1,0 +1,649 @@
+# 模型结构分析报告
+# 生成时间: 2025-11-05 13:01:49
+# 模型名称: ComplexResidualUNet_d3_b16 - 概览
+
+
+████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
+                                             🔍 ComplexResidualUNet_d3_b16 - 概览 结构分析
+████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
+
+【整体统计】
+  总参数量:     410,402
+  可训练参数:   410,402
+  冻结参数:     0
+  缓冲区元素:   2,844
+  总模块数:     222
+
+【参数类型分布】
+  weight              : 112 个,    407,840 参数
+  bias                :  56 个,      2,562 参数
+
+========================================================================================================================
+                                             📊 详细层级结构
+========================================================================================================================
+
+（显示深度限制为 3 层）
+
+💡 【执行顺序 Forward Flow】显示模块在forward()中的调用顺序
+
+
+========================================================================================================================
+📦 模型: ComplexResidualUNet
+========================================================================================================================
+    ├─ enc_blocks: ModuleList
+    │   ├─ 0: ComplexResidualBlock
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. residual = self.shortcut(...)
+    │   │     2. out = self.conv1(...)
+    │   │     3. out = self.bn1(...)
+    │   │     4. out = self.activation1(...)
+    │   │     5. out = self.conv2(...)
+    │   │     6. out = self.bn2(...)
+    │   │     7. out = self.attention(...)
+    │   │     8. out = self.activation2(...)
+    │   │   ├─ activation1: ComplexModReLU
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 16 个
+    │   │   │       • bias: (16,) = 16 (✓可训练)
+    │   │   │     总参数: 16 个
+    │   │   ├─ activation2: ComplexModReLU
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 16 个
+    │   │   │       • bias: (16,) = 16 (✓可训练)
+    │   │   │     总参数: 16 个
+    │   │   ├─ conv1: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ bn1: ComplexBatchNorm1d
+    │   │   ├─ conv2: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ bn2: ComplexBatchNorm1d
+    │   │   ├─ shortcut: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   └─ attention: ComplexAttention
+    │   ├─ 1: ComplexResidualBlock
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. residual = self.shortcut(...)
+    │   │     2. out = self.conv1(...)
+    │   │     3. out = self.bn1(...)
+    │   │     4. out = self.activation1(...)
+    │   │     5. out = self.conv2(...)
+    │   │     6. out = self.bn2(...)
+    │   │     7. out = self.attention(...)
+    │   │     8. out = self.activation2(...)
+    │   │   ├─ activation1: ComplexModReLU
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 32 个
+    │   │   │       • bias: (32,) = 32 (✓可训练)
+    │   │   │     总参数: 32 个
+    │   │   ├─ activation2: ComplexModReLU
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 32 个
+    │   │   │       • bias: (32,) = 32 (✓可训练)
+    │   │   │     总参数: 32 个
+    │   │   ├─ conv1: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ bn1: ComplexBatchNorm1d
+    │   │   ├─ conv2: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ bn2: ComplexBatchNorm1d
+    │   │   ├─ shortcut: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   └─ attention: ComplexAttention
+    │   └─ 2: ComplexResidualBlock
+    │       
+    │       【执行顺序 Forward Flow】
+    │         1. residual = self.shortcut(...)
+    │         2. out = self.conv1(...)
+    │         3. out = self.bn1(...)
+    │         4. out = self.activation1(...)
+    │         5. out = self.conv2(...)
+    │         6. out = self.bn2(...)
+    │         7. out = self.attention(...)
+    │         8. out = self.activation2(...)
+    │       ├─ activation1: ComplexModReLU
+    │       │   
+    │       │   【参数统计】
+    │       │     直接参数: 64 个
+    │       │       • bias: (64,) = 64 (✓可训练)
+    │       │     总参数: 64 个
+    │       ├─ activation2: ComplexModReLU
+    │       │   
+    │       │   【参数统计】
+    │       │     直接参数: 64 个
+    │       │       • bias: (64,) = 64 (✓可训练)
+    │       │     总参数: 64 个
+    │       ├─ conv1: ComplexConv1d
+    │       │   
+    │       │   【执行顺序 Forward Flow】
+    │       │     1. pad_total = self.kernel_size(...)
+    │       │     2. real_real = self.conv_real(...)
+    │       │     3. real_imag = self.conv_real(...)
+    │       │     4. imag_real = self.conv_imag(...)
+    │       │     5. imag_imag = self.conv_imag(...)
+    │       ├─ bn1: ComplexBatchNorm1d
+    │       ├─ conv2: ComplexConv1d
+    │       │   
+    │       │   【执行顺序 Forward Flow】
+    │       │     1. pad_total = self.kernel_size(...)
+    │       │     2. real_real = self.conv_real(...)
+    │       │     3. real_imag = self.conv_real(...)
+    │       │     4. imag_real = self.conv_imag(...)
+    │       │     5. imag_imag = self.conv_imag(...)
+    │       ├─ bn2: ComplexBatchNorm1d
+    │       ├─ shortcut: ComplexConv1d
+    │       │   
+    │       │   【执行顺序 Forward Flow】
+    │       │     1. pad_total = self.kernel_size(...)
+    │       │     2. real_real = self.conv_real(...)
+    │       │     3. real_imag = self.conv_real(...)
+    │       │     4. imag_real = self.conv_imag(...)
+    │       │     5. imag_imag = self.conv_imag(...)
+    │       └─ attention: ComplexAttention
+    ├─ down_samples: ModuleList
+    │   ├─ 0: ComplexConv1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. pad_total = self.kernel_size(...)
+    │   │     2. real_real = self.conv_real(...)
+    │   │     3. real_imag = self.conv_real(...)
+    │   │     4. imag_real = self.conv_imag(...)
+    │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ conv_real: Conv1d
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 528 个
+    │   │   │       • bias: (16,) = 16 (✓可训练)
+    │   │   │       • weight: (16, 16, 2) = 512 (✓可训练)
+    │   │   │     总参数: 528 个
+    │   │   └─ conv_imag: Conv1d
+    │   │       
+    │   │       【参数统计】
+    │   │         直接参数: 528 个
+    │   │           • bias: (16,) = 16 (✓可训练)
+    │   │           • weight: (16, 16, 2) = 512 (✓可训练)
+    │   │         总参数: 528 个
+    │   ├─ 1: ComplexConv1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. pad_total = self.kernel_size(...)
+    │   │     2. real_real = self.conv_real(...)
+    │   │     3. real_imag = self.conv_real(...)
+    │   │     4. imag_real = self.conv_imag(...)
+    │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ conv_real: Conv1d
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 2,080 个
+    │   │   │       • bias: (32,) = 32 (✓可训练)
+    │   │   │       • weight: (32, 32, 2) = 2,048 (✓可训练)
+    │   │   │     总参数: 2,080 个
+    │   │   └─ conv_imag: Conv1d
+    │   │       
+    │   │       【参数统计】
+    │   │         直接参数: 2,080 个
+    │   │           • bias: (32,) = 32 (✓可训练)
+    │   │           • weight: (32, 32, 2) = 2,048 (✓可训练)
+    │   │         总参数: 2,080 个
+    │   └─ 2: ComplexConv1d
+    │       
+    │       【执行顺序 Forward Flow】
+    │         1. pad_total = self.kernel_size(...)
+    │         2. real_real = self.conv_real(...)
+    │         3. real_imag = self.conv_real(...)
+    │         4. imag_real = self.conv_imag(...)
+    │         5. imag_imag = self.conv_imag(...)
+    │       ├─ conv_real: Conv1d
+    │       │   
+    │       │   【参数统计】
+    │       │     直接参数: 8,256 个
+    │       │       • bias: (64,) = 64 (✓可训练)
+    │       │       • weight: (64, 64, 2) = 8,192 (✓可训练)
+    │       │     总参数: 8,256 个
+    │       └─ conv_imag: Conv1d
+    │           
+    │           【参数统计】
+    │             直接参数: 8,256 个
+    │               • bias: (64,) = 64 (✓可训练)
+    │               • weight: (64, 64, 2) = 8,192 (✓可训练)
+    │             总参数: 8,256 个
+    ├─ bottleneck: ComplexResidualBlock
+    │   
+    │   【执行顺序 Forward Flow】
+    │     1. residual = self.shortcut(...)
+    │     2. out = self.conv1(...)
+    │     3. out = self.bn1(...)
+    │     4. out = self.activation1(...)
+    │     5. out = self.conv2(...)
+    │     6. out = self.bn2(...)
+    │     7. out = self.attention(...)
+    │     8. out = self.activation2(...)
+    │   ├─ activation1: ComplexModReLU
+    │   │   
+    │   │   【参数统计】
+    │   │     直接参数: 128 个
+    │   │       • bias: (128,) = 128 (✓可训练)
+    │   │     总参数: 128 个
+    │   ├─ activation2: ComplexModReLU
+    │   │   
+    │   │   【参数统计】
+    │   │     直接参数: 128 个
+    │   │       • bias: (128,) = 128 (✓可训练)
+    │   │     总参数: 128 个
+    │   ├─ conv1: ComplexConv1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. pad_total = self.kernel_size(...)
+    │   │     2. real_real = self.conv_real(...)
+    │   │     3. real_imag = self.conv_real(...)
+    │   │     4. imag_real = self.conv_imag(...)
+    │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ conv_real: Conv1d
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 24,576 个
+    │   │   │       • weight: (128, 64, 3) = 24,576 (✓可训练)
+    │   │   │     总参数: 24,576 个
+    │   │   └─ conv_imag: Conv1d
+    │   │       
+    │   │       【参数统计】
+    │   │         直接参数: 24,576 个
+    │   │           • weight: (128, 64, 3) = 24,576 (✓可训练)
+    │   │         总参数: 24,576 个
+    │   ├─ bn1: ComplexBatchNorm1d
+    │   │   ├─ bn_real: BatchNorm1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. exponential_average_factor = self.momentum(...)
+    │   │   │     2. exponential_average_factor = self.num_batches_tracked(...)
+    │   │   │     3. exponential_average_factor = self.momentum(...)
+    │   │   │     4. bn_training = self.running_mean(...)
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 256 个
+    │   │   │       • bias: (128,) = 128 (✓可训练)
+    │   │   │       • weight: (128,) = 128 (✓可训练)
+    │   │   │     总参数: 256 个
+    │   │   │   【缓冲区】(非可训练)
+    │   │   │     • running_mean: (128,) = 128
+    │   │   │     • running_var: (128,) = 128
+    │   │   │     • num_batches_tracked: () = 1
+    │   │   └─ bn_imag: BatchNorm1d
+    │   │       
+    │   │       【执行顺序 Forward Flow】
+    │   │         1. exponential_average_factor = self.momentum(...)
+    │   │         2. exponential_average_factor = self.num_batches_tracked(...)
+    │   │         3. exponential_average_factor = self.momentum(...)
+    │   │         4. bn_training = self.running_mean(...)
+    │   │       
+    │   │       【参数统计】
+    │   │         直接参数: 256 个
+    │   │           • bias: (128,) = 128 (✓可训练)
+    │   │           • weight: (128,) = 128 (✓可训练)
+    │   │         总参数: 256 个
+    │   │       【缓冲区】(非可训练)
+    │   │         • running_mean: (128,) = 128
+    │   │         • running_var: (128,) = 128
+    │   │         • num_batches_tracked: () = 1
+    │   ├─ conv2: ComplexConv1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. pad_total = self.kernel_size(...)
+    │   │     2. real_real = self.conv_real(...)
+    │   │     3. real_imag = self.conv_real(...)
+    │   │     4. imag_real = self.conv_imag(...)
+    │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ conv_real: Conv1d
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 49,152 个
+    │   │   │       • weight: (128, 128, 3) = 49,152 (✓可训练)
+    │   │   │     总参数: 49,152 个
+    │   │   └─ conv_imag: Conv1d
+    │   │       
+    │   │       【参数统计】
+    │   │         直接参数: 49,152 个
+    │   │           • weight: (128, 128, 3) = 49,152 (✓可训练)
+    │   │         总参数: 49,152 个
+    │   ├─ bn2: ComplexBatchNorm1d
+    │   │   ├─ bn_real: BatchNorm1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. exponential_average_factor = self.momentum(...)
+    │   │   │     2. exponential_average_factor = self.num_batches_tracked(...)
+    │   │   │     3. exponential_average_factor = self.momentum(...)
+    │   │   │     4. bn_training = self.running_mean(...)
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 256 个
+    │   │   │       • bias: (128,) = 128 (✓可训练)
+    │   │   │       • weight: (128,) = 128 (✓可训练)
+    │   │   │     总参数: 256 个
+    │   │   │   【缓冲区】(非可训练)
+    │   │   │     • running_mean: (128,) = 128
+    │   │   │     • running_var: (128,) = 128
+    │   │   │     • num_batches_tracked: () = 1
+    │   │   └─ bn_imag: BatchNorm1d
+    │   │       
+    │   │       【执行顺序 Forward Flow】
+    │   │         1. exponential_average_factor = self.momentum(...)
+    │   │         2. exponential_average_factor = self.num_batches_tracked(...)
+    │   │         3. exponential_average_factor = self.momentum(...)
+    │   │         4. bn_training = self.running_mean(...)
+    │   │       
+    │   │       【参数统计】
+    │   │         直接参数: 256 个
+    │   │           • bias: (128,) = 128 (✓可训练)
+    │   │           • weight: (128,) = 128 (✓可训练)
+    │   │         总参数: 256 个
+    │   │       【缓冲区】(非可训练)
+    │   │         • running_mean: (128,) = 128
+    │   │         • running_var: (128,) = 128
+    │   │         • num_batches_tracked: () = 1
+    │   ├─ shortcut: ComplexConv1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. pad_total = self.kernel_size(...)
+    │   │     2. real_real = self.conv_real(...)
+    │   │     3. real_imag = self.conv_real(...)
+    │   │     4. imag_real = self.conv_imag(...)
+    │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ conv_real: Conv1d
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 8,192 个
+    │   │   │       • weight: (128, 64, 1) = 8,192 (✓可训练)
+    │   │   │     总参数: 8,192 个
+    │   │   └─ conv_imag: Conv1d
+    │   │       
+    │   │       【参数统计】
+    │   │         直接参数: 8,192 个
+    │   │           • weight: (128, 64, 1) = 8,192 (✓可训练)
+    │   │         总参数: 8,192 个
+    │   └─ attention: ComplexAttention
+    │       ├─ avg_pool: AdaptiveAvgPool1d
+    │       └─ fc: Sequential
+    ├─ up_samples: ModuleList
+    │   ├─ 0: ComplexConvTranspose1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. real_real = self.conv_real(...)
+    │   │     2. real_imag = self.conv_real(...)
+    │   │     3. imag_real = self.conv_imag(...)
+    │   │     4. imag_imag = self.conv_imag(...)
+    │   │   ├─ conv_real: ConvTranspose1d
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 16,448 个
+    │   │   │       • bias: (64,) = 64 (✓可训练)
+    │   │   │       • weight: (128, 64, 2) = 16,384 (✓可训练)
+    │   │   │     总参数: 16,448 个
+    │   │   └─ conv_imag: ConvTranspose1d
+    │   │       
+    │   │       【参数统计】
+    │   │         直接参数: 16,448 个
+    │   │           • bias: (64,) = 64 (✓可训练)
+    │   │           • weight: (128, 64, 2) = 16,384 (✓可训练)
+    │   │         总参数: 16,448 个
+    │   ├─ 1: ComplexConvTranspose1d
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. real_real = self.conv_real(...)
+    │   │     2. real_imag = self.conv_real(...)
+    │   │     3. imag_real = self.conv_imag(...)
+    │   │     4. imag_imag = self.conv_imag(...)
+    │   │   ├─ conv_real: ConvTranspose1d
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 4,128 个
+    │   │   │       • bias: (32,) = 32 (✓可训练)
+    │   │   │       • weight: (64, 32, 2) = 4,096 (✓可训练)
+    │   │   │     总参数: 4,128 个
+    │   │   └─ conv_imag: ConvTranspose1d
+    │   │       
+    │   │       【参数统计】
+    │   │         直接参数: 4,128 个
+    │   │           • bias: (32,) = 32 (✓可训练)
+    │   │           • weight: (64, 32, 2) = 4,096 (✓可训练)
+    │   │         总参数: 4,128 个
+    │   └─ 2: ComplexConvTranspose1d
+    │       
+    │       【执行顺序 Forward Flow】
+    │         1. real_real = self.conv_real(...)
+    │         2. real_imag = self.conv_real(...)
+    │         3. imag_real = self.conv_imag(...)
+    │         4. imag_imag = self.conv_imag(...)
+    │       ├─ conv_real: ConvTranspose1d
+    │       │   
+    │       │   【参数统计】
+    │       │     直接参数: 1,040 个
+    │       │       • bias: (16,) = 16 (✓可训练)
+    │       │       • weight: (32, 16, 2) = 1,024 (✓可训练)
+    │       │     总参数: 1,040 个
+    │       └─ conv_imag: ConvTranspose1d
+    │           
+    │           【参数统计】
+    │             直接参数: 1,040 个
+    │               • bias: (16,) = 16 (✓可训练)
+    │               • weight: (32, 16, 2) = 1,024 (✓可训练)
+    │             总参数: 1,040 个
+    ├─ dec_blocks: ModuleList
+    │   ├─ 0: ComplexResidualBlock
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. residual = self.shortcut(...)
+    │   │     2. out = self.conv1(...)
+    │   │     3. out = self.bn1(...)
+    │   │     4. out = self.activation1(...)
+    │   │     5. out = self.conv2(...)
+    │   │     6. out = self.bn2(...)
+    │   │     7. out = self.attention(...)
+    │   │     8. out = self.activation2(...)
+    │   │   ├─ activation1: ComplexModReLU
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 64 个
+    │   │   │       • bias: (64,) = 64 (✓可训练)
+    │   │   │     总参数: 64 个
+    │   │   ├─ activation2: ComplexModReLU
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 64 个
+    │   │   │       • bias: (64,) = 64 (✓可训练)
+    │   │   │     总参数: 64 个
+    │   │   ├─ conv1: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ bn1: ComplexBatchNorm1d
+    │   │   ├─ conv2: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ bn2: ComplexBatchNorm1d
+    │   │   ├─ shortcut: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   └─ attention: ComplexAttention
+    │   ├─ 1: ComplexResidualBlock
+    │   │   
+    │   │   【执行顺序 Forward Flow】
+    │   │     1. residual = self.shortcut(...)
+    │   │     2. out = self.conv1(...)
+    │   │     3. out = self.bn1(...)
+    │   │     4. out = self.activation1(...)
+    │   │     5. out = self.conv2(...)
+    │   │     6. out = self.bn2(...)
+    │   │     7. out = self.attention(...)
+    │   │     8. out = self.activation2(...)
+    │   │   ├─ activation1: ComplexModReLU
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 32 个
+    │   │   │       • bias: (32,) = 32 (✓可训练)
+    │   │   │     总参数: 32 个
+    │   │   ├─ activation2: ComplexModReLU
+    │   │   │   
+    │   │   │   【参数统计】
+    │   │   │     直接参数: 32 个
+    │   │   │       • bias: (32,) = 32 (✓可训练)
+    │   │   │     总参数: 32 个
+    │   │   ├─ conv1: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ bn1: ComplexBatchNorm1d
+    │   │   ├─ conv2: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   ├─ bn2: ComplexBatchNorm1d
+    │   │   ├─ shortcut: ComplexConv1d
+    │   │   │   
+    │   │   │   【执行顺序 Forward Flow】
+    │   │   │     1. pad_total = self.kernel_size(...)
+    │   │   │     2. real_real = self.conv_real(...)
+    │   │   │     3. real_imag = self.conv_real(...)
+    │   │   │     4. imag_real = self.conv_imag(...)
+    │   │   │     5. imag_imag = self.conv_imag(...)
+    │   │   └─ attention: ComplexAttention
+    │   └─ 2: ComplexResidualBlock
+    │       
+    │       【执行顺序 Forward Flow】
+    │         1. residual = self.shortcut(...)
+    │         2. out = self.conv1(...)
+    │         3. out = self.bn1(...)
+    │         4. out = self.activation1(...)
+    │         5. out = self.conv2(...)
+    │         6. out = self.bn2(...)
+    │         7. out = self.attention(...)
+    │         8. out = self.activation2(...)
+    │       ├─ activation1: ComplexModReLU
+    │       │   
+    │       │   【参数统计】
+    │       │     直接参数: 16 个
+    │       │       • bias: (16,) = 16 (✓可训练)
+    │       │     总参数: 16 个
+    │       ├─ activation2: ComplexModReLU
+    │       │   
+    │       │   【参数统计】
+    │       │     直接参数: 16 个
+    │       │       • bias: (16,) = 16 (✓可训练)
+    │       │     总参数: 16 个
+    │       ├─ conv1: ComplexConv1d
+    │       │   
+    │       │   【执行顺序 Forward Flow】
+    │       │     1. pad_total = self.kernel_size(...)
+    │       │     2. real_real = self.conv_real(...)
+    │       │     3. real_imag = self.conv_real(...)
+    │       │     4. imag_real = self.conv_imag(...)
+    │       │     5. imag_imag = self.conv_imag(...)
+    │       ├─ bn1: ComplexBatchNorm1d
+    │       ├─ conv2: ComplexConv1d
+    │       │   
+    │       │   【执行顺序 Forward Flow】
+    │       │     1. pad_total = self.kernel_size(...)
+    │       │     2. real_real = self.conv_real(...)
+    │       │     3. real_imag = self.conv_real(...)
+    │       │     4. imag_real = self.conv_imag(...)
+    │       │     5. imag_imag = self.conv_imag(...)
+    │       ├─ bn2: ComplexBatchNorm1d
+    │       ├─ shortcut: ComplexConv1d
+    │       │   
+    │       │   【执行顺序 Forward Flow】
+    │       │     1. pad_total = self.kernel_size(...)
+    │       │     2. real_real = self.conv_real(...)
+    │       │     3. real_imag = self.conv_real(...)
+    │       │     4. imag_real = self.conv_imag(...)
+    │       │     5. imag_imag = self.conv_imag(...)
+    │       └─ attention: ComplexAttention
+    └─ final_conv: ComplexConv1d
+        
+        【执行顺序 Forward Flow】
+          1. pad_total = self.kernel_size(...)
+          2. real_real = self.conv_real(...)
+          3. real_imag = self.conv_real(...)
+          4. imag_real = self.conv_imag(...)
+          5. imag_imag = self.conv_imag(...)
+        ├─ conv_real: Conv1d
+        │   
+        │   【参数统计】
+        │     直接参数: 17 个
+        │       • bias: (1,) = 1 (✓可训练)
+        │       • weight: (1, 16, 1) = 16 (✓可训练)
+        │     总参数: 17 个
+        └─ conv_imag: Conv1d
+            
+            【参数统计】
+              直接参数: 17 个
+                • bias: (1,) = 1 (✓可训练)
+                • weight: (1, 16, 1) = 16 (✓可训练)
+              总参数: 17 个
+
+========================================================================================================================
+                                        ✓ 分析完成
+========================================================================================================================
+
+📄 报告已保存到: analysis_reports\ComplexResidualUNet_d3_b16_summary.txt
