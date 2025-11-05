@@ -72,6 +72,14 @@ def infer_tensor_shape_meaning(shape, module_type, param_name=""):
         elif 'Embedding' in module_type:
             if param_name == 'weight' and len(shape) == 2:
                 return f"({shape[0]}, {shape[1]})  # (num_embeddings, embedding_dim)"
+        
+        elif 'ModReLU' in module_type or 'ReLU' in module_type:
+            if param_name == 'bias' and len(shape) == 1:
+                return f"({shape[0]},)  # (num_features,)"
+    
+    # 对于任何一维bias，如果还没处理，尝试通用标注
+    if param_name == 'bias' and len(shape) == 1:
+        return f"({shape[0]},)  # (num_features,)"
     
     # 默认返回原始形状
     return str(tuple(shape))
@@ -148,17 +156,29 @@ def get_module_io_shape_info(module, module_type):
                 info['output_shape'] = "(B, C, H', W')"
                 info['shape_note'] = "B=batch, C=channels"
         
+        elif 'ModReLU' in module_type:
+            # Complex activation - 尝试从bias推断特征数 (必须在ReLU之前检查！)
+            num_features = None
+            if hasattr(module, 'bias'):
+                if isinstance(module.bias, torch.nn.Parameter):
+                    num_features = module.bias.shape[0]
+                elif module.bias is not None and hasattr(module.bias, 'shape'):
+                    num_features = module.bias.shape[0]
+            
+            if num_features is not None:
+                info['input_shape'] = f"(B, {num_features}, L)"
+                info['output_shape'] = f"(B, {num_features}, L)"
+                info['shape_note'] = f"B=batch, {num_features} features, L=length (complex tensor)"
+            else:
+                info['input_shape'] = "(*, ...)"
+                info['output_shape'] = "(*, ...)"
+                info['shape_note'] = "complex tensor, shape unchanged"
+        
         elif 'ReLU' in module_type or 'Dropout' in module_type or 'Identity' in module_type:
             # Element-wise operations
             info['input_shape'] = "(*, ...)"
             info['output_shape'] = "(*, ...)"
-            info['shape_note'] = "shape unchanged"
-        
-        elif 'ModReLU' in module_type:
-            # Complex activation
-            info['input_shape'] = "(*, ...)"
-            info['output_shape'] = "(*, ...)"
-            info['shape_note'] = "complex tensor, shape unchanged"
+            info['shape_note'] = "element-wise operation, shape unchanged"
     
     except:
         pass

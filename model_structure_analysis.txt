@@ -1,5 +1,5 @@
 # 模型结构分析报告
-# 生成时间: 2025-11-05 13:17:43
+# 生成时间: 2025-11-05 13:26:46
 # 模型名称: ComplexResidualUNet (depth=2, base=8)
 
 
@@ -53,24 +53,24 @@
     │   │   ├─ activation1: ComplexModReLU
     │   │   │   
     │   │   │   【张量形状 Tensor Shapes】
-    │   │   │     Input:  (*, ...)
-    │   │   │     Output: (*, ...)
-    │   │   │     说明: shape unchanged
+    │   │   │     Input:  (B, 8, L)
+    │   │   │     Output: (B, 8, L)
+    │   │   │     说明: B=batch, 8 features, L=length (complex tensor)
     │   │   │   
     │   │   │   【参数统计】
     │   │   │     直接参数: 8 个
-    │   │   │       • bias: (8,) = 8 (✓可训练)
+    │   │   │       • bias: (8,)  # (num_features,) = 8 (✓可训练)
     │   │   │     总参数: 8 个
     │   │   ├─ activation2: ComplexModReLU
     │   │   │   
     │   │   │   【张量形状 Tensor Shapes】
-    │   │   │     Input:  (*, ...)
-    │   │   │     Output: (*, ...)
-    │   │   │     说明: shape unchanged
+    │   │   │     Input:  (B, 8, L)
+    │   │   │     Output: (B, 8, L)
+    │   │   │     说明: B=batch, 8 features, L=length (complex tensor)
     │   │   │   
     │   │   │   【参数统计】
     │   │   │     直接参数: 8 个
-    │   │   │       • bias: (8,) = 8 (✓可训练)
+    │   │   │       • bias: (8,)  # (num_features,) = 8 (✓可训练)
     │   │   │     总参数: 8 个
     │   │   ├─ conv1: ComplexConv1d
     │   │   │   
@@ -295,7 +295,7 @@
     │   │           │   【张量形状 Tensor Shapes】
     │   │           │     Input:  (*, ...)
     │   │           │     Output: (*, ...)
-    │   │           │     说明: shape unchanged
+    │   │           │     说明: element-wise operation, shape unchanged
     │   │           └─ 2: ComplexConv1d
     │   │               
     │   │               【执行顺序 Forward Flow】
@@ -340,24 +340,24 @@
     │       ├─ activation1: ComplexModReLU
     │       │   
     │       │   【张量形状 Tensor Shapes】
-    │       │     Input:  (*, ...)
-    │       │     Output: (*, ...)
-    │       │     说明: shape unchanged
+    │       │     Input:  (B, 16, L)
+    │       │     Output: (B, 16, L)
+    │       │     说明: B=batch, 16 features, L=length (complex tensor)
     │       │   
     │       │   【参数统计】
     │       │     直接参数: 16 个
-    │       │       • bias: (16,) = 16 (✓可训练)
+    │       │       • bias: (16,)  # (num_features,) = 16 (✓可训练)
     │       │     总参数: 16 个
     │       ├─ activation2: ComplexModReLU
     │       │   
     │       │   【张量形状 Tensor Shapes】
-    │       │     Input:  (*, ...)
-    │       │     Output: (*, ...)
-    │       │     说明: shape unchanged
+    │       │     Input:  (B, 16, L)
+    │       │     Output: (B, 16, L)
+    │       │     说明: B=batch, 16 features, L=length (complex tensor)
     │       │   
     │       │   【参数统计】
     │       │     直接参数: 16 个
-    │       │       • bias: (16,) = 16 (✓可训练)
+    │       │       • bias: (16,)  # (num_features,) = 16 (✓可训练)
     │       │     总参数: 16 个
     │       ├─ conv1: ComplexConv1d
     │       │   
@@ -582,7 +582,7 @@
     │               │   【张量形状 Tensor Shapes】
     │               │     Input:  (*, ...)
     │               │     Output: (*, ...)
-    │               │     说明: shape unchanged
+    │               │     说明: element-wise operation, shape unchanged
     │               └─ 2: ComplexConv1d
     │                   
     │                   【执行顺序 Forward Flow】
@@ -692,24 +692,24 @@
     │   ├─ activation1: ComplexModReLU
     │   │   
     │   │   【张量形状 Tensor Shapes】
-    │   │     Input:  (*, ...)
-    │   │     Output: (*, ...)
-    │   │     说明: shape unchanged
+    │   │     Input:  (B, 32, L)
+    │   │     Output: (B, 32, L)
+    │   │     说明: B=batch, 32 features, L=length (complex tensor)
     │   │   
     │   │   【参数统计】
     │   │     直接参数: 32 个
-    │   │       • bias: (32,) = 32 (✓可训练)
+    │   │       • bias: (32,)  # (num_features,) = 32 (✓可训练)
     │   │     总参数: 32 个
     │   ├─ activation2: ComplexModReLU
     │   │   
     │   │   【张量形状 Tensor Shapes】
-    │   │     Input:  (*, ...)
-    │   │     Output: (*, ...)
-    │   │     说明: shape unchanged
+    │   │     Input:  (B, 32, L)
+    │   │     Output: (B, 32, L)
+    │   │     说明: B=batch, 32 features, L=length (complex tensor)
     │   │   
     │   │   【参数统计】
     │   │     直接参数: 32 个
-    │   │       • bias: (32,) = 32 (✓可训练)
+    │   │       • bias: (32,)  # (num_features,) = 32 (✓可训练)
     │   │     总参数: 32 个
     │   ├─ conv1: ComplexConv1d
     │   │   
@@ -934,7 +934,7 @@
     │           │   【张量形状 Tensor Shapes】
     │           │     Input:  (*, ...)
     │           │     Output: (*, ...)
-    │           │     说明: shape unchanged
+    │           │     说明: element-wise operation, shape unchanged
     │           └─ 2: ComplexConv1d
     │               
     │               【执行顺序 Forward Flow】
@@ -1043,24 +1043,24 @@
     │   │   ├─ activation1: ComplexModReLU
     │   │   │   
     │   │   │   【张量形状 Tensor Shapes】
-    │   │   │     Input:  (*, ...)
-    │   │   │     Output: (*, ...)
-    │   │   │     说明: shape unchanged
+    │   │   │     Input:  (B, 16, L)
+    │   │   │     Output: (B, 16, L)
+    │   │   │     说明: B=batch, 16 features, L=length (complex tensor)
     │   │   │   
     │   │   │   【参数统计】
     │   │   │     直接参数: 16 个
-    │   │   │       • bias: (16,) = 16 (✓可训练)
+    │   │   │       • bias: (16,)  # (num_features,) = 16 (✓可训练)
     │   │   │     总参数: 16 个
     │   │   ├─ activation2: ComplexModReLU
     │   │   │   
     │   │   │   【张量形状 Tensor Shapes】
-    │   │   │     Input:  (*, ...)
-    │   │   │     Output: (*, ...)
-    │   │   │     说明: shape unchanged
+    │   │   │     Input:  (B, 16, L)
+    │   │   │     Output: (B, 16, L)
+    │   │   │     说明: B=batch, 16 features, L=length (complex tensor)
     │   │   │   
     │   │   │   【参数统计】
     │   │   │     直接参数: 16 个
-    │   │   │       • bias: (16,) = 16 (✓可训练)
+    │   │   │       • bias: (16,)  # (num_features,) = 16 (✓可训练)
     │   │   │     总参数: 16 个
     │   │   ├─ conv1: ComplexConv1d
     │   │   │   
@@ -1285,7 +1285,7 @@
     │   │           │   【张量形状 Tensor Shapes】
     │   │           │     Input:  (*, ...)
     │   │           │     Output: (*, ...)
-    │   │           │     说明: shape unchanged
+    │   │           │     说明: element-wise operation, shape unchanged
     │   │           └─ 2: ComplexConv1d
     │   │               
     │   │               【执行顺序 Forward Flow】
@@ -1330,24 +1330,24 @@
     │       ├─ activation1: ComplexModReLU
     │       │   
     │       │   【张量形状 Tensor Shapes】
-    │       │     Input:  (*, ...)
-    │       │     Output: (*, ...)
-    │       │     说明: shape unchanged
+    │       │     Input:  (B, 8, L)
+    │       │     Output: (B, 8, L)
+    │       │     说明: B=batch, 8 features, L=length (complex tensor)
     │       │   
     │       │   【参数统计】
     │       │     直接参数: 8 个
-    │       │       • bias: (8,) = 8 (✓可训练)
+    │       │       • bias: (8,)  # (num_features,) = 8 (✓可训练)
     │       │     总参数: 8 个
     │       ├─ activation2: ComplexModReLU
     │       │   
     │       │   【张量形状 Tensor Shapes】
-    │       │     Input:  (*, ...)
-    │       │     Output: (*, ...)
-    │       │     说明: shape unchanged
+    │       │     Input:  (B, 8, L)
+    │       │     Output: (B, 8, L)
+    │       │     说明: B=batch, 8 features, L=length (complex tensor)
     │       │   
     │       │   【参数统计】
     │       │     直接参数: 8 个
-    │       │       • bias: (8,) = 8 (✓可训练)
+    │       │       • bias: (8,)  # (num_features,) = 8 (✓可训练)
     │       │     总参数: 8 个
     │       ├─ conv1: ComplexConv1d
     │       │   
@@ -1572,7 +1572,7 @@
     │               │   【张量形状 Tensor Shapes】
     │               │     Input:  (*, ...)
     │               │     Output: (*, ...)
-    │               │     说明: shape unchanged
+    │               │     说明: element-wise operation, shape unchanged
     │               └─ 2: ComplexConv1d
     │                   
     │                   【执行顺序 Forward Flow】

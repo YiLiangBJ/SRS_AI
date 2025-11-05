@@ -1,5 +1,5 @@
 # 模型结构分析报告
-# 生成时间: 2025-11-05 13:17:43
+# 生成时间: 2025-11-05 13:26:46
 # 模型名称: ComplexResidualUNet - 概览
 
 
@@ -92,24 +92,24 @@
     │   ├─ activation1: ComplexModReLU
     │   │   
     │   │   【张量形状 Tensor Shapes】
-    │   │     Input:  (*, ...)
-    │   │     Output: (*, ...)
-    │   │     说明: shape unchanged
+    │   │     Input:  (B, 32, L)
+    │   │     Output: (B, 32, L)
+    │   │     说明: B=batch, 32 features, L=length (complex tensor)
     │   │   
     │   │   【参数统计】
     │   │     直接参数: 32 个
-    │   │       • bias: (32,) = 32 (✓可训练)
+    │   │       • bias: (32,)  # (num_features,) = 32 (✓可训练)
     │   │     总参数: 32 个
     │   ├─ activation2: ComplexModReLU
     │   │   
     │   │   【张量形状 Tensor Shapes】
-    │   │     Input:  (*, ...)
-    │   │     Output: (*, ...)
-    │   │     说明: shape unchanged
+    │   │     Input:  (B, 32, L)
+    │   │     Output: (B, 32, L)
+    │   │     说明: B=batch, 32 features, L=length (complex tensor)
     │   │   
     │   │   【参数统计】
     │   │     直接参数: 32 个
-    │   │       • bias: (32,) = 32 (✓可训练)
+    │   │       • bias: (32,)  # (num_features,) = 32 (✓可训练)
     │   │     总参数: 32 个
     │   ├─ conv1: ComplexConv1d
     │   │   
