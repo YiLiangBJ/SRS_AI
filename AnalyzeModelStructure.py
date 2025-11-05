@@ -27,12 +27,17 @@ def analyze_parameter(name, param):
     }
 
 
-def format_module_params_summary(module, module_type):
+def format_module_params_summary(module, module_type, use_exact=True):
     """
     格式化模块参数的简要信息，用于数据流显示
     
+    Args:
+        module: PyTorch模块
+        module_type: 模块类型名称
+        use_exact: 是否使用精确数字（True）还是简化格式如10.8K（False）
+    
     Returns:
-        str: 格式化的参数信息，如 "total: 1,234 params"
+        str: 格式化的参数信息，如 "10,816 params" 或 "10.8K params"
     """
     try:
         # 统计总参数
@@ -42,13 +47,17 @@ def format_module_params_summary(module, module_type):
         if total_params == 0:
             return None
         
-        # 简洁格式
-        if total_params < 1000:
+        if use_exact:
+            # 精确格式，带千位分隔符
             return f"{total_params:,} params"
-        elif total_params < 1000000:
-            return f"{total_params/1000:.1f}K params"
         else:
-            return f"{total_params/1000000:.1f}M params"
+            # 简化格式
+            if total_params < 1000:
+                return f"{total_params:,} params"
+            elif total_params < 1000000:
+                return f"{total_params/1000:.1f}K params"
+            else:
+                return f"{total_params/1000000:.1f}M params"
     except:
         return None
 
@@ -300,49 +309,127 @@ def print_module_tree(module, prefix="", is_last=True, parent_name="", depth=0, 
                 if item['type'] == 'loop':
                     # 显示循环结构
                     loop_range = item['range']
+                    
+                    # 尝试获取循环次数
+                    try:
+                        if 'self.' in loop_range:
+                            # 如果是 self.depth 这种，尝试获取实际值
+                            attr_name = loop_range.replace('self.', '')
+                            if hasattr(module, attr_name):
+                                loop_count = getattr(module, attr_name)
+                            else:
+                                loop_count = None
+                        else:
+                            # 直接是数字
+                            loop_count = int(loop_range)
+                    except:
+                        loop_count = None
+                    
                     print(f"{param_prefix}  ┌─ Loop: for {item['var']} in range({loop_range})")
                     
-                    for loop_step in item['steps']:
-                        if 'module_list' in loop_step:
-                            module_list = loop_step['module_list']
-                            index = loop_step['index']
-                            var_name = loop_step.get('var', 'x')
+                    # 如果能确定循环次数，展开显示每次迭代
+                    if loop_count is not None and loop_count > 0 and loop_count <= 10:
+                        print(f"{param_prefix}  │    (展开显示每次迭代的实际参数量)")
+                        
+                        for iteration in range(loop_count):
+                            print(f"{param_prefix}  │")
+                            print(f"{param_prefix}  │  ─── 迭代 {item['var']}={iteration} ───")
                             
-                            # 尝试获取该ModuleList的信息
-                            if hasattr(module, module_list):
-                                module_list_obj = getattr(module, module_list)
-                                if isinstance(module_list_obj, nn.ModuleList) and len(module_list_obj) > 0:
-                                    # 获取第一个模块的类型作为示例
-                                    first_module = module_list_obj[0]
-                                    module_type = type(first_module).__name__
+                            for loop_step in item['steps']:
+                                if 'module_list' in loop_step:
+                                    module_list = loop_step['module_list']
+                                    index = loop_step['index']
+                                    var_name = loop_step.get('var', 'x')
                                     
-                                    # 获取输入输出形状信息
-                                    io_info = get_module_io_shape_info(first_module, module_type)
-                                    
-                                    # 获取参数信息
-                                    params_summary = format_module_params_summary(first_module, module_type)
-                                    
-                                    print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)  # {module_type}")
-                                    
-                                    # 显示形状和参数信息
-                                    if io_info['input_shape'] and io_info['output_shape']:
-                                        if params_summary:
-                                            print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
-                                        else:
-                                            print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']}")
-                                    elif params_summary:
-                                        print(f"{param_prefix}  │         Params: {params_summary}")
+                                    # 获取该ModuleList的第iteration个模块
+                                    if hasattr(module, module_list):
+                                        module_list_obj = getattr(module, module_list)
+                                        if isinstance(module_list_obj, nn.ModuleList) and iteration < len(module_list_obj):
+                                            target_module = module_list_obj[iteration]
+                                            module_type = type(target_module).__name__
+                                            
+                                            # 获取该模块的参数信息
+                                            io_info = get_module_io_shape_info(target_module, module_type)
+                                            params_summary = format_module_params_summary(target_module, module_type)
+                                            
+                                            print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{iteration}](...)  # {module_type}")
+                                            
+                                            # 显示形状和参数信息
+                                            if io_info['input_shape'] and io_info['output_shape']:
+                                                if params_summary:
+                                                    print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
+                                                else:
+                                                    print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']}")
+                                            elif params_summary:
+                                                print(f"{param_prefix}  │         {params_summary}")
+                                            
+                                            step_num += 1
+                                
+                                elif loop_step.get('type') == 'append':
+                                    list_name = loop_step['list']
+                                    value = loop_step['value']
+                                    print(f"{param_prefix}  │         → {list_name}.append({value})")
+                    
+                    else:
+                        # 循环次数未知或太多，使用原来的简略显示
+                        print(f"{param_prefix}  │    (注意：循环每次迭代的通道数/参数量可能不同，以下显示首次迭代)")
+                        
+                        # 计算循环总参数量
+                        loop_total_params = 0
+                        loop_has_params = False
+                        
+                        for loop_step in item['steps']:
+                            if 'module_list' in loop_step:
+                                module_list = loop_step['module_list']
+                                
+                                if hasattr(module, module_list):
+                                    module_list_obj = getattr(module, module_list)
+                                    if isinstance(module_list_obj, nn.ModuleList):
+                                        list_params = sum(p.numel() for m in module_list_obj for p in m.parameters())
+                                        loop_total_params += list_params
+                                        loop_has_params = True
+                        
+                        if loop_has_params and loop_total_params > 0:
+                            # 使用精确格式，带千位分隔符
+                            params_str = f"{loop_total_params:,} params"
+                            print(f"{param_prefix}  │    (循环总参数: {params_str})")
+                        
+                        # 显示首次迭代示例
+                        for loop_step in item['steps']:
+                            if 'module_list' in loop_step:
+                                module_list = loop_step['module_list']
+                                index = loop_step['index']
+                                var_name = loop_step.get('var', 'x')
+                                
+                                if hasattr(module, module_list):
+                                    module_list_obj = getattr(module, module_list)
+                                    if isinstance(module_list_obj, nn.ModuleList) and len(module_list_obj) > 0:
+                                        first_module = module_list_obj[0]
+                                        module_type = type(first_module).__name__
+                                        
+                                        io_info = get_module_io_shape_info(first_module, module_type)
+                                        params_summary = format_module_params_summary(first_module, module_type)
+                                        
+                                        print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)  # {module_type}")
+                                        
+                                        if io_info['input_shape'] and io_info['output_shape']:
+                                            if params_summary:
+                                                print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']} | {params_summary}")
+                                            else:
+                                                print(f"{param_prefix}  │         {io_info['input_shape']} → {io_info['output_shape']}")
+                                        elif params_summary:
+                                            print(f"{param_prefix}  │         {params_summary}")
+                                    else:
+                                        print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)")
                                 else:
                                     print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)")
-                            else:
-                                print(f"{param_prefix}  │    {step_num}. {var_name} = self.{module_list}[{index}](...)")
+                                
+                                step_num += 1
                             
-                            step_num += 1
-                        
-                        elif loop_step.get('type') == 'append':
-                            list_name = loop_step['list']
-                            value = loop_step['value']
-                            print(f"{param_prefix}  │         → {list_name}.append({value})  # save for later")
+                            elif loop_step.get('type') == 'append':
+                                list_name = loop_step['list']
+                                value = loop_step['value']
+                                print(f"{param_prefix}  │         → {list_name}.append({value})")
                     
                     print(f"{param_prefix}  └─")
                 
