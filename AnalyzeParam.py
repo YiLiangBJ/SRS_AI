@@ -369,11 +369,16 @@ def analyze_model_params(input_channels=2, output_channels=1, base_channels=32,
             print(f"\n  ├─ up_samples[{i}]: ComplexConvTranspose1d(stride=2)")
             print(f"  │   维度:  (B, C={up_in_ch:>3}, L) → (B, C={up_out_ch:>3}, L*2)")
             
-            # 计算参数
-            up_params_calc = 2 * (up_in_ch * up_out_ch * 2)
-            print(f"  │   = 2(复数) × in_ch × out_ch × kernel")
-            print(f"  │   = 2(复数) × {up_in_ch}(输入通道) × {up_out_ch}(输出通道) × 2(转置卷积核)")
-            print(f"  │   = {up_params_calc}")
+            # 计算参数 - 注意：ConvTranspose的bias大小是输入通道数！
+            has_bias = up_sample.conv_real.bias is not None
+            weight_params = 2 * up_in_ch * up_out_ch * 2  # 2(复数) × in × out × kernel
+            bias_params = 2 * up_in_ch if has_bias else 0  # 2(复数) × in_ch (注意是输入通道！)
+            up_params_calc = weight_params + bias_params
+            
+            print(f"  │   = 2(复数) × in_ch × out_ch × kernel + 2(复数) × in_ch(偏置)")
+            print(f"  │   = 2(复数) × {up_in_ch}(输入通道) × {up_out_ch}(输出通道) × 2(转置卷积核) + 2(复数) × {up_in_ch}(偏置)")
+            print(f"  │   = {weight_params}(权重) + {bias_params}(偏置) = {up_params_calc}")
+            print(f"  │   注：ConvTranspose的bias大小 = 输入通道数")
             
             # 实际参数
             up_params_actual = sum(p.numel() for p in up_sample.parameters())
