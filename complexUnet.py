@@ -169,7 +169,7 @@ class ComplexResidualBlock(nn.Module):
     """
     复数残差块
     """
-    def __init__(self, in_channels, out_channels, use_attention=False, activation='modrelu', circular=True):
+    def __init__(self, in_channels, out_channels, use_attention=False, activation='modrelu', circular=False):
         super().__init__()
         
         # 选择激活函数
@@ -180,7 +180,7 @@ class ComplexResidualBlock(nn.Module):
             self.activation1 = ComplexReLU()
             self.activation2 = ComplexReLU()
         
-        # 使用循环卷积保持序列长度不变
+        # 使用普通卷积，padding填充0
         self.conv1 = ComplexConv1d(in_channels, out_channels, kernel_size=3, padding=1, bias=False, circular=circular)
         self.bn1 = ComplexBatchNorm1d(out_channels)
         
@@ -218,18 +218,19 @@ class ComplexPositionalEncoding(nn.Module):
     生成复数位置编码（改进版）
     
     新版本：为序列的每个位置生成不同的相位
-    pos_encoding[k] = exp(j * 2π * pos / N * k), k ∈ [0, seq_len-1]
+    pos_encoding[k] = exp(j * 2π * pos / seq_len * k), k ∈ [0, seq_len-1]
+    
+    注意：N 自动等于 seq_len，这样归一化更合理
     
     这样同时编码了：
     1. port的位置信息（pos）
     2. 序列内的位置信息（k）
     
     pos_values: 每个 port 的位置值列表 (num_ports,)
-    N: 归一化常数
     """
-    def __init__(self, N):
+    def __init__(self):
         super().__init__()
-        self.N = N
+        # 不再需要预定义N，每次forward时使用seq_len作为N
     
     def forward(self, batch_size, seq_len, pos_values, device='cpu'):
         """
@@ -244,6 +245,9 @@ class ComplexPositionalEncoding(nn.Module):
         """
         num_ports = len(pos_values)
         
+        # N自动等于seq_len
+        N = seq_len
+        
         # pos_values: (num_ports,) -> (1, num_ports, 1)
         pos = pos_values.view(1, num_ports, 1).float().to(device)
         
@@ -251,14 +255,14 @@ class ComplexPositionalEncoding(nn.Module):
         # shape: (seq_len,) -> (1, 1, seq_len)
         seq_idx = torch.arange(seq_len, device=device).view(1, 1, seq_len).float()
         
-        # 计算相位: 2π * pos / N * seq_idx
+        # 计算相位: 2π * pos / seq_len * seq_idx
         # pos: (1, num_ports, 1)
         # seq_idx: (1, 1, seq_len)
         # 结果: (1, num_ports, seq_len)
-        phase = 2 * np.pi * pos / self.N * seq_idx
+        phase = 2 * np.pi * pos / N * seq_idx
         
         # 生成复数编码: exp(j * phase)
-        # 每个位置k的编码为: exp(j * 2π * pos / N * k)
+        # 每个位置k的编码为: exp(j * 2π * pos / seq_len * k)
         encoding = torch.exp(1j * phase).expand(batch_size, num_ports, seq_len)
         
         return encoding
@@ -276,7 +280,7 @@ class ComplexResidualUNet(nn.Module):
         - 去噪后的信道估计残差
     """
     def __init__(self, input_channels=2, output_channels=1, base_channels=32, 
-                 depth=3, attention_flag=False, activation='modrelu', circular=True):
+                 depth=3, attention_flag=False, activation='modrelu', circular=False):
         """
         Args:
             input_channels: 输入通道数 (默认2: 原始信号 + 位置编码)
@@ -285,7 +289,7 @@ class ComplexResidualUNet(nn.Module):
             depth: 网络深度
             attention_flag: 是否使用注意力
             activation: 激活函数类型 ('modrelu' 或 'relu')
-            circular: 是否使用循环卷积 (默认True，保持序列长度不变)
+            circular: 是否使用循环卷积 (默认False，使用普通卷积padding填充0)
         """
         super().__init__()
         self.depth = depth
@@ -384,25 +388,26 @@ class ComplexResidualUNet(nn.Module):
         return residual
 
 
-def create_input_with_positional_encoding(channel_estimates, pos_values, N, device='cpu'):
+def create_input_with_positional_encoding(channel_estimates, pos_values, device='cpu'):
     """
     创建带位置编码的输入张量
     
     Args:
         channel_estimates: 原始信道估计 (batch_size, num_ports, seq_len) 复数张量
         pos_values: 每个 port 的位置值 (num_ports,) 整数 tensor
-        N: 位置编码归一化常数
         device: 设备
     
     Returns:
         (batch_size, num_ports, 2, seq_len) 复数张量
             - 第1通道: 原始信道估计
             - 第2通道: 位置编码
+    
+    注意: N 自动等于 seq_len
     """
     batch_size, num_ports, seq_len = channel_estimates.shape
     
-    # 生成位置编码
-    pos_encoder = ComplexPositionalEncoding(N)
+    # 生成位置编码（N自动等于seq_len）
+    pos_encoder = ComplexPositionalEncoding()
     pos_encoding = pos_encoder(batch_size, seq_len, pos_values, device)
     
     # Stack: (batch_size, num_ports, 2, seq_len)
@@ -418,7 +423,6 @@ if __name__ == "__main__":
     batch_size = 8
     num_ports = 4
     seq_len = 12  # rb_num=4, seq_len=12
-    N = 64  # 位置编码归一化常数
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
@@ -439,9 +443,9 @@ if __name__ == "__main__":
     # 每个 port 的位置值（手动指定）
     pos_values = torch.tensor([0, 2, 6, 8], dtype=torch.long)  # 4个port的位置
     
-    # 创建输入（包含位置编码）
+    # 创建输入（包含位置编码，N自动等于seq_len）
     input_tensor = create_input_with_positional_encoding(
-        channel_estimates, pos_values, N, device
+        channel_estimates, pos_values, device
     )
     
     print("=" * 80)
@@ -452,6 +456,7 @@ if __name__ == "__main__":
     print(f"  - Num ports:       {num_ports}")
     print(f"  - Input channels:  2 (Channel estimate + Position encoding)")
     print(f"  - Sequence length: {seq_len}")
+    print(f"  - N (normalization): {seq_len} (自动等于seq_len)")
     print(f"Input dtype:  {input_tensor.dtype}")
     
     # 前向传播
