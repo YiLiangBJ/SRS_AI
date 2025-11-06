@@ -215,7 +215,15 @@ class ComplexResidualBlock(nn.Module):
 
 class ComplexPositionalEncoding(nn.Module):
     """
-    生成复数位置编码
+    生成复数位置编码（改进版）
+    
+    新版本：为序列的每个位置生成不同的相位
+    pos_encoding[k] = exp(j * 2π * pos / N * k), k ∈ [0, seq_len-1]
+    
+    这样同时编码了：
+    1. port的位置信息（pos）
+    2. 序列内的位置信息（k）
+    
     pos_values: 每个 port 的位置值列表 (num_ports,)
     N: 归一化常数
     """
@@ -236,18 +244,21 @@ class ComplexPositionalEncoding(nn.Module):
         """
         num_ports = len(pos_values)
         
-        # 生成位置编码: exp(j * 2π * pos / N)
         # pos_values: (num_ports,) -> (1, num_ports, 1)
         pos = pos_values.view(1, num_ports, 1).float().to(device)
         
-        # 序列索引: (seq_len,) -> (1, 1, seq_len)
+        # 序列索引: [0, 1, 2, ..., seq_len-1]
+        # shape: (seq_len,) -> (1, 1, seq_len)
         seq_idx = torch.arange(seq_len, device=device).view(1, 1, seq_len).float()
         
-        # 计算相位: 2π * pos / N
-        phase = 2 * np.pi * pos / self.N
+        # 计算相位: 2π * pos / N * seq_idx
+        # pos: (1, num_ports, 1)
+        # seq_idx: (1, 1, seq_len)
+        # 结果: (1, num_ports, seq_len)
+        phase = 2 * np.pi * pos / self.N * seq_idx
         
-        # 生成复数编码
-        # 这里每个位置都使用相同的相位（根据 port 的 pos 值）
+        # 生成复数编码: exp(j * phase)
+        # 每个位置k的编码为: exp(j * 2π * pos / N * k)
         encoding = torch.exp(1j * phase).expand(batch_size, num_ports, seq_len)
         
         return encoding
