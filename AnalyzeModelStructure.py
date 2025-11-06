@@ -860,7 +860,7 @@ if __name__ == "__main__":
     model1 = ComplexResidualUNet(
         input_channels=2,
         output_channels=1,
-        base_channels=8,
+        base_channels=4,
         depth=2,
         attention_flag=True,
         activation='modrelu'
