@@ -66,7 +66,7 @@ def generate_training_data(
     y_clean = torch.zeros(batch_size, seq_len, dtype=torch.complex64)
     h_targets = []
     for i, pos in enumerate(pos_values):
-        shifted = torch.roll(h_true[:, i], shifts=pos, dims=-1)
+        shifted = torch.roll(h_true[:, i], shifts=-pos, dims=-1)
         y_clean += shifted
         h_targets.append(shifted)
     h_targets = torch.stack(h_targets, dim=1)
@@ -113,7 +113,7 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
     print(f"  Model parameters: {num_params:,}")
     
     # Optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     
     # Online Training
     print(f"\nOnline Training...")
@@ -133,9 +133,11 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
         optimizer.zero_grad()
         h_pred = model(y)
         
-        # Loss: MSE on shifted targets
-        loss = F.mse_loss(h_pred.real, h_targets.real) + \
-               F.mse_loss(h_pred.imag, h_targets.imag)
+        # Loss: NMSE on shifted targets
+        mse = (h_pred - h_targets).abs().pow(2).mean()
+        signal_power = h_targets.abs().pow(2).mean()
+        nmse = mse / (signal_power + 1e-10)
+        loss = nmse  # Can also use: 10 * torch.log10(nmse) for dB scale
         
         # Backward
         loss.backward()
@@ -199,9 +201,9 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batches', type=int, default=100,
+    parser.add_argument('--batches', type=int, default=10000,
                        help='Number of training batches')
-    parser.add_argument('--batch_size', type=int, default=32,
+    parser.add_argument('--batch_size', type=int, default=1024,
                        help='Batch size')
     parser.add_argument('--stages', type=int, default=3,
                        help='Number of refinement stages')
