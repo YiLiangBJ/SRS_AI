@@ -76,26 +76,26 @@ def generate_training_data(
     return y, h_targets, pos_values, h_true
 
 
-def test_model(num_epochs=10, num_stages=3, share_weights=False, normalize_energy=True):
+def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_weights=False):
     """
-    Test Residual Refinement Channel Separator
+    Test Residual Refinement Channel Separator with online training
     """
     print("="*80)
-    print(f"Testing Residual Refinement Channel Separator")
+    print(f"Residual Refinement Channel Separator - Online Training")
     print("="*80)
     
-    # Create configuration
-    srs_config = create_example_config()
-    
-    # IMPORTANT: Force seq_len = 12 for our discussion
+    # Configuration
     seq_len = 12
-    num_ports = 4  # Fixed for our test case
+    num_ports = 4
     
     print(f"\nConfiguration:")
     print(f"  Sequence length: {seq_len}")
     print(f"  Number of ports: {num_ports}")
     print(f"  Num stages: {num_stages}")
-    print(f"  Users: {srs_config.num_users}")
+    print(f"  Share weights: {share_weights}")
+    print(f"  SNR: {snr_db} dB")
+    print(f"  Batch size: {batch_size}")
+    print(f"  Training batches: {num_batches}")
     
     # Create model
     model = ResidualRefinementSeparator(
@@ -104,11 +104,8 @@ def test_model(num_epochs=10, num_stages=3, share_weights=False, normalize_energ
         hidden_dim=64,
         num_stages=num_stages,
         share_weights_across_stages=share_weights,
-        normalize_energy=normalize_energy
+        normalize_energy=True
     )
-    
-    print(f"  Share weights: {share_weights}")
-    print(f"  Normalize energy: {normalize_energy}")
     
     # Count parameters
     num_params = sum(p.numel() for p in model.parameters())
@@ -117,24 +114,27 @@ def test_model(num_epochs=10, num_stages=3, share_weights=False, normalize_energ
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     
-    # Training loop
-    print(f"\nTraining for {num_epochs} epochs...")
+    # Online Training
+    print(f"\nOnline Training...")
+    model.train()
     losses = []
     
-    for epoch in range(num_epochs):
-        # Generate batch
+    for batch_idx in range(num_batches):
+        # Generate batch on-the-fly
         y, h_targets, pos_values, h_true = generate_training_data(
-            batch_size=32, snr_db=20.0, seq_len=seq_len, num_ports=num_ports
+            batch_size=batch_size, 
+            snr_db=snr_db, 
+            seq_len=seq_len, 
+            num_ports=num_ports
         )
         
-        # Forward pass
+        # Forward
         optimizer.zero_grad()
         h_pred = model(y)
         
-        # Loss: MSE between predicted and target (shifted)
-        # Complex MSE = MSE(real) + MSE(imag)
-        loss = torch.nn.functional.mse_loss(h_pred.real, h_targets.real) + \
-               torch.nn.functional.mse_loss(h_pred.imag, h_targets.imag)
+        # Loss: MSE on shifted targets
+        loss = F.mse_loss(h_pred.real, h_targets.real) + \
+               F.mse_loss(h_pred.imag, h_targets.imag)
         
         # Backward
         loss.backward()
@@ -142,19 +142,23 @@ def test_model(num_epochs=10, num_stages=3, share_weights=False, normalize_energ
         
         losses.append(loss.item())
         
-        if (epoch + 1) % 2 == 0:
-            print(f"  Epoch {epoch+1}/{num_epochs}, Loss: {loss.item():.6f}")
+        # Print progress
+        if (batch_idx + 1) % 20 == 0 or batch_idx == 0:
+            print(f"  Batch {batch_idx+1}/{num_batches}, Loss: {loss.item():.6f}")
     
     # Evaluation
     print(f"\n{'='*80}")
-    print("Evaluation")
+    print("Evaluation on Test Batch")
     print(f"{'='*80}")
     
     model.eval()
     with torch.no_grad():
         # Generate test batch
-        y_test, h_targets_test, pos_values, h_true = generate_training_data(
-            batch_size=100, snr_db=20.0, seq_len=seq_len, num_ports=num_ports
+        y_test, h_targets_test, pos_values, h_true_test = generate_training_data(
+            batch_size=200, 
+            snr_db=snr_db, 
+            seq_len=seq_len, 
+            num_ports=num_ports
         )
         
         # Predict
@@ -163,22 +167,29 @@ def test_model(num_epochs=10, num_stages=3, share_weights=False, normalize_energ
         # Get unshifted channels
         h_unshifted = model.get_unshifted_channels(h_pred, pos_values)
         
-        # Calculate NMSE (逐点比较)
+        # NMSE on shifted targets
         mse_shifted = (h_pred - h_targets_test).abs().pow(2).mean()
-        signal_power_shifted = h_targets_test.abs().pow(2).mean()
-        nmse_shifted = 10 * torch.log10(mse_shifted / (signal_power_shifted + 1e-10))
+        signal_power = h_targets_test.abs().pow(2).mean()
+        nmse_shifted = 10 * torch.log10(mse_shifted / (signal_power + 1e-10))
         
-        mse_unshifted = (h_unshifted - h_true).abs().pow(2).mean()
-        signal_power_unshifted = h_true.abs().pow(2).mean()
-        nmse_unshifted = 10 * torch.log10(mse_unshifted / (signal_power_unshifted + 1e-10))
+        # NMSE on unshifted channels
+        mse_unshifted = (h_unshifted - h_true_test).abs().pow(2).mean()
+        signal_power_true = h_true_test.abs().pow(2).mean()
+        nmse_unshifted = 10 * torch.log10(mse_unshifted / (signal_power_true + 1e-10))
         
-        # Check reconstruction (optional)
-        y_recon = h_pred.sum(dim=1)
-        recon_mse = (y_test - y_recon).abs().pow(2).mean()
+        # Port-wise NMSE
+        port_nmse = []
+        for p in range(num_ports):
+            mse_p = (h_pred[:, p] - h_targets_test[:, p]).abs().pow(2).mean()
+            power_p = h_targets_test[:, p].abs().pow(2).mean()
+            nmse_p = 10 * torch.log10(mse_p / (power_p + 1e-10))
+            port_nmse.append(nmse_p.item())
         
-        print(f"  NMSE (shifted targets):   {nmse_shifted:.2f} dB")
-        print(f"  NMSE (unshifted channels): {nmse_unshifted:.2f} dB")
-        print(f"  Reconstruction MSE:        {recon_mse:.6f}")
+        print(f"  NMSE (shifted):   {nmse_shifted:.2f} dB")
+        print(f"  NMSE (unshifted): {nmse_unshifted:.2f} dB")
+        print(f"  Port-wise NMSE:   {[f'{x:.2f}' for x in port_nmse]} dB")
+        print(f"  Final loss:       {losses[-1]:.6f}")
+        print(f"  Avg loss (last 10): {sum(losses[-10:])/10:.6f}")
     
     return model, losses
 
@@ -187,23 +198,26 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=10,
-                       help='Number of training epochs')
+    parser.add_argument('--batches', type=int, default=100,
+                       help='Number of training batches')
+    parser.add_argument('--batch_size', type=int, default=32,
+                       help='Batch size')
     parser.add_argument('--stages', type=int, default=3,
                        help='Number of refinement stages')
+    parser.add_argument('--snr', type=float, default=20.0,
+                       help='SNR in dB')
     parser.add_argument('--share', action='store_true',
                        help='Share weights across stages for same port')
-    parser.add_argument('--no-normalize', action='store_true',
-                       help='Disable energy normalization')
     
     args = parser.parse_args()
     
     # Test model
     model, losses = test_model(
-        num_epochs=args.epochs,
+        num_batches=args.batches,
+        batch_size=args.batch_size,
         num_stages=args.stages,
-        share_weights=args.share,
-        normalize_energy=not args.no_normalize
+        snr_db=args.snr,
+        share_weights=args.share
     )
     
     print(f"\n{'='*80}")

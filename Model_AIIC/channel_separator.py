@@ -52,28 +52,28 @@ class ResidualRefinementSeparator(nn.Module):
         
         if share_weights_across_stages:
             # 模式A: 同port不同stage共享参数
-            # 只需要为每个port创建一个MLP
+            # 只需要为每个port创建一个MLP (复数版本)
             self.port_mlps = nn.ModuleList([
                 nn.Sequential(
-                    nn.Linear(seq_len * 2, hidden_dim),
+                    nn.Linear(seq_len, hidden_dim, dtype=torch.complex64),
                     nn.ReLU(),
-                    nn.Linear(hidden_dim, hidden_dim),
+                    nn.Linear(hidden_dim, hidden_dim, dtype=torch.complex64),
                     nn.ReLU(),
-                    nn.Linear(hidden_dim, seq_len * 2)
+                    nn.Linear(hidden_dim, seq_len, dtype=torch.complex64)
                 )
                 for _ in range(num_ports)  # 每个port一个MLP
             ])
         else:
             # 模式B: 每个port每个stage独立参数
-            # port_mlps[port_idx][stage_idx] = MLP for that port at that stage
+            # port_mlps[port_idx][stage_idx] = MLP for that port at that stage (复数版本)
             self.port_mlps = nn.ModuleList([
                 nn.ModuleList([
                     nn.Sequential(
-                        nn.Linear(seq_len * 2, hidden_dim),
+                        nn.Linear(seq_len, hidden_dim, dtype=torch.complex64),
                         nn.ReLU(),
-                        nn.Linear(hidden_dim, hidden_dim),
+                        nn.Linear(hidden_dim, hidden_dim, dtype=torch.complex64),
                         nn.ReLU(),
-                        nn.Linear(hidden_dim, seq_len * 2)
+                        nn.Linear(hidden_dim, seq_len, dtype=torch.complex64)
                     )
                     for _ in range(num_stages)  # 每个stage
                 ])
@@ -100,25 +100,20 @@ class ResidualRefinementSeparator(nn.Module):
             y_normalized = y
             y_energy = torch.ones(B, 1, device=y.device, dtype=y.real.dtype)
         
-        # Initialize: all ports start with normalized y
-        features_real = y_normalized.real.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L)
-        features_imag = y_normalized.imag.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L)
+        # Initialize: all ports start with normalized y (复数形式)
+        features = y_normalized.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L) complex
         
         # Iterative refinement through stages
         for stage_idx in range(self.num_stages):
             # Temporary storage for this stage's outputs
-            new_features_real = []
-            new_features_imag = []
+            new_features = []
             
             # Each port processes independently through its own MLP
             for port_idx in range(self.num_ports):
-                # Input: this port's current features (real + imag)
-                x = torch.cat([
-                    features_real[:, port_idx],  # (B, L)
-                    features_imag[:, port_idx]   # (B, L)
-                ], dim=-1)  # (B, L*2)
+                # Input: this port's current features (复数)
+                x = features[:, port_idx]  # (B, L) complex
                 
-                # Forward through this port's MLP
+                # Forward through this port's complex MLP
                 if self.share_weights_across_stages:
                     # 共享模式：同port所有stage用同一个MLP
                     mlp = self.port_mlps[port_idx]
@@ -126,38 +121,25 @@ class ResidualRefinementSeparator(nn.Module):
                     # 独立模式：每个port每个stage独立MLP
                     mlp = self.port_mlps[port_idx][stage_idx]
                 
-                output = mlp(x)  # (B, L*2)
-                
-                # Split into real and imaginary parts
-                out_real = output[:, :L]
-                out_imag = output[:, L:]
-                
-                new_features_real.append(out_real)
-                new_features_imag.append(out_imag)
+                output = mlp(x)  # (B, L) complex
+                new_features.append(output)
             
-            # Stack all ports: (B, P, L)
-            features_real = torch.stack(new_features_real, dim=1)
-            features_imag = torch.stack(new_features_imag, dim=1)
+            # Stack all ports: (B, P, L) complex
+            features = torch.stack(new_features, dim=1)
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # Residual correction: couple ports (allows denoising)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             
             # Reconstruct y from all ports
-            y_recon_real = features_real.sum(dim=1)  # (B, L)
-            y_recon_imag = features_imag.sum(dim=1)  # (B, L)
+            y_recon = features.sum(dim=1)  # (B, L) complex
             
             # Compute residual (use normalized y)
-            residual_real = y_normalized.real - y_recon_real    # (B, L)
-            residual_imag = y_normalized.imag - y_recon_imag    # (B, L)
+            residual = y_normalized - y_recon  # (B, L) complex
             
             # Add residual directly to all ports (no division)
             # This allows model to denoise: sum(outputs) may not equal y
-            features_real = features_real + residual_real.unsqueeze(1)
-            features_imag = features_imag + residual_imag.unsqueeze(1)
-        
-        # Combine real and imaginary parts
-        features = torch.complex(features_real, features_imag)
+            features = features + residual.unsqueeze(1)
         
         # Restore energy
         if self.normalize_energy:
