@@ -23,57 +23,60 @@ from utils import calculate_nmse
 def generate_training_data(
     srs_config: SRSConfig = None,
     batch_size: int = 32,
-    snr_db: float = 20.0,
+    snr_db = 20.0,  # Can be scalar or list [snr0, snr1, snr2, snr3]
     seq_len: int = 12,
     num_ports: int = 4
 ):
     """
-    Generate training data with fixed dimensions (simplified version)
+    Generate training data with SNR control
+    
+    Args:
+        snr_db: SNR in dB. Scalar for all ports, or list for per-port SNR
     
     Returns:
-        y: (B, L) received signal in time domain
-        h_targets: (B, P, L) shifted channel targets
+        y: (B, L) received signal with noise
+        h_targets: (B, P, L) shifted channel targets (adjusted for SNR)
         pos_values: list of port positions
-        h_true: (B, P, L) original channels
+        h_true: (B, P, L) original channels (adjusted for SNR)
     """
     # Fixed port positions for 4 ports
     pos_values = [0, 2, 6, 8]
     
-    # Generate simple random channels (frequency domain)
-    # In practice, these should come from channel models
-    h_freq = torch.randn(batch_size, num_ports, seq_len, dtype=torch.complex64) * 0.3
+    # Generate base channels
+    h_base = torch.randn(batch_size, num_ports, seq_len, dtype=torch.complex64)
     
-    # Frequency domain: y_freq = sum(M_p * c_p)
-    # where M_p is the phase rotation matrix
-    y_freq = torch.zeros(batch_size, seq_len, dtype=torch.complex64)
+    # Generate noise with unit power
+    noise = (torch.randn(batch_size, seq_len) + 1j * torch.randn(batch_size, seq_len))
+    noise = noise / noise.abs().pow(2).mean().sqrt()
     
-    for p_idx, pos in enumerate(pos_values):
-        # Phase rotation in frequency domain
-        n = torch.arange(seq_len, dtype=torch.float32)
-        phase = torch.exp(1j * 2 * np.pi * pos * n / seq_len)
-        
-        # Apply phase rotation and accumulate
-        y_freq += h_freq[:, p_idx] * phase
+    # Adjust signal power based on SNR
+    if isinstance(snr_db, (list, tuple)):
+        # Different SNR for each port
+        h_true = torch.zeros_like(h_base)
+        for i in range(num_ports):
+            signal_power = 10 ** (snr_db[i] / 10)
+            h_true[:, i] = h_base[:, i] * signal_power.sqrt()
+    else:
+        # Same SNR for all ports
+        signal_power = 10 ** (snr_db / 10)
+        h_true = h_base * signal_power.sqrt()
     
-    # Convert to time domain
-    y_time = torch.fft.ifft(y_freq, dim=-1)
+    # Create mixed signal with shifted channels
+    y_clean = torch.zeros(batch_size, seq_len, dtype=torch.complex64)
+    h_targets = []
+    for i, pos in enumerate(pos_values):
+        shifted = torch.roll(h_true[:, i], shifts=pos, dims=-1)
+        y_clean += shifted
+        h_targets.append(shifted)
+    h_targets = torch.stack(h_targets, dim=1)
     
     # Add noise
-    noise_power = 10 ** (-snr_db / 10)
-    noise = (torch.randn_like(y_time.real) + 1j * torch.randn_like(y_time.imag)) * np.sqrt(noise_power / 2)
-    y_time = y_time + noise
+    y = y_clean + noise
     
-    # Create targets (shifted channels in time domain)
-    h_time = torch.fft.ifft(h_freq, dim=-1)
-    h_targets = torch.stack([
-        torch.roll(h_time[:, p_idx], shifts=pos, dims=-1)
-        for p_idx, pos in enumerate(pos_values)
-    ], dim=1)
-    
-    return y_time, h_targets, pos_values, h_time
+    return y, h_targets, pos_values, h_true
 
 
-def test_model(num_epochs=10, num_stages=3, share_weights=False):
+def test_model(num_epochs=10, num_stages=3, share_weights=False, normalize_energy=True):
     """
     Test Residual Refinement Channel Separator
     """
@@ -100,10 +103,12 @@ def test_model(num_epochs=10, num_stages=3, share_weights=False):
         num_ports=num_ports,
         hidden_dim=64,
         num_stages=num_stages,
-        share_weights_across_stages=share_weights
+        share_weights_across_stages=share_weights,
+        normalize_energy=normalize_energy
     )
     
     print(f"  Share weights: {share_weights}")
+    print(f"  Normalize energy: {normalize_energy}")
     
     # Count parameters
     num_params = sum(p.numel() for p in model.parameters())
@@ -158,18 +163,22 @@ def test_model(num_epochs=10, num_stages=3, share_weights=False):
         # Get unshifted channels
         h_unshifted = model.get_unshifted_channels(h_pred, pos_values)
         
-        # Calculate NMSE
-        nmse_shifted = calculate_nmse(h_pred, h_targets_test)
-        nmse_unshifted = calculate_nmse(h_unshifted, h_true)
+        # Calculate NMSE (逐点比较)
+        mse_shifted = (h_pred - h_targets_test).abs().pow(2).mean()
+        signal_power_shifted = h_targets_test.abs().pow(2).mean()
+        nmse_shifted = 10 * torch.log10(mse_shifted / (signal_power_shifted + 1e-10))
         
-        # Check reconstruction
+        mse_unshifted = (h_unshifted - h_true).abs().pow(2).mean()
+        signal_power_unshifted = h_true.abs().pow(2).mean()
+        nmse_unshifted = 10 * torch.log10(mse_unshifted / (signal_power_unshifted + 1e-10))
+        
+        # Check reconstruction (optional)
         y_recon = h_pred.sum(dim=1)
-        recon_error = (y_test - y_recon).abs().mean()
+        recon_mse = (y_test - y_recon).abs().pow(2).mean()
         
-        print(f"  NMSE (shifted targets): {nmse_shifted:.4f} dB")
-        print(f"  NMSE (unshifted channels): {nmse_unshifted:.4f} dB")
-        print(f"  Reconstruction error: {recon_error:.6f}")
-        print(f"  sum(h_pred) ≈ y: {'✓' if recon_error < 0.01 else '✗'}")
+        print(f"  NMSE (shifted targets):   {nmse_shifted:.2f} dB")
+        print(f"  NMSE (unshifted channels): {nmse_unshifted:.2f} dB")
+        print(f"  Reconstruction MSE:        {recon_mse:.6f}")
     
     return model, losses
 
@@ -184,6 +193,8 @@ if __name__ == "__main__":
                        help='Number of refinement stages')
     parser.add_argument('--share', action='store_true',
                        help='Share weights across stages for same port')
+    parser.add_argument('--no-normalize', action='store_true',
+                       help='Disable energy normalization')
     
     args = parser.parse_args()
     
@@ -191,7 +202,8 @@ if __name__ == "__main__":
     model, losses = test_model(
         num_epochs=args.epochs,
         num_stages=args.stages,
-        share_weights=args.share
+        share_weights=args.share,
+        normalize_energy=not args.no_normalize
     )
     
     print(f"\n{'='*80}")

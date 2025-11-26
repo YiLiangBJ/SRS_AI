@@ -41,12 +41,14 @@ class ResidualRefinementSeparator(nn.Module):
         num_stages: Number of refinement stages (default: 3)
         share_weights_across_stages: If True, same port uses same MLP across stages (default: False)
     """
-    def __init__(self, seq_len=12, num_ports=4, hidden_dim=64, num_stages=3, share_weights_across_stages=False):
+    def __init__(self, seq_len=12, num_ports=4, hidden_dim=64, num_stages=3, 
+                 share_weights_across_stages=False, normalize_energy=True):
         super().__init__()
         self.seq_len = seq_len
         self.num_ports = num_ports
         self.num_stages = num_stages
         self.share_weights_across_stages = share_weights_across_stages
+        self.normalize_energy = normalize_energy
         
         if share_weights_across_stages:
             # 模式A: 同port不同stage共享参数
@@ -90,9 +92,17 @@ class ResidualRefinementSeparator(nn.Module):
         """
         B, L = y.shape
         
-        # Initialize: all ports start with y
-        features_real = y.real.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L)
-        features_imag = y.imag.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L)
+        # Energy normalization (optional)
+        if self.normalize_energy:
+            y_energy = y.abs().pow(2).mean(dim=-1, keepdim=True).sqrt()  # (B, 1)
+            y_normalized = y / (y_energy + 1e-8)
+        else:
+            y_normalized = y
+            y_energy = torch.ones(B, 1, device=y.device, dtype=y.real.dtype)
+        
+        # Initialize: all ports start with normalized y
+        features_real = y_normalized.real.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L)
+        features_imag = y_normalized.imag.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L)
         
         # Iterative refinement through stages
         for stage_idx in range(self.num_stages):
@@ -137,9 +147,9 @@ class ResidualRefinementSeparator(nn.Module):
             y_recon_real = features_real.sum(dim=1)  # (B, L)
             y_recon_imag = features_imag.sum(dim=1)  # (B, L)
             
-            # Compute residual
-            residual_real = y.real - y_recon_real    # (B, L)
-            residual_imag = y.imag - y_recon_imag    # (B, L)
+            # Compute residual (use normalized y)
+            residual_real = y_normalized.real - y_recon_real    # (B, L)
+            residual_imag = y_normalized.imag - y_recon_imag    # (B, L)
             
             # Add residual directly to all ports (no division)
             # This allows model to denoise: sum(outputs) may not equal y
@@ -148,6 +158,10 @@ class ResidualRefinementSeparator(nn.Module):
         
         # Combine real and imaginary parts
         features = torch.complex(features_real, features_imag)
+        
+        # Restore energy
+        if self.normalize_energy:
+            features = features * y_energy.unsqueeze(-1)
         
         return features
     
@@ -173,17 +187,39 @@ if __name__ == "__main__":
     print("Residual Refinement Channel Separator Test")
     print("="*80)
     
-    # Generate synthetic data
-    h_true = torch.randn(batch_size, num_ports, seq_len, dtype=torch.complex64)
+    # Generate synthetic data with SNR control
+    snr_db = 20.0  # Can be scalar or list [snr0, snr1, snr2, snr3]
     
-    # Create mixed signal
-    y = torch.zeros(batch_size, seq_len, dtype=torch.complex64)
+    # Generate base channels
+    h_base = torch.randn(batch_size, num_ports, seq_len, dtype=torch.complex64)
+    
+    # Generate noise with unit power
+    noise = (torch.randn(batch_size, seq_len) + 1j * torch.randn(batch_size, seq_len))
+    noise = noise / noise.abs().pow(2).mean().sqrt()  # Unit power noise
+    
+    # Adjust signal power based on SNR
+    if isinstance(snr_db, (list, tuple)):
+        # Different SNR for each port
+        h_true = torch.zeros_like(h_base)
+        for i in range(num_ports):
+            signal_power = 10 ** (snr_db[i] / 10)
+            h_true[:, i] = h_base[:, i] * signal_power.sqrt()
+    else:
+        # Same SNR for all ports
+        signal_power = 10 ** (snr_db / 10)
+        h_true = h_base * signal_power.sqrt()
+    
+    # Create mixed signal with shifted channels + noise
+    y_clean = torch.zeros(batch_size, seq_len, dtype=torch.complex64)
     targets = []
     for i, pos in enumerate(pos_values):
-        shifted = torch.roll(h_true[:, i], shifts=-pos, dims=-1)
-        y += shifted
+        shifted = torch.roll(h_true[:, i], shifts=pos, dims=-1)
+        y_clean += shifted
         targets.append(shifted)
     targets = torch.stack(targets, dim=1)  # (B, P, L)
+    
+    # Add noise
+    y = y_clean + noise
     
     # Test both modes
     num_stages = 3
@@ -232,11 +268,20 @@ if __name__ == "__main__":
         
         # Test forward pass
         separated = model(y)
+        
+        # Calculate NMSE (逐点比较 separated vs targets)
+        mse = (separated - targets).abs().pow(2).mean()
+        signal_power = targets.abs().pow(2).mean()
+        nmse = mse / (signal_power + 1e-8)
+        nmse_db = 10 * torch.log10(nmse + 1e-10)
+        
+        # Also check reconstruction error (optional)
         y_recon = separated.sum(dim=1)
-        recon_error = (y - y_recon).abs().mean()
+        recon_mse = (y - y_recon).abs().pow(2).mean()
         
         print(f"  Output shape: {separated.shape}")
-        print(f"  Recon error:  {recon_error:.6f}")
+        print(f"  NMSE:         {nmse_db:.2f} dB")
+        print(f"  Recon MSE:    {recon_mse:.6f}")
     
     print(f"\n{'='*80}")
     print("✓ Both modes tested successfully!")
