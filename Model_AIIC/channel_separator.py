@@ -1,5 +1,11 @@
 """
-Channel Separator Model for SRS Multi-Port Channel Estimation
+Channel Separator Model for SRS Multi-Port Chan        if share_weights_across_stages:
+            # 模式A: 同port不同stage共享参数
+            # 只需要为每个port创建一个MLP（复数版本，使用分离实部虚部的方式）
+            self.port_mlps = nn.ModuleList([
+                self._create_complex_mlp(seq_len, hidden_dim)
+                for _ in range(num_ports)
+            ])n
 
 Problem:
     y = sum_{p in P} circshift(h_p, p) + noise
@@ -52,33 +58,52 @@ class ResidualRefinementSeparator(nn.Module):
         
         if share_weights_across_stages:
             # 模式A: 同port不同stage共享参数
-            # 只需要为每个port创建一个MLP (复数版本)
             self.port_mlps = nn.ModuleList([
-                nn.Sequential(
-                    nn.Linear(seq_len, hidden_dim, dtype=torch.complex64),
-                    nn.ReLU(),
-                    nn.Linear(hidden_dim, hidden_dim, dtype=torch.complex64),
-                    nn.ReLU(),
-                    nn.Linear(hidden_dim, seq_len, dtype=torch.complex64)
-                )
+                self._create_complex_mlp(seq_len, hidden_dim)
                 for _ in range(num_ports)  # 每个port一个MLP
             ])
         else:
             # 模式B: 每个port每个stage独立参数
-            # port_mlps[port_idx][stage_idx] = MLP for that port at that stage (复数版本)
             self.port_mlps = nn.ModuleList([
                 nn.ModuleList([
-                    nn.Sequential(
-                        nn.Linear(seq_len, hidden_dim, dtype=torch.complex64),
-                        nn.ReLU(),
-                        nn.Linear(hidden_dim, hidden_dim, dtype=torch.complex64),
-                        nn.ReLU(),
-                        nn.Linear(hidden_dim, seq_len, dtype=torch.complex64)
-                    )
+                    self._create_complex_mlp(seq_len, hidden_dim)
                     for _ in range(num_stages)  # 每个stage
                 ])
                 for _ in range(num_ports)  # 每个port
             ])
+    
+    def _create_complex_mlp(self, seq_len, hidden_dim):
+        """
+        创建处理复数的MLP
+        实部和虚部分别处理（因为ReLU不支持复数）
+        """
+        class ComplexMLP(nn.Module):
+            def __init__(self, seq_len, hidden_dim):
+                super().__init__()
+                # 实部和虚部的MLP（参数独立）
+                self.mlp_real = nn.Sequential(
+                    nn.Linear(seq_len * 2, hidden_dim),  # 输入: [real, imag]
+                    nn.ReLU(),
+                    nn.Linear(hidden_dim, hidden_dim),
+                    nn.ReLU(),
+                    nn.Linear(hidden_dim, seq_len)
+                )
+                self.mlp_imag = nn.Sequential(
+                    nn.Linear(seq_len * 2, hidden_dim),
+                    nn.ReLU(),
+                    nn.Linear(hidden_dim, hidden_dim),
+                    nn.ReLU(),
+                    nn.Linear(hidden_dim, seq_len)
+                )
+            
+            def forward(self, x):
+                # x: (B, L) complex
+                x_concat = torch.cat([x.real, x.imag], dim=-1)  # (B, L*2)
+                out_real = self.mlp_real(x_concat)
+                out_imag = self.mlp_imag(x_concat)
+                return torch.complex(out_real, out_imag)
+        
+        return ComplexMLP(seq_len, hidden_dim)
     
     def forward(self, y):
         """

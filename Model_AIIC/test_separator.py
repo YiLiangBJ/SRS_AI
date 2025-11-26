@@ -6,6 +6,7 @@ SRS data generation framework.
 """
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 import sys
 import os
@@ -54,11 +55,11 @@ def generate_training_data(
         # Different SNR for each port
         h_true = torch.zeros_like(h_base)
         for i in range(num_ports):
-            signal_power = 10 ** (snr_db[i] / 10)
+            signal_power = torch.tensor(10 ** (snr_db[i] / 10))
             h_true[:, i] = h_base[:, i] * signal_power.sqrt()
     else:
         # Same SNR for all ports
-        signal_power = 10 ** (snr_db / 10)
+        signal_power = torch.tensor(10 ** (snr_db / 10))
         h_true = h_base * signal_power.sqrt()
     
     # Create mixed signal with shifted channels
