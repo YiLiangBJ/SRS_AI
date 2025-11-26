@@ -50,7 +50,7 @@ from typing import Optional, Dict, Any
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from user_config import SRSConfig, create_example_config
-from system_detection import SystemDetector, setup_distributed_training
+from SystemEnvironment.system_detection import SystemDetector, setup_distributed_training
 from data_generator import SRSDataGenerator
 from model_Traditional import SRSChannelEstimator
 from model_AIpart import TrainableMMSEModule
