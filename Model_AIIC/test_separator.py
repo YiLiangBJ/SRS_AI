@@ -42,10 +42,6 @@ os.environ['KMP_BLOCKTIME'] = '0'
 os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
 os.environ['KMP_HW_SUBSET'] = '1t'  # Use 1 thread per physical core (disable hyperthreading)
 
-# TensorFlow threading (for TDL channel generation)
-os.environ['TF_NUM_INTRAOP_THREADS'] = str(num_threads)
-os.environ['TF_NUM_INTEROP_THREADS'] = '1'  # Limit inter-op parallelism
-
 print(f"🚀 CPU Optimization:")
 print(f"   Available CPUs: {available_cpus}")
 print(f"   Physical cores: {num_physical_cores}")
@@ -56,15 +52,8 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-# Configure TensorFlow threading EARLY (before any TF operations)
-try:
-    import tensorflow as tf
-    tf.config.threading.set_intra_op_parallelism_threads(num_threads)
-    tf.config.threading.set_inter_op_parallelism_threads(1)
-    tf.config.set_visible_devices([], 'GPU')  # Force CPU
-    print(f"✅ TensorFlow configured: {num_threads} intra-op threads, 1 inter-op thread")
-except Exception as e:
-    print(f"⚠️  TensorFlow config failed: {e}")
+# No TensorFlow needed - using custom NumPy TDL
+print(f"✅ Using custom TDL channel (pure NumPy, no GIL limitation)")
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -99,54 +88,30 @@ def generate_training_data(
     # Fixed port positions for 4 ports
     pos_values = [0, 2, 6, 8]
     
-    # Use Sionna TDL channel
-    from sionna.channel.tr38901 import TDL
+    # Use custom TDL channel (pure NumPy, no GIL, independent fading)
+    from Model_AIIC.tdl_channel import TDLChannel
     
-    # Create TDL channel model (TensorFlow already configured at module level)
-    tdl = TDL(
+    # Create TDL channel model
+    tdl = TDLChannel(
         model='A',
         delay_spread=30e-9,
         carrier_frequency=3.5e9,
-        num_rx_ant=1,
-        num_tx_ant=1
+        normalize=True
     )
     
-    # Generate all channels at once: batch_size * num_ports realizations
-    total_channels = batch_size * num_ports
-    a, tau = tdl(
-        batch_size=total_channels,
-        num_time_steps=1,
-        sampling_frequency=30e3 * 4 * seq_len  # scs * Ktc * seq_len
+    # Generate all channels at once: batch_size x num_ports
+    # Each sample has independent random phases (no time correlation)
+    scs = 30e3
+    Ktc = 4
+    sampling_rate = scs * Ktc * seq_len
+    
+    h_base = tdl.generate_batch_parallel(
+        batch_size=batch_size,
+        num_ports=num_ports,
+        seq_len=seq_len,
+        sampling_rate=sampling_rate,
+        return_torch=True
     )
-    
-    # Extract path gains and delays for all channels
-    a_np = a[:, 0, 0, 0, 0, :, 0].numpy()  # [total_channels, num_paths]
-    tau_np = tau[:, 0, 0, :].numpy()  # [total_channels, num_paths]
-    
-    # Generate time-domain CIR for all channels
-    Ts = 1.0 / (30e3 * 4 * seq_len)
-    t = np.arange(seq_len) * Ts
-    
-    h_all = np.zeros((total_channels, seq_len), dtype=np.complex64)
-    
-    # Process each channel
-    for ch_idx in range(total_channels):
-        h = np.zeros(seq_len, dtype=np.complex64)
-        
-        # Place each path at its delay
-        for gain, delay in zip(a_np[ch_idx], tau_np[ch_idx]):
-            idx = np.argmin(np.abs(t - delay))
-            if idx < seq_len:
-                h[idx] += gain
-        
-        # If no paths in window, put first path at index 0
-        if np.abs(h).sum() == 0 and len(a_np[ch_idx]) > 0:
-            h[0] = a_np[ch_idx, 0]
-        
-        h_all[ch_idx] = h
-    
-    # Reshape to [batch_size, num_ports, seq_len]
-    h_base = torch.from_numpy(h_all.reshape(batch_size, num_ports, seq_len)).to(torch.complex64)
     
     # Normalize per port
     for p in range(num_ports):
@@ -204,8 +169,7 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
     print(f"   PyTorch intra-op threads: {torch.get_num_threads()}")
     print(f"   PyTorch inter-op threads: {torch.get_num_interop_threads()}")
     print(f"   OMP threads: {os.environ.get('OMP_NUM_THREADS', 'default')}")
-    print(f"   TensorFlow intra-op: {os.environ.get('TF_NUM_INTRAOP_THREADS', 'default')}")
-    print(f"   TensorFlow inter-op: {os.environ.get('TF_NUM_INTEROP_THREADS', 'default')}")
+    print(f"   Using custom TDL (NumPy, no GIL)")
     
     # Configuration
     seq_len = 12
