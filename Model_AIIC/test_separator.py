@@ -85,7 +85,7 @@ def generate_training_data(
     num_ports: int = 4
 ):
     """
-    Generate training data with SNR control
+    Generate training data with TDL channel and SNR control
     
     Args:
         snr_db: SNR in dB. Scalar for all ports, or list for per-port SNR
@@ -99,7 +99,7 @@ def generate_training_data(
     # Fixed port positions for 4 ports
     pos_values = [0, 2, 6, 8]
     
-    # Use Sionna TDL channel - generate all channels at once
+    # Use Sionna TDL channel
     from sionna.channel.tr38901 import TDL
     
     # Create TDL channel model (TensorFlow already configured at module level)
@@ -120,8 +120,6 @@ def generate_training_data(
     )
     
     # Extract path gains and delays for all channels
-    # a shape: [total_channels, num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time_steps]
-    # tau shape: [total_channels, num_rx, num_tx, num_paths]
     a_np = a[:, 0, 0, 0, 0, :, 0].numpy()  # [total_channels, num_paths]
     tau_np = tau[:, 0, 0, :].numpy()  # [total_channels, num_paths]
     
@@ -189,7 +187,7 @@ def generate_training_data(
 
 def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_weights=False):
     """
-    Test Residual Refinement Channel Separator with online training
+    Test Residual Refinement Channel Separator with online training using TDL channels
     """
     # Get thread count from environment (set at module import)
     num_threads = int(os.environ.get('OMP_NUM_THREADS', 56))
@@ -221,6 +219,7 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
     print(f"  SNR: {snr_db} dB")
     print(f"  Batch size: {batch_size}")
     print(f"  Training batches: {num_batches}")
+    print(f"  Channel model: TDL-A (3GPP TR 38.901)")
     
     # Create model
     model = ResidualRefinementSeparator(
@@ -252,7 +251,7 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
     backward_time = 0
     
     for batch_idx in range(num_batches):
-        # Generate batch on-the-fly (fully parallelized)
+        # Generate batch on-the-fly using TDL
         t0 = time.time()
         y, h_targets, pos_values, h_true = generate_training_data(
             batch_size=batch_size, 
