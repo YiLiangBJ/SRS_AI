@@ -62,21 +62,63 @@ def generate_training_data(
     # Fixed port positions for 4 ports
     pos_values = [0, 2, 6, 8]
     
-    # Use simple Rayleigh channel for better CPU parallelization
-    # TDL is slow because it's sequential and uses TensorFlow
-    use_tdl = False
+    # Use Sionna TDL channel - generate all channels at once
+    from sionna.channel.tr38901 import TDL
+    import tensorflow as tf
     
-    # Generate random channels (fully parallelized on CPU)
-    h_base = (torch.randn(batch_size, num_ports, seq_len) + 
-              1j * torch.randn(batch_size, num_ports, seq_len)).to(torch.complex64)
+    # Create TDL channel model
+    tdl = TDL(
+        model='A',
+        delay_spread=30e-9,
+        carrier_frequency=3.5e9,
+        num_rx_ant=1,
+        num_tx_ant=1
+    )
+    
+    # Generate all channels at once: batch_size * num_ports realizations
+    total_channels = batch_size * num_ports
+    a, tau = tdl(
+        batch_size=total_channels,
+        num_time_steps=1,
+        sampling_frequency=30e3 * 4 * seq_len  # scs * Ktc * seq_len
+    )
+    
+    # Extract path gains and delays for all channels
+    # a shape: [total_channels, num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time_steps]
+    # tau shape: [total_channels, num_rx, num_tx, num_paths]
+    a_np = a[:, 0, 0, 0, 0, :, 0].numpy()  # [total_channels, num_paths]
+    tau_np = tau[:, 0, 0, :].numpy()  # [total_channels, num_paths]
+    
+    # Generate time-domain CIR for all channels
+    Ts = 1.0 / (30e3 * 4 * seq_len)
+    t = np.arange(seq_len) * Ts
+    
+    h_all = np.zeros((total_channels, seq_len), dtype=np.complex64)
+    
+    # Process each channel
+    for ch_idx in range(total_channels):
+        h = np.zeros(seq_len, dtype=np.complex64)
+        
+        # Place each path at its delay
+        for gain, delay in zip(a_np[ch_idx], tau_np[ch_idx]):
+            idx = np.argmin(np.abs(t - delay))
+            if idx < seq_len:
+                h[idx] += gain
+        
+        # If no paths in window, put first path at index 0
+        if np.abs(h).sum() == 0 and len(a_np[ch_idx]) > 0:
+            h[0] = a_np[ch_idx, 0]
+        
+        h_all[ch_idx] = h
+    
+    # Reshape to [batch_size, num_ports, seq_len]
+    h_base = torch.from_numpy(h_all.reshape(batch_size, num_ports, seq_len)).to(torch.complex64)
     
     # Normalize per port
     for p in range(num_ports):
         power = h_base[:, p].abs().pow(2).mean()
         if power > 0:
             h_base[:, p] = h_base[:, p] / power.sqrt()
-    use_tdl = True
-    # print(f"Using TDL-A channel model")
     
     # Generate noise with unit power
     noise = (torch.randn(batch_size, seq_len) + 1j * torch.randn(batch_size, seq_len))
