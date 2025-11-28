@@ -46,59 +46,54 @@ def generate_training_data(
     
     # Try to use Sionna TDL channel directly
     use_tdl = False
-    try:
-        from sionna.channel.tr38901 import TDL
-        import tensorflow as tf
-        
-        # Create TDL channel model
-        tdl = TDL(
-            model='A',
-            delay_spread=30e-9,
-            carrier_frequency=3.5e9,
-            num_rx_ant=1,
-            num_tx_ant=1
-        )
-        
-        # Generate channels for all batches and ports
-        h_list = []
-        for _ in range(batch_size):
-            h_ports = []
-            for _ in range(num_ports):
-                # Generate one channel realization
-                a, tau = tdl(
-                    batch_size=1,
-                    num_time_steps=1,
-                    sampling_frequency=30e3 * 4 * seq_len  # scs * Ktc * seq_len
-                )
-                # Extract path gains and delays
-                a_np = a[0, 0, 0, 0, 0, :, 0].numpy()  # [num_paths]
-                tau_np = tau[0, 0, 0, :].numpy()  # [num_paths]
-                
-                # Generate time-domain CIR
-                Ts = 1.0 / (30e3 * 4 * seq_len)
-                t = np.arange(seq_len) * Ts
-                h = np.zeros(seq_len, dtype=np.complex64)
-                
-                # Place each path at its delay
-                for gain, delay in zip(a_np, tau_np):
-                    idx = np.argmin(np.abs(t - delay))
-                    if idx < seq_len:
-                        h[idx] += gain
-                
-                # If no paths in window, put first path at index 0
-                if np.abs(h).sum() == 0 and len(a_np) > 0:
-                    h[0] = a_np[0]
-                
-                h_ports.append(h)
-            h_list.append(np.stack(h_ports))
-        
-        h_base = torch.from_numpy(np.stack(h_list)).to(torch.complex64)
-        use_tdl = True
-        print(f"Using TDL-A channel model")
-    except Exception as e:
-        print(f"TDL channel generation failed ({e}), using Rayleigh fallback")
-        # Fallback: simple random channels
-        h_base = torch.randn(batch_size, num_ports, seq_len, dtype=torch.complex64)
+    from sionna.channel.tr38901 import TDL
+    import tensorflow as tf
+    
+    # Create TDL channel model
+    tdl = TDL(
+        model='A',
+        delay_spread=30e-9,
+        carrier_frequency=3.5e9,
+        num_rx_ant=1,
+        num_tx_ant=1
+    )
+    
+    # Generate channels for all batches and ports
+    h_list = []
+    for _ in range(batch_size):
+        h_ports = []
+        for _ in range(num_ports):
+            # Generate one channel realization
+            a, tau = tdl(
+                batch_size=1,
+                num_time_steps=1,
+                sampling_frequency=30e3 * 4 * seq_len  # scs * Ktc * seq_len
+            )
+            # Extract path gains and delays
+            a_np = a[0, 0, 0, 0, 0, :, 0].numpy()  # [num_paths]
+            tau_np = tau[0, 0, 0, :].numpy()  # [num_paths]
+            
+            # Generate time-domain CIR
+            Ts = 1.0 / (30e3 * 4 * seq_len)
+            t = np.arange(seq_len) * Ts
+            h = np.zeros(seq_len, dtype=np.complex64)
+            
+            # Place each path at its delay
+            for gain, delay in zip(a_np, tau_np):
+                idx = np.argmin(np.abs(t - delay))
+                if idx < seq_len:
+                    h[idx] += gain
+            
+            # If no paths in window, put first path at index 0
+            if np.abs(h).sum() == 0 and len(a_np) > 0:
+                h[0] = a_np[0]
+            
+            h_ports.append(h)
+        h_list.append(np.stack(h_ports))
+    
+    h_base = torch.from_numpy(np.stack(h_list)).to(torch.complex64)
+    use_tdl = True
+    # print(f"Using TDL-A channel model")
     
     # Generate noise with unit power
     noise = (torch.randn(batch_size, seq_len) + 1j * torch.randn(batch_size, seq_len))
@@ -255,7 +250,7 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batches', type=int, default=100,
+    parser.add_argument('--batches', type=int, default=10000,
                        help='Number of training batches')
     parser.add_argument('--batch_size', type=int, default=128,
                        help='Batch size')
