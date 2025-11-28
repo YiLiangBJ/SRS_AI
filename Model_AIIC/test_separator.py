@@ -5,11 +5,29 @@ This script integrates the new channel separator models with the existing
 SRS data generation framework.
 """
 
+import sys
+import os
+
+# CPU optimization: Set thread count BEFORE importing torch/numpy
+# Use all available cores on SPR-EE
+num_threads = os.cpu_count() or 56  # Fallback to 56 if detection fails
+
+# PyTorch threading
+os.environ['OMP_NUM_THREADS'] = str(num_threads)
+os.environ['MKL_NUM_THREADS'] = str(num_threads)
+os.environ['OPENBLAS_NUM_THREADS'] = str(num_threads)
+os.environ['VECLIB_MAXIMUM_THREADS'] = str(num_threads)
+os.environ['NUMEXPR_NUM_THREADS'] = str(num_threads)
+
+# Intel MKL optimizations for SPR
+os.environ['KMP_BLOCKTIME'] = '0'
+os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
+
+print(f"🚀 CPU Optimization: Using {num_threads} threads")
+
 import torch
 import torch.nn.functional as F
 import numpy as np
-import sys
-import os
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -130,9 +148,16 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
     """
     Test Residual Refinement Channel Separator with online training
     """
+    # Set PyTorch to use all CPU threads
+    num_threads = os.cpu_count() or 56
+    torch.set_num_threads(num_threads)
+    torch.set_num_interop_threads(num_threads)
+    
     print("="*80)
     print(f"Residual Refinement Channel Separator - Online Training")
     print("="*80)
+    print(f"🔧 PyTorch threads: {torch.get_num_threads()}")
+    print(f"🔧 NumPy threads: {os.environ.get('OMP_NUM_THREADS', 'default')}")
     
     # Configuration
     seq_len = 12
