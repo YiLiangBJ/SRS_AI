@@ -9,21 +9,48 @@ import sys
 import os
 
 # CPU optimization: Set thread count BEFORE importing torch/numpy
-# Use all available cores on SPR-EE
-num_threads = os.cpu_count() or 56  # Fallback to 56 if detection fails
+# Detect if running under numactl or in multi-NUMA system
+try:
+    # Get CPUs available to this process (respects numactl, cgroup, etc.)
+    available_cpus = len(os.sched_getaffinity(0))
+except AttributeError:
+    # Fallback for systems without sched_getaffinity
+    available_cpus = os.cpu_count()
 
-# PyTorch threading
-os.environ['OMP_NUM_THREADS'] = str(num_threads)
-os.environ['MKL_NUM_THREADS'] = str(num_threads)
-os.environ['OPENBLAS_NUM_THREADS'] = str(num_threads)
-os.environ['VECLIB_MAXIMUM_THREADS'] = str(num_threads)
-os.environ['NUMEXPR_NUM_THREADS'] = str(num_threads)
+# Use physical cores only, not hyperthreads
+# For 2-socket SPR-EE: 224 logical cores = 112 physical cores
+# Best practice: use physical cores only for CPU-intensive workloads
+num_physical_cores = available_cpus // 2  # Assume 2-way SMT (hyperthreading)
+
+# Use physical cores, limited to reasonable number
+num_threads = min(num_physical_cores, 56)  # Cap at 56 for single NUMA node
+
+# Override with environment variable if set
+if 'OMP_NUM_THREADS' in os.environ:
+    num_threads = int(os.environ['OMP_NUM_THREADS'])
+    print(f"📌 Using OMP_NUM_THREADS from environment: {num_threads}")
+else:
+    # Set all threading environment variables
+    os.environ['OMP_NUM_THREADS'] = str(num_threads)
+    os.environ['MKL_NUM_THREADS'] = str(num_threads)
+    os.environ['OPENBLAS_NUM_THREADS'] = str(num_threads)
+    os.environ['VECLIB_MAXIMUM_THREADS'] = str(num_threads)
+    os.environ['NUMEXPR_NUM_THREADS'] = str(num_threads)
 
 # Intel MKL optimizations for SPR
 os.environ['KMP_BLOCKTIME'] = '0'
 os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
+os.environ['KMP_HW_SUBSET'] = '1t'  # Use 1 thread per physical core (disable hyperthreading)
 
-print(f"🚀 CPU Optimization: Using {num_threads} threads")
+# TensorFlow threading (for TDL channel generation)
+os.environ['TF_NUM_INTRAOP_THREADS'] = str(num_threads)
+os.environ['TF_NUM_INTEROP_THREADS'] = '1'  # Limit inter-op parallelism
+
+print(f"🚀 CPU Optimization:")
+print(f"   Available CPUs: {available_cpus}")
+print(f"   Physical cores: {num_physical_cores}")
+print(f"   Using threads: {num_threads}")
+print(f"   NUMA nodes: Run with 'numactl --hardware' to check")
 
 import torch
 import torch.nn.functional as F
@@ -155,16 +182,23 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
     """
     Test Residual Refinement Channel Separator with online training
     """
-    # Set PyTorch to use all CPU threads
-    num_threads = os.cpu_count() or 56
+    # Get thread count from environment (set at module import)
+    num_threads = int(os.environ.get('OMP_NUM_THREADS', 56))
+    
+    # Set PyTorch threading
     torch.set_num_threads(num_threads)
-    torch.set_num_interop_threads(num_threads)
+    torch.set_num_interop_threads(1)  # Limit inter-op parallelism
     
     print("="*80)
     print(f"Residual Refinement Channel Separator - Online Training")
     print("="*80)
-    print(f"🔧 PyTorch threads: {torch.get_num_threads()}")
-    print(f"🔧 NumPy threads: {os.environ.get('OMP_NUM_THREADS', 'default')}")
+    print(f"🔧 Thread Configuration:")
+    print(f"   Available CPUs: {len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else os.cpu_count()}")
+    print(f"   PyTorch intra-op threads: {torch.get_num_threads()}")
+    print(f"   PyTorch inter-op threads: {torch.get_num_interop_threads()}")
+    print(f"   OMP threads: {os.environ.get('OMP_NUM_THREADS', 'default')}")
+    print(f"   TensorFlow intra-op: {os.environ.get('TF_NUM_INTRAOP_THREADS', 'default')}")
+    print(f"   TensorFlow inter-op: {os.environ.get('TF_NUM_INTEROP_THREADS', 'default')}")
     
     # Configuration
     seq_len = 12
