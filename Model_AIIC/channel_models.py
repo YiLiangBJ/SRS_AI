@@ -26,8 +26,8 @@ from typing import Optional, Union, List, Tuple
 
 try:
     import tensorflow as tf
-    # Sionna TDL channel model
-    from sionna.phy.channel.tr38901 import TDL
+    # Sionna TDL channel model (0.18.0 uses sionna.channel, not sionna.phy.channel)
+    from sionna.channel.tr38901 import TDL
     SIONNA_AVAILABLE = True
 except ImportError:
     SIONNA_AVAILABLE = False

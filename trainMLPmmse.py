@@ -60,7 +60,9 @@ import json
 from tqdm import tqdm
 from user_config import SRSConfig
 
-import sionna
+# ❌ Don't import sionna directly (causes Segmentation Fault on exit)
+# import sionna
+# Instead, import only what we need in professional_channels
 SIONNA_AVAILABLE = True
 print("SIONNA available - using professional 3GPP channel models")
 

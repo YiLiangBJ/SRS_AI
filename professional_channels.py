@@ -28,10 +28,19 @@ import warnings
 from system_config import SystemConfig, create_default_system_config
 from data_generator import SRSDataGenerator
 
-import sionna
-from sionna.phy.channel.tr38901 import TDL
-from sionna.phy.channel import cir_to_ofdm_channel, subcarrier_frequencies
+# ❌ Don't import sionna directly (causes Segmentation Fault on exit)
+# import sionna
+# Note: Sionna 0.18.0 uses sionna.channel, not sionna.phy.channel
+from sionna.channel.tr38901 import TDL
+from sionna.channel import cir_to_ofdm_channel, subcarrier_frequencies
 import tensorflow as tf
+
+# For version checking
+try:
+    from importlib.metadata import version
+    SIONNA_VERSION = version('sionna')
+except:
+    SIONNA_VERSION = "unknown"
 SIONNA_AVAILABLE = True
 print("SIONNA professional channel library loaded successfully")
 
