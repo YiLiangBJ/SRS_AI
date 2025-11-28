@@ -56,6 +56,16 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+# Configure TensorFlow threading EARLY (before any TF operations)
+try:
+    import tensorflow as tf
+    tf.config.threading.set_intra_op_parallelism_threads(num_threads)
+    tf.config.threading.set_inter_op_parallelism_threads(1)
+    tf.config.set_visible_devices([], 'GPU')  # Force CPU
+    print(f"✅ TensorFlow configured: {num_threads} intra-op threads, 1 inter-op thread")
+except Exception as e:
+    print(f"⚠️  TensorFlow config failed: {e}")
+
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -91,9 +101,8 @@ def generate_training_data(
     
     # Use Sionna TDL channel - generate all channels at once
     from sionna.channel.tr38901 import TDL
-    import tensorflow as tf
     
-    # Create TDL channel model
+    # Create TDL channel model (TensorFlow already configured at module level)
     tdl = TDL(
         model='A',
         delay_spread=30e-9,
@@ -238,19 +247,26 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
     
     import time
     start_time = time.time()
+    data_gen_time = 0
+    forward_time = 0
+    backward_time = 0
     
     for batch_idx in range(num_batches):
         # Generate batch on-the-fly (fully parallelized)
+        t0 = time.time()
         y, h_targets, pos_values, h_true = generate_training_data(
             batch_size=batch_size, 
             snr_db=snr_db, 
             seq_len=seq_len, 
             num_ports=num_ports
         )
+        data_gen_time += time.time() - t0
         
         # Forward
+        t0 = time.time()
         optimizer.zero_grad()
         h_pred = model(y)
+        forward_time += time.time() - t0
         
         # Loss: NMSE on shifted targets
         mse = (h_pred - h_targets).abs().pow(2).mean()
@@ -259,17 +275,30 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
         loss = nmse  # Can also use: 10 * torch.log10(nmse) for dB scale
         
         # Backward
+        t0 = time.time()
         loss.backward()
         optimizer.step()
+        backward_time += time.time() - t0
         
         losses.append(loss.item())
         
-        # Print progress with throughput
+        # Print progress with throughput and timing breakdown
         if (batch_idx + 1) % 20 == 0 or batch_idx == 0:
             elapsed = time.time() - start_time
             samples_per_sec = (batch_idx + 1) * batch_size / elapsed if elapsed > 0 else 0
+            
+            # Calculate percentage of time spent in each phase
+            total_time = data_gen_time + forward_time + backward_time
+            if total_time > 0:
+                data_pct = 100 * data_gen_time / total_time
+                fwd_pct = 100 * forward_time / total_time
+                bwd_pct = 100 * backward_time / total_time
+                timing_info = f"[Data:{data_pct:.0f}% Fwd:{fwd_pct:.0f}% Bwd:{bwd_pct:.0f}%]"
+            else:
+                timing_info = ""
+            
             print(f"  Batch {batch_idx+1}/{num_batches}, Loss: {loss.item():.6f}, "
-                  f"Throughput: {samples_per_sec:.0f} samples/s")
+                  f"Throughput: {samples_per_sec:.0f} samples/s {timing_info}")
     
     # Evaluation
     print(f"\n{'='*80}")
