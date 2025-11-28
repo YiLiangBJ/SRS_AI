@@ -15,6 +15,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from Model_AIIC.channel_separator import ResidualRefinementSeparator
+from Model_AIIC.channel_models import TDLChannelGenerator, SimpleRayleighChannel
 from data_generator import BaseSRSDataGenerator
 from user_config import SRSConfig, create_example_config
 from system_config import create_default_system_config
@@ -43,8 +44,25 @@ def generate_training_data(
     # Fixed port positions for 4 ports
     pos_values = [0, 2, 6, 8]
     
-    # Generate base channels
-    h_base = torch.randn(batch_size, num_ports, seq_len, dtype=torch.complex64)
+    # Try to use TDL channel generator first
+    use_tdl = False
+    try:
+        channel_gen = TDLChannelGenerator(
+            tdl_model='A',
+            delay_spread=30e-9,
+            scs=30e3,
+            Ktc=4,
+            seq_len=seq_len,
+            add_timing_offset=True,
+            normalize_energy=False  # We'll normalize ourselves
+        )
+        h_base = channel_gen.generate(batch_size=batch_size, num_ports=num_ports)
+        use_tdl = True
+        print(f"Using TDL-A channel model")
+    except Exception as e:
+        print(f"TDL channel generation failed ({e}), using Rayleigh fallback")
+        # Fallback: simple random channels
+        h_base = torch.randn(batch_size, num_ports, seq_len, dtype=torch.complex64)
     
     # Generate noise with unit power
     noise = (torch.randn(batch_size, seq_len) + 1j * torch.randn(batch_size, seq_len))
