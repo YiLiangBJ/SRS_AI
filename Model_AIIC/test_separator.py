@@ -62,54 +62,19 @@ def generate_training_data(
     # Fixed port positions for 4 ports
     pos_values = [0, 2, 6, 8]
     
-    # Try to use Sionna TDL channel directly
+    # Use simple Rayleigh channel for better CPU parallelization
+    # TDL is slow because it's sequential and uses TensorFlow
     use_tdl = False
-    from sionna.channel.tr38901 import TDL
-    import tensorflow as tf
     
-    # Create TDL channel model
-    tdl = TDL(
-        model='A',
-        delay_spread=30e-9,
-        carrier_frequency=3.5e9,
-        num_rx_ant=1,
-        num_tx_ant=1
-    )
+    # Generate random channels (fully parallelized on CPU)
+    h_base = (torch.randn(batch_size, num_ports, seq_len) + 
+              1j * torch.randn(batch_size, num_ports, seq_len)).to(torch.complex64)
     
-    # Generate channels for all batches and ports
-    h_list = []
-    for _ in range(batch_size):
-        h_ports = []
-        for _ in range(num_ports):
-            # Generate one channel realization
-            a, tau = tdl(
-                batch_size=1,
-                num_time_steps=1,
-                sampling_frequency=30e3 * 4 * seq_len  # scs * Ktc * seq_len
-            )
-            # Extract path gains and delays
-            a_np = a[0, 0, 0, 0, 0, :, 0].numpy()  # [num_paths]
-            tau_np = tau[0, 0, 0, :].numpy()  # [num_paths]
-            
-            # Generate time-domain CIR
-            Ts = 1.0 / (30e3 * 4 * seq_len)
-            t = np.arange(seq_len) * Ts
-            h = np.zeros(seq_len, dtype=np.complex64)
-            
-            # Place each path at its delay
-            for gain, delay in zip(a_np, tau_np):
-                idx = np.argmin(np.abs(t - delay))
-                if idx < seq_len:
-                    h[idx] += gain
-            
-            # If no paths in window, put first path at index 0
-            if np.abs(h).sum() == 0 and len(a_np) > 0:
-                h[0] = a_np[0]
-            
-            h_ports.append(h)
-        h_list.append(np.stack(h_ports))
-    
-    h_base = torch.from_numpy(np.stack(h_list)).to(torch.complex64)
+    # Normalize per port
+    for p in range(num_ports):
+        power = h_base[:, p].abs().pow(2).mean()
+        if power > 0:
+            h_base[:, p] = h_base[:, p] / power.sqrt()
     use_tdl = True
     # print(f"Using TDL-A channel model")
     
@@ -191,11 +156,15 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
     
     # Online Training
     print(f"\nOnline Training...")
+    print(f"💡 Tip: Use larger batch_size (e.g., 2048-4096) for better CPU utilization")
     model.train()
     losses = []
     
+    import time
+    start_time = time.time()
+    
     for batch_idx in range(num_batches):
-        # Generate batch on-the-fly
+        # Generate batch on-the-fly (fully parallelized)
         y, h_targets, pos_values, h_true = generate_training_data(
             batch_size=batch_size, 
             snr_db=snr_db, 
@@ -219,9 +188,12 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
         
         losses.append(loss.item())
         
-        # Print progress
+        # Print progress with throughput
         if (batch_idx + 1) % 20 == 0 or batch_idx == 0:
-            print(f"  Batch {batch_idx+1}/{num_batches}, Loss: {loss.item():.6f}")
+            elapsed = time.time() - start_time
+            samples_per_sec = (batch_idx + 1) * batch_size / elapsed if elapsed > 0 else 0
+            print(f"  Batch {batch_idx+1}/{num_batches}, Loss: {loss.item():.6f}, "
+                  f"Throughput: {samples_per_sec:.0f} samples/s")
     
     # Evaluation
     print(f"\n{'='*80}")
@@ -277,8 +249,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--batches', type=int, default=10000,
                        help='Number of training batches')
-    parser.add_argument('--batch_size', type=int, default=128,
-                       help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=2048,
+                       help='Batch size (larger=better CPU utilization, e.g., 2048-4096 for 56 cores)')
     parser.add_argument('--stages', type=int, default=3,
                        help='Number of refinement stages')
     parser.add_argument('--snr', type=float, default=20.0,
