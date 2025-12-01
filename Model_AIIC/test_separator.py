@@ -151,6 +151,21 @@ def generate_training_data(
     # Fixed port positions for 4 ports
     pos_values = [0, 3, 6, 9]
     
+    # Calculate random timing offset for each port
+    # ±256*Tc where Tc = 1/(480e3*4096) ≈ 0.509 ns
+    scs = 30e3
+    Ktc = 4
+    Tc = 1.0 / (480e3 * 4096)  # 3GPP basic time unit
+    Ts = 1.0 / (scs * Ktc * seq_len)  # Sampling interval
+    
+    # Generate random timing offsets in units of Tc for each port and each sample
+    # Shape: (batch_size, num_ports)
+    timing_offset_Tc = np.random.uniform(-256, 256, (batch_size, num_ports))
+    
+    # Convert to normalized offset (in units of samples)
+    # delta = timing_offset_Tc * Tc / Ts
+    timing_offset_samples = timing_offset_Tc * Tc / Ts  # Shape: (batch_size, num_ports)
+    
     # Parse TDL configuration
     # Support: single config string or list for random selection
     if isinstance(tdl_config, list):
@@ -177,8 +192,6 @@ def generate_training_data(
     
     # Generate all channels at once: batch_size x num_ports
     # Each sample has independent random phases (no time correlation)
-    scs = 30e3
-    Ktc = 4
     sampling_rate = scs * Ktc * seq_len
     
     h_base = tdl.generate_batch_parallel(
@@ -188,6 +201,25 @@ def generate_training_data(
         sampling_rate=sampling_rate,
         return_torch=True
     )
+    
+    # Apply random timing offset via frequency domain phase rotation
+    # h_offset[k] = IFFT(FFT(h[k]) * exp(j*2*pi*k*delta/L))
+    # where delta is the timing offset in samples
+    H_fft = torch.fft.fft(h_base, dim=-1)  # (batch_size, num_ports, seq_len)
+    
+    # Create phase rotation matrix
+    k = torch.arange(seq_len, dtype=torch.float32)  # frequency index
+    timing_offset_tensor = torch.from_numpy(timing_offset_samples).float()  # (batch_size, num_ports)
+    
+    # Phase shift: exp(j * 2*pi * k * delta / L)
+    # Broadcast: (batch_size, num_ports, 1) * (1, 1, seq_len) -> (batch_size, num_ports, seq_len)
+    phase_shift = torch.exp(1j * 2 * np.pi * k[None, None, :] * timing_offset_tensor[:, :, None] / seq_len)
+    
+    # Apply phase rotation
+    H_shifted = H_fft * phase_shift.to(torch.complex64)
+    
+    # Convert back to time domain
+    h_base = torch.fft.ifft(H_shifted, dim=-1)  # (batch_size, num_ports, seq_len)
     
     # Note: TDL channel already normalized (normalize=True in TDLChannel)
     # Do NOT normalize again here to preserve random fading per sample
