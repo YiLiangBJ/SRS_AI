@@ -18,76 +18,64 @@ class TDLChannel:
     Generates time-domain channel impulse responses with independent fading.
     Each sample has independent random phases (no time correlation).
     
+    Supports TDL-A, TDL-B, and TDL-C models with accurate normalized delays.
+    
     Args:
-        model: TDL model type ('A', 'B', 'C', 'D', 'E')
-        delay_spread: RMS delay spread in seconds
-        carrier_frequency: Carrier frequency in Hz
+        model: TDL model type ('A', 'B', or 'C')
+        delay_spread: RMS delay spread in seconds (e.g., 30e-9 for 30ns)
+                     Actual delays = normalized_delay × delay_spread
+                     Max delay = max_normalized_delay × delay_spread
+                     (e.g., TDL-C: max_delay = 8.6523 × 30ns = 259.569ns)
+        carrier_frequency: Carrier frequency in Hz (e.g., 3.5e9 for 3.5 GHz)
         normalize: Normalize channel to unit power
     """
     
     # TDL-A model parameters from 3GPP TR 38.901 Table 7.7.2-1
-    TDL_A_DELAYS_NS = np.array([
-        0.0, 3.0, 15.0, 31.0, 70.0, 91.0, 113.0, 127.0, 149.0, 175.0,
-        189.0, 217.0, 234.0, 273.0, 297.0, 356.0, 382.0, 423.0, 492.0,
-        538.0, 593.0, 640.0
-    ])  # Normalized delays in nanoseconds
+    # Normalized delays (when RMS delay spread = 1ns)
+    TDL_A_NORMALIZED_DELAYS = np.array([
+        0.0000, 0.3819, 0.4025, 0.5868, 0.4610, 0.5375, 0.6708, 0.5750,
+        0.7618, 1.5375, 1.8978, 2.2242, 2.1718, 2.4942, 2.5119, 3.0582,
+        4.0810, 4.4579, 4.5695, 4.7966, 5.0066, 5.3043, 9.6586
+    ])
     
     TDL_A_POWERS_DB = np.array([
         -13.4, 0, -2.2, -4.0, -6.0, -8.2, -9.9, -10.5, -7.5, -15.9,
         -6.6, -16.7, -12.4, -15.2, -10.8, -11.3, -12.7, -16.2, -18.3,
-        -18.9, -16.6, -19.9
+        -18.9, -16.6, -19.9, -29.7
     ])
     
-    # TDL-B model parameters
-    TDL_B_DELAYS_NS = np.array([
-        0.0, 10.0, 190.0, 410.0, 730.0, 1050.0, 1370.0, 1690.0, 2010.0, 3000.0
+    # TDL-B model parameters from 3GPP TR 38.901 Table 7.7.2-2
+    # Normalized delays (when RMS delay spread = 1ns)
+    TDL_B_NORMALIZED_DELAYS = np.array([
+        0.0000, 0.1072, 0.2155, 0.2095, 0.2870, 0.2986, 0.3752, 0.5055,
+        0.3681, 0.3697, 0.5700, 0.5283, 1.1021, 1.2756, 1.5474, 1.7842,
+        2.0169, 2.8294, 3.0219, 3.6187, 4.1067, 4.2790, 4.7834
     ])
     
     TDL_B_POWERS_DB = np.array([
-        0.0, -2.2, -4.0, -3.2, -9.8, -1.2, -3.4, -5.2, -7.6, -3.0
+        0.0, -2.2, -4.0, -3.2, -9.8, -1.2, -3.4, -5.2, -7.6, -3.0,
+        -8.9, -9.0, -4.8, -5.7, -7.5, -1.9, -7.6, -12.2, -9.8, -11.4,
+        -14.9, -9.2, -11.3
     ])
     
-    # TDL-C model parameters
-    TDL_C_DELAYS_NS = np.array([
-        0, 65, 130, 195, 260, 325, 390, 455, 520, 585, 650, 715, 780,
-        845, 910, 975, 1040, 1105, 1170, 1235, 1300, 1365, 1430, 1495
+    # TDL-C model parameters from 3GPP TR 38.901 Table 7.7.2-3
+    # Normalized delays (when RMS delay spread = 1ns)
+    TDL_C_NORMALIZED_DELAYS = np.array([
+        0.0000, 0.2099, 0.2219, 0.2329, 0.2176, 0.6366, 0.6448, 0.6560,
+        0.6584, 0.7935, 0.8213, 0.9336, 1.2285, 1.3083, 2.1704, 2.7105,
+        4.2589, 4.6003, 5.4902, 5.6077, 6.3065, 6.6374, 7.0427, 8.6523
     ])
     
     TDL_C_POWERS_DB = np.array([
-        -4.4, -1.2, -3.5, -5.2, -2.5, 0, -2.2, -3.9, -7.4, -7.1,
+        -4.4, -1.2, -3.5, -5.2, -2.5, 0.0, -2.2, -3.9, -7.4, -7.1,
         -10.7, -11.1, -5.1, -6.8, -8.7, -13.2, -13.9, -13.9, -15.8,
         -17.1, -16.0, -15.7, -21.6, -22.8
     ])
     
-    # TDL-D model parameters
-    TDL_D_DELAYS_NS = np.array([
-        0, 35, 612, 1426, 1794, 2636, 3590, 4726, 5665, 6956,
-        8885, 10610, 12050, 13610, 15200, 16360, 18030, 20390
-    ])
-    
-    TDL_D_POWERS_DB = np.array([
-        -0.2, -13.5, -18.8, -21.0, -22.8, -17.9, -20.1, -21.9, -22.9,
-        -27.8, -23.6, -24.8, -30.0, -27.7, -28.2, -29.0, -29.9, -30.0
-    ])
-    
-    # TDL-E model parameters
-    TDL_E_DELAYS_NS = np.array([
-        0, 5, 15, 20, 40, 60, 90, 115, 145, 175, 210, 245, 280, 315,
-        355, 400, 450, 510, 575, 655, 730, 810, 895, 985
-    ])
-    
-    TDL_E_POWERS_DB = np.array([
-        -0.03, -22.03, -15.8, -18.1, -19.8, -22.9, -22.4, -18.6, -20.8,
-        -22.6, -22.3, -25.6, -20.2, -29.8, -29.2, -28.9, -28.0, -29.0,
-        -28.9, -28.0, -27.8, -30.0, -30.0, -30.0
-    ])
-    
     MODELS = {
-        'A': (TDL_A_DELAYS_NS, TDL_A_POWERS_DB),
-        'B': (TDL_B_DELAYS_NS, TDL_B_POWERS_DB),
-        'C': (TDL_C_DELAYS_NS, TDL_C_POWERS_DB),
-        'D': (TDL_D_DELAYS_NS, TDL_D_POWERS_DB),
-        'E': (TDL_E_DELAYS_NS, TDL_E_POWERS_DB),
+        'A': (TDL_A_NORMALIZED_DELAYS, TDL_A_POWERS_DB),
+        'B': (TDL_B_NORMALIZED_DELAYS, TDL_B_POWERS_DB),
+        'C': (TDL_C_NORMALIZED_DELAYS, TDL_C_POWERS_DB),
     }
     
     def __init__(
@@ -101,8 +89,9 @@ class TDLChannel:
         Initialize TDL channel
         
         Args:
-            model: 'A', 'B', 'C', 'D', or 'E'
+            model: 'A', 'B', or 'C' (from 3GPP TR 38.901 Table 7.7.2-{1,2,3})
             delay_spread: RMS delay spread in seconds (e.g., 30e-9 for 30ns)
+                         This is the RMS value, not the maximum delay
             carrier_frequency: Carrier frequency in Hz (e.g., 3.5e9 for 3.5 GHz)
             normalize: Normalize channel to unit power
         """
@@ -115,12 +104,13 @@ class TDLChannel:
         self.normalize = normalize
         
         # Get model parameters
-        delays_norm_ns, powers_db = self.MODELS[model]
+        normalized_delays, powers_db = self.MODELS[model]
         
-        # Scale delays by delay spread (normalized delays are in nanoseconds)
-        # Actual delays = normalized_delays * (delay_spread / reference_delay)
-        reference_delay_ns = delays_norm_ns[-1]  # Last tap delay
-        self.delays = delays_norm_ns * 1e-9 * (delay_spread * 1e9) / reference_delay_ns
+        # Calculate actual delays
+        # normalized_delays are for RMS delay spread = 1ns
+        # Actual delays = normalized_delays × delay_spread
+        # Example: if delay_spread = 30ns, max delay for TDL-C = 8.6523 × 30ns = 259.569ns
+        self.delays = normalized_delays * delay_spread
         
         # Convert power from dB to linear
         self.powers = 10 ** (powers_db / 10)
@@ -244,7 +234,7 @@ def test_tdl_channel():
     Ktc = 4
     sampling_rate = scs * Ktc * seq_len
     
-    for model in ['A', 'B', 'C', 'D', 'E']:
+    for model in ['A', 'B', 'C']:
         print(f"\nTDL-{model}:")
         
         # Create channel
