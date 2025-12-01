@@ -176,11 +176,8 @@ def generate_training_data(
         return_torch=True
     )
     
-    # Normalize per port
-    for p in range(num_ports):
-        power = h_base[:, p].abs().pow(2).mean()
-        if power > 0:
-            h_base[:, p] = h_base[:, p] / power.sqrt()
+    # Note: TDL channel already normalized (normalize=True in TDLChannel)
+    # Do NOT normalize again here to preserve random fading per sample
     
     # Generate noise with unit power
     noise = (torch.randn(batch_size, seq_len) + 1j * torch.randn(batch_size, seq_len))
