@@ -7,6 +7,17 @@ SRS data generation framework.
 
 import sys
 import os
+import argparse
+
+# Parse --cpu_ratio argument BEFORE setting up threading (needed before importing torch)
+def parse_cpu_ratio():
+    """Quick parse of --cpu_ratio to set thread count before torch import"""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('--cpu_ratio', type=float, default=1.0)
+    args, _ = parser.parse_known_args()
+    return args.cpu_ratio
+
+cpu_ratio = parse_cpu_ratio()
 
 # CPU optimization: Set thread count BEFORE importing torch/numpy
 # Detect if running under numactl or in multi-NUMA system
@@ -22,8 +33,8 @@ except AttributeError:
 # Best practice: use physical cores only for CPU-intensive workloads
 num_physical_cores = available_cpus // 2  # Assume 2-way SMT (hyperthreading)
 
-# Use physical cores, limited to reasonable number
-num_threads = min(num_physical_cores, 56)  # Cap at 56 for single NUMA node
+# Apply CPU ratio (user-specified fraction of physical cores)
+num_threads = max(1, int(num_physical_cores * cpu_ratio))
 
 # Override with environment variable if set
 if 'OMP_NUM_THREADS' in os.environ:
@@ -45,6 +56,7 @@ os.environ['KMP_HW_SUBSET'] = '1t'  # Use 1 thread per physical core (disable hy
 print(f"🚀 CPU Optimization:")
 print(f"   Available CPUs: {available_cpus}")
 print(f"   Physical cores: {num_physical_cores}")
+print(f"   CPU ratio: {cpu_ratio:.2f} ({cpu_ratio*100:.0f}%)")
 print(f"   Using threads: {num_threads}")
 print(f"   NUMA nodes: Run with 'numactl --hardware' to check")
 
@@ -754,6 +766,8 @@ if __name__ == "__main__":
                        help='Patience for early stopping')
     parser.add_argument('--save_dir', type=str, default=None,
                        help='Directory to save models and metrics (None = don\'t save)')
+    parser.add_argument('--cpu_ratio', type=float, default=1.0,
+                       help='Ratio of physical CPU cores to use (0.0-1.0). Default: 1.0 (use all cores)')
     
     args = parser.parse_args()
     
