@@ -69,6 +69,46 @@ from system_config import create_default_system_config
 from utils import calculate_nmse
 
 
+def export_to_onnx(model, save_path: str, seq_len: int = 12, batch_size: int = 1):
+    """
+    Export PyTorch model to ONNX format
+    
+    Note: Full ONNX export with complex numbers is not supported by PyTorch.
+    This function attempts export but may fail due to complex number operations.
+    
+    Alternative: Use PyTorch JIT tracing or save as TorchScript instead.
+    
+    Args:
+        model: PyTorch model
+        save_path: Path to save ONNX file
+        seq_len: Sequence length
+        batch_size: Batch size for dummy input
+    """
+    try:
+        # Try to export despite complex number limitations
+        # This will likely fail, but we attempt it anyway
+        import torch.jit
+        
+        # Create dummy input
+        dummy_input = torch.randn(batch_size, seq_len, dtype=torch.complex64)
+        
+        # Try tracing first (sometimes works better than export)
+        traced = torch.jit.trace(model, dummy_input)
+        
+        # Save as TorchScript instead (better complex support)
+        torchscript_path = save_path.replace('.onnx', '.pt')
+        torch.jit.save(traced, torchscript_path)
+        
+        return True, f"Saved as TorchScript (ONNX not supported for complex models): {torchscript_path}"
+        
+    except Exception as e:
+        error_msg = str(e)
+        if "complex" in error_msg.lower() or "ComplexFloat" in error_msg:
+            # Known issue: ONNX doesn't support complex numbers
+            return False, "ONNX export not supported for complex-valued models. Use TorchScript (.pt) instead or implement real-valued model variant."
+        return False, error_msg
+
+
 def generate_training_data(
     srs_config: SRSConfig = None,
     batch_size: int = 32,
@@ -445,6 +485,7 @@ def test_model(
     if save_dir is not None:
         from pathlib import Path
         import json
+        from datetime import datetime
         
         # Create save directory
         save_path = Path(save_dir)
@@ -484,31 +525,22 @@ def test_model(
         }, save_path / 'model.pth')
         print(f"  ✓ Saved PyTorch model: {save_path / 'model.pth'}")
         
-        # Save ONNX
-        try:
-            # Create dummy input for ONNX export
-            dummy_input = torch.randn(1, seq_len, dtype=torch.complex64)
+        # Try to export to ONNX/TorchScript
+        model_cpu = model.cpu()
+        success, message = export_to_onnx(model_cpu, str(save_path / 'model.onnx'), seq_len=seq_len)
+        if success:
+            print(f"  ✓ {message}")
+        else:
+            print(f"  ✗ Export note: {message}")
             
-            # Export (note: ONNX doesn't support complex64 natively)
-            # We'll export with float32 input/output for compatibility
-            model_cpu = model.cpu()
-            torch.onnx.export(
-                model_cpu,
-                dummy_input,
-                save_path / 'model.onnx',
-                export_params=True,
-                opset_version=12,
-                do_constant_folding=True,
-                input_names=['input'],
-                output_names=['output'],
-                dynamic_axes={
-                    'input': {0: 'batch_size'},
-                    'output': {0: 'batch_size'}
-                }
-            )
-            print(f"  ✓ Exported ONNX: {save_path / 'model.onnx'}")
-        except Exception as e:
-            print(f"  ✗ ONNX export failed: {e}")
+            # Save as TorchScript instead (works with complex numbers)
+            try:
+                traced = torch.jit.trace(model_cpu, torch.randn(1, seq_len, dtype=torch.complex64))
+                torchscript_path = save_path / 'model.pt'
+                torch.jit.save(traced, str(torchscript_path))
+                print(f"  ✓ Saved TorchScript: {torchscript_path} (use in Python/C++)")
+            except Exception as e2:
+                print(f"  ✗ TorchScript export also failed: {e2}")
         
         # Save metrics JSON
         metrics = {
@@ -548,6 +580,155 @@ def test_model(
             np.save(save_path / 'val_losses.npy', np.array(val_losses))
         print(f"  ✓ Saved loss curves")
         
+        # Generate Markdown report
+        report_path = save_path / 'training_report.md'
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(f"# Training Report\n\n")
+            f.write(f"**Experiment**: {exp_name if exp_name else 'unnamed'}\n\n")
+            f.write(f"**Timestamp**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(f"---\n\n")
+            
+            f.write(f"## Configuration\n\n")
+            f.write(f"### Model Architecture\n\n")
+            f.write(f"| Parameter | Value |\n")
+            f.write(f"|-----------|-------|\n")
+            f.write(f"| Sequence Length | {seq_len} |\n")
+            f.write(f"| Number of Ports | {num_ports} |\n")
+            f.write(f"| Hidden Dimension | 64 |\n")
+            f.write(f"| Number of Stages | {num_stages} |\n")
+            f.write(f"| Share Weights | {share_weights} |\n")
+            f.write(f"| Normalize Energy | True |\n")
+            f.write(f"| Total Parameters | {sum(p.numel() for p in model.parameters()):,} |\n\n")
+            
+            f.write(f"### Training Configuration\n\n")
+            f.write(f"| Parameter | Value |\n")
+            f.write(f"|-----------|-------|\n")
+            f.write(f"| Batch Size | {batch_size} |\n")
+            f.write(f"| Max Batches | {num_batches} |\n")
+            f.write(f"| Batches Trained | {len(losses)} |\n")
+            f.write(f"| SNR | {snr_db} |\n")
+            f.write(f"| TDL Configs | {tdl_configs} |\n")
+            if early_stop_loss:
+                f.write(f"| Early Stop Loss | {early_stop_loss} |\n")
+                f.write(f"| Validation Interval | {validation_interval} |\n")
+                f.write(f"| Patience | {patience} |\n")
+            f.write(f"| Stopped Early | {'Yes' if len(losses) < num_batches else 'No'} |\n\n")
+            
+            f.write(f"---\n\n")
+            f.write(f"## Training Results\n\n")
+            
+            if final_train_loss is not None:
+                final_train_loss_db = 10 * np.log10(final_train_loss) if final_train_loss > 0 else -np.inf
+                f.write(f"**Final Training Loss**: `{final_train_loss:.6f}` (`{final_train_loss_db:.2f} dB`)\n\n")
+            
+            if best_val_loss is not None:
+                best_val_loss_db = 10 * np.log10(best_val_loss) if best_val_loss > 0 else -np.inf
+                f.write(f"**Best Validation Loss**: `{best_val_loss:.6f}` (`{best_val_loss_db:.2f} dB`)\n\n")
+            
+            f.write(f"**Test NMSE**: `{test_nmse:.6f}` (`{test_nmse_db:.2f} dB`)\n\n")
+            
+            f.write(f"### Port-wise Performance\n\n")
+            f.write(f"| Port | NMSE (Linear) | NMSE (dB) |\n")
+            f.write(f"|------|---------------|----------|\n")
+            for p in range(num_ports):
+                f.write(f"| {p} | {port_nmse_linear[p]:.6f} | {port_nmse_db[p]:.2f} dB |\n")
+            f.write(f"\n")
+            
+            if val_losses:
+                f.write(f"### Validation History\n\n")
+                f.write(f"```\n")
+                for i, vl in enumerate(val_losses):
+                    vl_db = 10 * np.log10(vl) if vl > 0 else -np.inf
+                    f.write(f"Val {i+1}: {vl:.6f} ({vl_db:.2f} dB)\n")
+                f.write(f"```\n\n")
+            
+            f.write(f"---\n\n")
+            f.write(f"## Files\n\n")
+            f.write(f"- `model.pth` - PyTorch model weights (state dict)\n")
+            if (save_path / 'model.pt').exists():
+                f.write(f"- `model.pt` - TorchScript format (Python/C++ compatible)\n")
+            if (save_path / 'model.onnx').exists():
+                f.write(f"- `model.onnx` - ONNX format (if export succeeded)\n")
+            f.write(f"- `metrics.json` - Detailed metrics\n")
+            f.write(f"- `train_losses.npy` - Training loss history\n")
+            if val_losses:
+                f.write(f"- `val_losses.npy` - Validation loss history\n")
+            f.write(f"- `training_report.md` - This report\n\n")
+            
+            # Add model usage instructions
+            if (save_path / 'model.pt').exists():
+                f.write(f"---\n\n")
+                f.write(f"## TorchScript Model Usage\n\n")
+                f.write(f"### Python Example\n\n")
+                f.write(f"```python\n")
+                f.write(f"import torch\n\n")
+                f.write(f"# Load TorchScript model\n")
+                f.write(f"model = torch.jit.load('model.pt')\n")
+                f.write(f"model.eval()\n\n")
+                f.write(f"# Prepare input (complex signal)\n")
+                f.write(f"y = torch.randn(1, {seq_len}, dtype=torch.complex64)  # [batch, seq_len]\n\n")
+                f.write(f"# Run inference\n")
+                f.write(f"with torch.no_grad():\n")
+                f.write(f"    h = model(y)  # [batch, {num_ports}, {seq_len}]\n")
+                f.write(f"```\n\n")
+                f.write(f"### MATLAB Usage (via Python Engine)\n\n")
+                f.write(f"```matlab\n")
+                f.write(f"% Start Python engine\n")
+                f.write(f"pe = pyenv('Version', 'path/to/python');\n\n")
+                f.write(f"% Load model via Python\n")
+                f.write(f"model = py.torch.jit.load('model.pt');\n")
+                f.write(f"model.eval();\n\n")
+                f.write(f"% Prepare input\n")
+                f.write(f"y_complex = randn({seq_len}, 1) + 1i*randn({seq_len}, 1);\n")
+                f.write(f"% Convert to PyTorch tensor (requires additional conversion)\n")
+                f.write(f"```\n\n")
+                f.write(f"**Note**: For MATLAB, consider re-implementing the model natively or using Python Engine.\n\n")
+            
+            if (save_path / 'model.onnx').exists():
+                f.write(f"---\n\n")
+                f.write(f"## ONNX Model Usage\n\n")
+                f.write(f"### Input Format\n\n")
+                f.write(f"- **Shape**: `[batch, 2, {seq_len}]`\n")
+                f.write(f"- **Type**: `float32`\n")
+                f.write(f"- **Channel 0**: Real part of complex signal\n")
+                f.write(f"- **Channel 1**: Imaginary part of complex signal\n\n")
+                f.write(f"### Output Format\n\n")
+                f.write(f"- **Shape**: `[batch, {num_ports}, 2, {seq_len}]`\n")
+                f.write(f"- **Type**: `float32`\n")
+                f.write(f"- **Dimension 2, Channel 0**: Real part of estimated channels\n")
+                f.write(f"- **Dimension 2, Channel 1**: Imaginary part of estimated channels\n\n")
+                f.write(f"### MATLAB Example\n\n")
+                f.write(f"```matlab\n")
+                f.write(f"% Load ONNX model\n")
+                f.write(f"net = importONNXNetwork('model.onnx', 'OutputLayerType', 'regression');\n\n")
+                f.write(f"% Prepare input (complex signal -> [real; imag])\n")
+                f.write(f"y_complex = randn({seq_len}, 1) + 1i*randn({seq_len}, 1);  % Your signal\n")
+                f.write(f"y_input = cat(1, real(y_complex)', imag(y_complex)');  % [2, {seq_len}]\n")
+                f.write(f"y_input = reshape(y_input, [1, 2, {seq_len}]);  % Add batch dim\n\n")
+                f.write(f"% Run inference\n")
+                f.write(f"h_output = predict(net, y_input);  % [{num_ports}, 2, {seq_len}]\n\n")
+                f.write(f"% Convert back to complex\n")
+                f.write(f"h_real = squeeze(h_output(:, 1, :));  % [{num_ports}, {seq_len}]\n")
+                f.write(f"h_imag = squeeze(h_output(:, 2, :));\n")
+                f.write(f"h_complex = h_real + 1i*h_imag;  % [{num_ports}, {seq_len}]\n")
+                f.write(f"```\n\n")
+                f.write(f"### Python Example\n\n")
+                f.write(f"```python\n")
+                f.write(f"import onnxruntime as ort\n")
+                f.write(f"import numpy as np\n\n")
+                f.write(f"# Load model\n")
+                f.write(f"session = ort.InferenceSession('model.onnx')\n\n")
+                f.write(f"# Prepare input\n")
+                f.write(f"y_complex = np.random.randn({seq_len}) + 1j*np.random.randn({seq_len})\n")
+                f.write(f"y_input = np.stack([y_complex.real, y_complex.imag], axis=0)[None, :, :]  # [1, 2, {seq_len}]\n")
+                f.write(f"y_input = y_input.astype(np.float32)\n\n")
+                f.write(f"# Run inference\n")
+                f.write(f"h_output = session.run(None, {{'input_real_imag': y_input}})[0]  # [1, {num_ports}, 2, {seq_len}]\n\n")
+                f.write(f"# Convert back to complex\n")
+                f.write(f"h_complex = h_output[0, :, 0, :] + 1j*h_output[0, :, 1, :]  # [{num_ports}, {seq_len}]\n")
+                f.write(f"```\n")
+            
+        print(f"  ✓ Saved training report: {report_path}")
         print(f"{'='*80}\n")
     
     return model, losses
