@@ -130,10 +130,15 @@ class TDLChannel:
         return_torch: bool = True
     ) -> Union[torch.Tensor, np.ndarray]:
         """
-        Generate independent TDL channel realizations
+        Generate independent TDL channel realizations with Rayleigh fading
         
-        Each sample (batch, port, time) has independent random phases.
-        No time correlation - pure independent fading.
+        Each path has:
+        - Power from the model specification
+        - Rayleigh fading: h_n = sqrt(P_n) * (1/sqrt(2)) * (X_n + j*Y_n)
+          where X_n, Y_n ~ N(0,1) are independent Gaussian
+        
+        Multiple paths may fall on the same delay tap (when delay < sampling period),
+        in which case they are summed (coherent addition).
         
         Args:
             batch_size: Number of independent realizations
@@ -152,7 +157,7 @@ class TDLChannel:
         # Initialize output
         h = np.zeros((batch_size, num_ports, seq_len), dtype=np.complex64)
         
-        # Time indices for each tap
+        # Delay indices for each path
         delay_indices = np.round(self.delays / dt).astype(int)
         
         # Filter valid delays (within seq_len)
@@ -160,18 +165,20 @@ class TDLChannel:
         valid_delays = delay_indices[valid_mask]
         valid_powers = self.powers[valid_mask]
         
-        # For each batch and port, generate independent channel
+        # For each batch and port, generate independent Rayleigh fading
         for b in range(batch_size):
             for p in range(num_ports):
-                # Random phases for each path (independent per batch/port)
-                phases = np.random.uniform(0, 2*np.pi, len(valid_delays))
+                # Rayleigh fading: complex Gaussian with variance = power
+                # h_n = sqrt(P_n) * (1/sqrt(2)) * (X + jY), where X,Y ~ N(0,1)
+                real_part = np.random.randn(len(valid_delays))
+                imag_part = np.random.randn(len(valid_delays))
                 
-                # Complex gains: sqrt(power) * exp(j*phase)
-                gains = np.sqrt(valid_powers) * np.exp(1j * phases)
+                # Complex gains with correct power scaling
+                gains = np.sqrt(valid_powers / 2) * (real_part + 1j * imag_part)
                 
-                # Place gains at delay taps
+                # Accumulate gains at delay taps (multiple paths may map to same tap)
                 for delay_idx, gain in zip(valid_delays, gains):
-                    h[b, p, delay_idx] = gain
+                    h[b, p, delay_idx] += gain
         
         # Convert to torch if requested
         if return_torch:
@@ -188,9 +195,12 @@ class TDLChannel:
         return_torch: bool = True
     ) -> Union[torch.Tensor, np.ndarray]:
         """
-        Parallel vectorized generation (faster for large batches)
+        Parallel vectorized generation with Rayleigh fading (faster for large batches)
         
-        Uses NumPy broadcasting for efficient computation.
+        Each path undergoes Rayleigh fading:
+        h_n = sqrt(P_n/2) * (X_n + j*Y_n), where X_n, Y_n ~ N(0,1)
+        
+        Multiple paths falling on the same delay tap are accumulated.
         """
         dt = 1.0 / sampling_rate
         
@@ -203,16 +213,18 @@ class TDLChannel:
         valid_delays = delay_indices[valid_mask]
         valid_powers = self.powers[valid_mask]
         
-        # Generate all random phases at once
+        # Generate Rayleigh fading coefficients
         # Shape: (batch_size, num_ports, num_valid_paths)
-        phases = np.random.uniform(0, 2*np.pi, (batch_size, num_ports, len(valid_delays)))
+        real_part = np.random.randn(batch_size, num_ports, len(valid_delays))
+        imag_part = np.random.randn(batch_size, num_ports, len(valid_delays))
         
-        # Complex gains: (batch_size, num_ports, num_paths)
-        gains = np.sqrt(valid_powers[None, None, :]) * np.exp(1j * phases)
+        # Complex gains with correct power scaling
+        # h_n = sqrt(P_n/2) * (X + jY)
+        gains = np.sqrt(valid_powers[None, None, :] / 2) * (real_part + 1j * imag_part)
         
-        # Place gains at delay taps (vectorized)
+        # Accumulate gains at delay taps (use += for paths on same tap)
         for path_idx, delay_idx in enumerate(valid_delays):
-            h[:, :, delay_idx] = gains[:, :, path_idx]
+            h[:, :, delay_idx] += gains[:, :, path_idx]
         
         # Convert to torch if requested
         if return_torch:
@@ -222,8 +234,8 @@ class TDLChannel:
 
 
 def test_tdl_channel():
-    """Test TDL channel generation"""
-    print("Testing TDL Channel Models")
+    """Test TDL channel generation with Rayleigh fading"""
+    print("Testing TDL Channel Models (with Rayleigh Fading)")
     print("=" * 80)
     
     # Test parameters
@@ -233,6 +245,7 @@ def test_tdl_channel():
     scs = 30e3
     Ktc = 4
     sampling_rate = scs * Ktc * seq_len
+    dt = 1.0 / sampling_rate
     
     for model in ['A', 'B', 'C']:
         print(f"\nTDL-{model}:")
@@ -245,9 +258,18 @@ def test_tdl_channel():
             normalize=True
         )
         
+        # Calculate delay statistics
+        delay_indices = np.round(tdl.delays / dt).astype(int)
+        valid_mask = delay_indices < seq_len
+        valid_delays = delay_indices[valid_mask]
+        unique_delays = np.unique(valid_delays)
+        
         print(f"  Number of paths: {tdl.num_paths}")
-        print(f"  Path delays (ns): {tdl.delays * 1e9}")
-        print(f"  Path powers (linear): {tdl.powers}")
+        print(f"  RMS delay spread: {tdl.delay_spread*1e9:.1f} ns")
+        print(f"  Max delay: {tdl.delays.max()*1e9:.1f} ns ({tdl.delays.max()/tdl.delay_spread:.2f} × RMS)")
+        print(f"  Sampling period: {dt*1e9:.2f} ns")
+        print(f"  Paths within seq_len: {valid_mask.sum()}/{tdl.num_paths}")
+        print(f"  Unique delay taps used: {len(unique_delays)} (some paths may overlap)")
         print(f"  Total power: {tdl.powers.sum():.4f}")
         
         # Generate channels
@@ -265,22 +287,24 @@ def test_tdl_channel():
         print(f"  Generation time: {elapsed*1000:.2f} ms")
         print(f"  Throughput: {batch_size*num_ports/elapsed:.0f} channels/s")
         print(f"  Output shape: {h.shape}")
-        print(f"  Mean power: {h.abs().pow(2).mean():.4f}")
+        print(f"  Mean power: {h.abs().pow(2).mean():.4f} (should be ~1.0)")
+        print(f"  Power std: {h.abs().pow(2).std():.4f}")
         
-        # Verify independence (check first tap across different samples)
+        # Verify Rayleigh statistics (check first non-zero tap)
         h_np = h.numpy()
+        first_tap = h_np[:, :, unique_delays[0]].flatten()
+        # For Rayleigh: E[|h|^2] should equal the power
+        first_tap_power = np.abs(first_tap)**2
+        print(f"  First tap |h|^2 mean: {first_tap_power.mean():.4f}")
+        print(f"  First tap |h|^2 std: {first_tap_power.std():.4f}")
+        
+        # Verify independence (check different samples)
         if batch_size >= 2:
             # Correlation between different batch samples (should be ~0)
-            corr_matrix = np.corrcoef(h_np[:min(10, batch_size), 0, 0].real)
-            if corr_matrix.size > 1:
-                corr_batch = corr_matrix[0, 1]
-                print(f"  Batch correlation: {corr_batch:.4f} (should be ~0)")
-        if seq_len > 1:
-            # Correlation across time (should be ~0 for independent fading)
-            corr_matrix = np.corrcoef(h_np[0, 0, :].real)
-            if corr_matrix.size > 1:
-                corr_time = corr_matrix[0, 1]
-                print(f"  Time correlation: {corr_time:.4f} (should be ~0)")
+            sample1 = h_np[0, 0, :].flatten()
+            sample2 = h_np[1, 0, :].flatten()
+            corr = np.corrcoef(sample1.real, sample2.real)[0, 1]
+            print(f"  Batch independence: corr={corr:.4f} (should be ~0)")
 
 
 if __name__ == "__main__":
