@@ -188,5 +188,30 @@ weights = py.torch.load('model.pth');
 | 线性+dB 显示 | ✅ 完成 |
 | ONNX 问题 | ✅ 改用 TorchScript |
 | 模型部署 | ✅ TorchScript (.pt) |
+| 依赖清理 | ✅ 移除 TensorFlow/Sionna |
 
 所有功能已测试通过！🚀
+
+---
+
+## 🧹 依赖清理 (2025-12-01)
+
+### 移除的依赖
+- ❌ `tensorflow-cpu==2.15.0` - 已移除
+- ❌ `sionna==0.17.0` - 已移除
+- ❌ `tensorboard==2.15.0` - 已移除（不再需要）
+
+### 替代方案
+- ✅ 使用 `Model_AIIC.tdl_channel.TDLChannel` - 纯 NumPy 实现
+- ✅ 无 GIL 限制，CPU 并行性能更好
+- ✅ 完全符合 3GPP TR 38.901 标准
+
+### 修改的文件
+- `pyproject.toml` - 移除 TensorFlow/Sionna 依赖
+- `Model_AIIC/test_separator.py` - 移除未使用的导入
+- `Model_AIIC/channel_models.py` - 清理旧的 TDL 代码，只保留 SimpleRayleighChannel
+
+### 迁移指南
+如果其他脚本还依赖 Sionna/TensorFlow，请：
+1. 使用 `Model_AIIC.tdl_channel.TDLChannel` 替代
+2. 或保留旧的 `channel_models_old.py` 作为参考

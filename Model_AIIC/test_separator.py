@@ -62,7 +62,6 @@ torch.set_num_interop_threads(1)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from Model_AIIC.channel_separator import ResidualRefinementSeparator
-from Model_AIIC.channel_models import TDLChannelGenerator, SimpleRayleighChannel
 from data_generator import BaseSRSDataGenerator
 from user_config import SRSConfig, create_example_config
 from system_config import create_default_system_config
