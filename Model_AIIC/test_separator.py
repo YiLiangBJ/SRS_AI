@@ -63,6 +63,7 @@ print(f"   NUMA nodes: Run with 'numactl --hardware' to check")
 import torch
 import torch.nn.functional as F
 import numpy as np
+from torch.utils.tensorboard import SummaryWriter
 
 # Set PyTorch inter-op threads globally (can only be set once)
 torch.set_num_interop_threads(1)
@@ -312,6 +313,28 @@ def test_model(
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     
+    # Setup TensorBoard
+    writer = None
+    if save_dir is not None:
+        from pathlib import Path
+        exp_path = Path(save_dir) / exp_name if exp_name else Path(save_dir)
+        log_dir = exp_path / 'tensorboard'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        writer = SummaryWriter(log_dir=str(log_dir))
+        
+        # Log hyperparameters
+        hparam_dict = {
+            'num_stages': num_stages,
+            'share_weights': share_weights,
+            'batch_size': batch_size,
+            'snr_db': str(snr_db),
+            'tdl_configs': str(tdl_configs),
+            'hidden_dim': 64,
+            'num_params': num_params
+        }
+        print(f"📊 TensorBoard logs: {log_dir}")
+        print(f"   Run: tensorboard --logdir {save_dir}")
+    
     # Online Training
     print(f"\nOnline Training...")
     print(f"💡 Tip: Use larger batch_size (e.g., 2048-4096) for better CPU utilization")
@@ -361,6 +384,20 @@ def test_model(
         
         losses.append(loss.item())
         
+        # Log to TensorBoard
+        if writer is not None:
+            loss_db = 10 * torch.log10(loss)
+            writer.add_scalar('Loss/train', loss.item(), batch_idx)
+            writer.add_scalar('Loss/train_db', loss_db.item(), batch_idx)
+            
+            # Log per-port NMSE
+            for p in range(num_ports):
+                port_mse = (h_pred[:, p] - h_targets[:, p]).abs().pow(2).mean()
+                port_power = h_targets[:, p].abs().pow(2).mean()
+                port_nmse = port_mse / (port_power + 1e-10)
+                port_nmse_db = 10 * torch.log10(port_nmse)
+                writer.add_scalar(f'NMSE_per_port/port_{p}_db', port_nmse_db.item(), batch_idx)
+        
         # Print progress with throughput and timing breakdown
         if (batch_idx + 1) % 20 == 0 or batch_idx == 0:
             elapsed = time.time() - start_time
@@ -373,6 +410,13 @@ def test_model(
                 fwd_pct = 100 * forward_time / total_time
                 bwd_pct = 100 * backward_time / total_time
                 timing_info = f"[Data:{data_pct:.0f}% Fwd:{fwd_pct:.0f}% Bwd:{bwd_pct:.0f}%]"
+                
+                # Log timing info to TensorBoard
+                if writer is not None:
+                    writer.add_scalar('Throughput/samples_per_sec', samples_per_sec, batch_idx)
+                    writer.add_scalar('Time/data_pct', data_pct, batch_idx)
+                    writer.add_scalar('Time/forward_pct', fwd_pct, batch_idx)
+                    writer.add_scalar('Time/backward_pct', bwd_pct, batch_idx)
             else:
                 timing_info = ""
             
@@ -409,6 +453,11 @@ def test_model(
                 
                 # Convert to dB for display
                 avg_val_loss_db = 10 * np.log10(avg_val_loss) if avg_val_loss > 0 else -np.inf
+                
+                # Log validation metrics to TensorBoard
+                if writer is not None:
+                    writer.add_scalar('Loss/validation', avg_val_loss, batch_idx)
+                    writer.add_scalar('Loss/validation_db', avg_val_loss_db, batch_idx)
                 
                 print(f"  → Validation Loss: {avg_val_loss:.6f} ({avg_val_loss_db:.2f} dB)")
                 
@@ -471,6 +520,23 @@ def test_model(
         # Store for metrics
         test_nmse = nmse_linear.item()
         test_nmse_db = nmse_db.item()
+        
+        # Log test results to TensorBoard
+        if writer is not None:
+            writer.add_scalar('Loss/test', test_nmse, len(losses))
+            writer.add_scalar('Loss/test_db', test_nmse_db, len(losses))
+            
+            for p in range(num_ports):
+                writer.add_scalar(f'NMSE_per_port_test/port_{p}_db', port_nmse_db[p], len(losses))
+            
+            # Log hyperparameters with final metrics
+            metric_dict = {
+                'test_nmse_db': test_nmse_db,
+                'final_train_loss': final_train_loss if final_train_loss else 0,
+                'best_val_loss': best_val_loss if best_val_loss else 0,
+            }
+            writer.add_hparams(hparam_dict, metric_dict)
+            writer.close()
         
         print(f"  Test NMSE: {test_nmse:.6f} ({test_nmse_db:.2f} dB)")
         print(f"  Port-wise NMSE (linear): {[f'{x:.6f}' for x in port_nmse_linear]}")

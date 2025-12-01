@@ -1,0 +1,25 @@
+{
+  "hyperparameters": {
+    "stages": [
+      2
+    ],
+    "share_weights": [
+      false
+    ],
+    "snr_db": "20.0",
+    "tdl_configs": "A-30",
+    "batch_size": 128,
+    "max_batches": 10
+  },
+  "results": [
+    {
+      "experiment": "stages=2_share=False",
+      "num_stages": 2,
+      "share_weights": false,
+      "final_loss": 0.48166152834892273,
+      "min_loss": 0.48166152834892273,
+      "num_batches_trained": 10,
+      "status": "success"
+    }
+  ]
+}
