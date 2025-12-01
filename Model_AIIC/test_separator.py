@@ -53,7 +53,7 @@ import torch.nn.functional as F
 import numpy as np
 
 # No TensorFlow needed - using custom NumPy TDL
-print(f"✅ Using custom TDL channel (pure NumPy, no GIL limitation)")
+# print(f"✅ Using custom TDL channel (pure NumPy, no GIL limitation)")
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -86,7 +86,7 @@ def generate_training_data(
         h_true: (B, P, L) original channels (adjusted for SNR)
     """
     # Fixed port positions for 4 ports
-    pos_values = [0, 2, 6, 8]
+    pos_values = [0, 3, 6, 9]
     
     # Use custom TDL channel (pure NumPy, no GIL, independent fading)
     from Model_AIIC.tdl_channel import TDLChannel
@@ -169,7 +169,8 @@ def test_model(num_batches=100, batch_size=32, num_stages=3, snr_db=20.0, share_
     print(f"   PyTorch intra-op threads: {torch.get_num_threads()}")
     print(f"   PyTorch inter-op threads: {torch.get_num_interop_threads()}")
     print(f"   OMP threads: {os.environ.get('OMP_NUM_THREADS', 'default')}")
-    print(f"   Using custom TDL (NumPy, no GIL)")
+    # print(f"   TensorFlow intra-op: {os.environ.get('TF_NUM_INTRAOP_THREADS', 'default')}")
+    # print(f"   TensorFlow inter-op: {os.environ.get('TF_NUM_INTEROP_THREADS', 'default')}")
     
     # Configuration
     seq_len = 12
