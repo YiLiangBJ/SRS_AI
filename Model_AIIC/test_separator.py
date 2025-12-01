@@ -299,11 +299,11 @@ def test_model(
         h_pred = model(y)
         forward_time += time.time() - t0
         
-        # Loss: NMSE on shifted targets
+        # Loss: NMSE (normalized mean squared error)
         mse = (h_pred - h_targets).abs().pow(2).mean()
         signal_power = h_targets.abs().pow(2).mean()
         nmse = mse / (signal_power + 1e-10)
-        loss = nmse  # Can also use: 10 * torch.log10(nmse) for dB scale
+        loss = nmse
         
         # Backward
         t0 = time.time()
@@ -328,7 +328,11 @@ def test_model(
             else:
                 timing_info = ""
             
-            print(f"  Batch {batch_idx+1}/{num_batches}, Loss: {loss.item():.6f}, "
+            # Convert loss to dB for display
+            loss_db = 10 * torch.log10(loss)
+            
+            print(f"  Batch {batch_idx+1}/{num_batches}, "
+                  f"Loss: {loss.item():.6f} ({loss_db.item():.2f} dB), "
                   f"Throughput: {samples_per_sec:.0f} samples/s {timing_info}")
         
         # Validation and early stopping check
@@ -355,7 +359,10 @@ def test_model(
                 avg_val_loss = val_loss_sum / val_batches
                 val_losses.append(avg_val_loss)
                 
-                print(f"  → Validation Loss: {avg_val_loss:.6f}")
+                # Convert to dB for display
+                avg_val_loss_db = 10 * np.log10(avg_val_loss) if avg_val_loss > 0 else -np.inf
+                
+                print(f"  → Validation Loss: {avg_val_loss:.6f} ({avg_val_loss_db:.2f} dB)")
                 
                 # Check early stopping condition
                 if avg_val_loss < early_stop_loss:
@@ -396,31 +403,40 @@ def test_model(
         # Predict
         h_pred = model(y_test)
         
-        # Get unshifted channels
-        h_unshifted = model.get_unshifted_channels(h_pred, pos_values)
-        
-        # NMSE on shifted targets
-        mse_shifted = (h_pred - h_targets_test).abs().pow(2).mean()
+        # Calculate NMSE (h_targets_test already includes the shift)
+        mse = (h_pred - h_targets_test).abs().pow(2).mean()
         signal_power = h_targets_test.abs().pow(2).mean()
-        nmse_shifted = 10 * torch.log10(mse_shifted / (signal_power + 1e-10))
+        nmse_linear = mse / (signal_power + 1e-10)
+        nmse_db = 10 * torch.log10(nmse_linear)
         
-        # NMSE on unshifted channels
-        mse_unshifted = (h_unshifted - h_true_test).abs().pow(2).mean()
-        signal_power_true = h_true_test.abs().pow(2).mean()
-        nmse_unshifted = 10 * torch.log10(mse_unshifted / (signal_power_true + 1e-10))
-        
-        # Port-wise NMSE
-        port_nmse = []
+        # Port-wise NMSE (linear and dB)
+        port_nmse_linear = []
+        port_nmse_db = []
         for p in range(num_ports):
             mse_p = (h_pred[:, p] - h_targets_test[:, p]).abs().pow(2).mean()
             power_p = h_targets_test[:, p].abs().pow(2).mean()
-            nmse_p = 10 * torch.log10(mse_p / (power_p + 1e-10))
-            port_nmse.append(nmse_p.item())
+            nmse_p_linear = mse_p / (power_p + 1e-10)
+            nmse_p_db = 10 * torch.log10(nmse_p_linear)
+            port_nmse_linear.append(nmse_p_linear.item())
+            port_nmse_db.append(nmse_p_db.item())
         
-        print(f"  NMSE (shifted):   {nmse_shifted:.2f} dB")
-        print(f"  NMSE (unshifted): {nmse_unshifted:.2f} dB")
-        print(f"  Port-wise NMSE:   {[f'{x:.2f}' for x in port_nmse]} dB")
-        print(f"  Final train loss: {final_train_loss:.6f}")
+        # Store for metrics
+        test_nmse = nmse_linear.item()
+        test_nmse_db = nmse_db.item()
+        
+        print(f"  Test NMSE: {test_nmse:.6f} ({test_nmse_db:.2f} dB)")
+        print(f"  Port-wise NMSE (linear): {[f'{x:.6f}' for x in port_nmse_linear]}")
+        print(f"  Port-wise NMSE (dB):     {[f'{x:.2f}' for x in port_nmse_db]} dB")
+        
+        # Print final training loss
+        if final_train_loss is not None:
+            final_train_loss_db = 10 * np.log10(final_train_loss) if final_train_loss > 0 else -np.inf
+            print(f"  Final train loss: {final_train_loss:.6f} ({final_train_loss_db:.2f} dB)")
+        
+        # Print best validation loss if available
+        if best_val_loss is not None:
+            best_val_loss_db = 10 * np.log10(best_val_loss) if best_val_loss > 0 else -np.inf
+            print(f"  Best val loss: {best_val_loss:.6f} ({best_val_loss_db:.2f} dB)")
         if best_val_loss:
             print(f"  Best val loss:    {best_val_loss:.6f}")
         print(f"  Avg loss (last 10): {sum(losses[-10:])/10:.6f}")
@@ -463,8 +479,8 @@ def test_model(
             'val_losses': val_losses,
             'final_train_loss': final_train_loss,
             'best_val_loss': best_val_loss,
-            'test_nmse_shifted': nmse_shifted.item(),
-            'test_nmse_unshifted': nmse_unshifted.item()
+            'test_nmse': test_nmse,
+            'test_nmse_db': test_nmse_db
         }, save_path / 'model.pth')
         print(f"  ✓ Saved PyTorch model: {save_path / 'model.pth'}")
         
@@ -509,11 +525,14 @@ def test_model(
             },
             'results': {
                 'final_train_loss': final_train_loss,
+                'final_train_loss_db': 10 * np.log10(final_train_loss) if final_train_loss > 0 else -np.inf,
                 'best_val_loss': best_val_loss,
-                'test_nmse_shifted_db': nmse_shifted.item(),
-                'test_nmse_unshifted_db': nmse_unshifted.item(),
-                'port_wise_nmse_db': port_nmse,
-                'num_epochs': len(losses),
+                'best_val_loss_db': 10 * np.log10(best_val_loss) if best_val_loss and best_val_loss > 0 else None,
+                'test_nmse': test_nmse,
+                'test_nmse_db': test_nmse_db,
+                'port_wise_nmse': port_nmse_linear,
+                'port_wise_nmse_db': port_nmse_db,
+                'num_batches_trained': len(losses),
                 'stopped_early': len(losses) < num_batches
             },
             'timestamp': __import__('datetime').datetime.now().isoformat()
@@ -635,7 +654,7 @@ if __name__ == "__main__":
                 'share_weights': share_weights,
                 'final_loss': losses[-1] if losses else None,
                 'min_loss': min(losses) if losses else None,
-                'num_epochs': len(losses),
+                'num_batches_trained': len(losses),
                 'status': 'success'
             })
             
@@ -663,14 +682,19 @@ if __name__ == "__main__":
         # Sort by min_loss
         sorted_results = sorted(successful_results, key=lambda x: x['min_loss'])
         
-        print(f"\n{'Rank':<6} {'Experiment':<30} {'Min Loss':<12} {'Final Loss':<12} {'Epochs':<8}")
-        print(f"{'-'*80}")
+        print(f"\n{'Rank':<6} {'Experiment':<35} {'Min Loss':<15} {'Final Loss':<15} {'Batches':<10}")
+        print(f"{'-'*85}")
         for i, result in enumerate(sorted_results):
-            print(f"{i+1:<6} {result['experiment']:<30} "
-                  f"{result['min_loss']:<12.6f} {result['final_loss']:<12.6f} {result['num_epochs']:<8}")
+            min_loss_db = 10 * np.log10(result['min_loss']) if result['min_loss'] > 0 else -np.inf
+            final_loss_db = 10 * np.log10(result['final_loss']) if result['final_loss'] > 0 else -np.inf
+            print(f"{i+1:<6} {result['experiment']:<35} "
+                  f"{result['min_loss']:.4f} ({min_loss_db:>6.2f}dB) "
+                  f"{result['final_loss']:.4f} ({final_loss_db:>6.2f}dB) "
+                  f"{result['num_batches_trained']:<10}")
         
+        best_loss_db = 10 * np.log10(sorted_results[0]['min_loss']) if sorted_results[0]['min_loss'] > 0 else -np.inf
         print(f"\nBest configuration: {sorted_results[0]['experiment']}")
-        print(f"  Min Loss: {sorted_results[0]['min_loss']:.6f}")
+        print(f"  Min Loss: {sorted_results[0]['min_loss']:.6f} ({best_loss_db:.2f} dB)")
     
     failed_results = [r for r in results if r['status'] == 'failed']
     if failed_results:
