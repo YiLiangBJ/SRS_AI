@@ -71,7 +71,7 @@ def load_model(model_dir):
     return model, config
 
 
-def evaluate_model_at_snr(model, snr_db, tdl_config, num_samples=1000, batch_size=100):
+def evaluate_model_at_snr(model, snr_db, tdl_config, num_batches=10, batch_size=100):
     """
     评估模型在特定 SNR 和 TDL 配置下的性能
     
@@ -79,7 +79,7 @@ def evaluate_model_at_snr(model, snr_db, tdl_config, num_samples=1000, batch_siz
         model: 模型
         snr_db: 信噪比 (dB)
         tdl_config: TDL 配置 (e.g., 'A-30')
-        num_samples: 评估样本数
+        num_batches: 评估批次数
         batch_size: 批大小
         
     Returns:
@@ -87,6 +87,9 @@ def evaluate_model_at_snr(model, snr_db, tdl_config, num_samples=1000, batch_siz
         nmse_db: NMSE (dB)
         port_nmse: 每个端口的 NMSE (线性)
         port_nmse_db: 每个端口的 NMSE (dB)
+        
+    Note:
+        总样本数 = num_batches × batch_size
     """
     seq_len = 12
     num_ports = 4
@@ -95,8 +98,6 @@ def evaluate_model_at_snr(model, snr_db, tdl_config, num_samples=1000, batch_siz
     total_power = 0.0
     port_mse = np.zeros(num_ports)
     port_power = np.zeros(num_ports)
-    
-    num_batches = (num_samples + batch_size - 1) // batch_size
     
     with torch.no_grad():
         for _ in range(num_batches):
@@ -174,10 +175,10 @@ def main():
                        help='TDL 配置列表（逗号分隔），如 "A-30,B-100,C-300"')
     parser.add_argument('--snr_range', type=str, default='30:-3:0',
                        help='SNR 范围，格式: "start:step:end"，如 "30:-3:0" 表示 [30, 27, ..., 3, 0]')
-    parser.add_argument('--num_samples', type=int, default=1000,
-                       help='每个 SNR 点的评估样本数')
+    parser.add_argument('--num_batches', type=int, default=10,
+                       help='每个 SNR 点的评估批次数（总样本数 = num_batches × batch_size）')
     parser.add_argument('--batch_size', type=int, default=100,
-                       help='评估批大小')
+                       help='评估批大小（总样本数 = num_batches × batch_size）')
     parser.add_argument('--output', type=str, default='./evaluation_results',
                        help='结果保存目录')
     
@@ -201,11 +202,19 @@ def main():
         model_names = args.models.split(',')
     else:
         # 自动发现所有模型
+        if not exp_dir.exists():
+            raise FileNotFoundError(f"实验目录不存在: {exp_dir}")
         model_names = [d.name for d in exp_dir.iterdir() if d.is_dir() and (d / 'model.pth').exists()]
+    
+    if not model_names:
+        raise ValueError(f"在 {exp_dir} 中没有找到任何训练好的模型（包含 model.pth 的目录）")
+    
+    # 计算总样本数
+    total_samples_per_point = args.num_batches * args.batch_size
     
     print(f"要评估的模型: {model_names}")
     print(f"总共: {len(model_names)} 个模型 × {len(tdl_list)} 个 TDL × {len(snr_list)} 个 SNR")
-    print(f"每个点 {args.num_samples} 个样本")
+    print(f"每个点: {args.num_batches} batches × {args.batch_size} samples = {total_samples_per_point} 总样本")
     print("="*80)
     
     # 评估结果存储
@@ -214,8 +223,9 @@ def main():
         'config': {
             'snr_list': snr_list,
             'tdl_list': tdl_list,
-            'num_samples': args.num_samples,
-            'batch_size': args.batch_size
+            'num_batches': args.num_batches,
+            'batch_size': args.batch_size,
+            'total_samples_per_point': args.num_batches * args.batch_size
         },
         'models': {}
     }
@@ -262,7 +272,7 @@ def main():
                     # 评估
                     nmse, nmse_db, port_nmse, port_nmse_db = evaluate_model_at_snr(
                         model, snr_db, tdl_config, 
-                        num_samples=args.num_samples,
+                        num_batches=args.num_batches,
                         batch_size=args.batch_size
                     )
                     
@@ -319,7 +329,7 @@ def main():
     print(f"评估的模型数: {len(results['models'])}")
     print(f"TDL 配置: {tdl_list}")
     print(f"SNR 范围: {snr_list[0]} 到 {snr_list[-1]} dB ({len(snr_list)} 个点)")
-    print(f"每个点样本数: {args.num_samples}")
+    print(f"每个点: {args.num_batches} batches × {args.batch_size} samples = {args.num_batches * args.batch_size} 总样本")
     print(f"\n结果保存到: {output_dir}")
     print(f"  - {json_path.name}")
     print(f"  - {npy_path.name}")

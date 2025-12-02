@@ -1,0 +1,58 @@
+{
+  "hyperparameters": {
+    "stages": [
+      2,
+      3
+    ],
+    "share_weights": [
+      true,
+      false
+    ],
+    "snr_db": "(0.0, 30.0)",
+    "tdl_configs": [
+      "A-30",
+      "B-100",
+      "C-300"
+    ],
+    "batch_size": 4096,
+    "max_batches": 100000
+  },
+  "results": [
+    {
+      "experiment": "stages=2_share=True",
+      "num_stages": 2,
+      "share_weights": true,
+      "final_loss": 0.01680956594645977,
+      "min_loss": 0.012871471233665943,
+      "num_batches_trained": 100000,
+      "status": "success"
+    },
+    {
+      "experiment": "stages=2_share=False",
+      "num_stages": 2,
+      "share_weights": false,
+      "final_loss": 0.020212840288877487,
+      "min_loss": 0.012715843506157398,
+      "num_batches_trained": 100000,
+      "status": "success"
+    },
+    {
+      "experiment": "stages=3_share=True",
+      "num_stages": 3,
+      "share_weights": true,
+      "final_loss": 0.05693245679140091,
+      "min_loss": 0.012665084563195705,
+      "num_batches_trained": 100000,
+      "status": "success"
+    },
+    {
+      "experiment": "stages=3_share=False",
+      "num_stages": 3,
+      "share_weights": false,
+      "final_loss": 0.0556899756193161,
+      "min_loss": 0.012523597106337547,
+      "num_batches_trained": 100000,
+      "status": "success"
+    }
+  ]
+}

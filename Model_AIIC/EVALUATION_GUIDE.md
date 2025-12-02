@@ -79,16 +79,18 @@ python Model_AIIC/evaluate_models.py \
 
 ```bash
 # 更多样本（更准确但更慢）
+# 总样本数 = 50 batches × 100 samples = 5000
 python Model_AIIC/evaluate_models.py \
   --exp_dir "./experiments" \
-  --num_samples 5000 \
-  --batch_size 500 \
+  --num_batches 50 \
+  --batch_size 100 \
   --output "./results"
 
 # 更少样本（更快但不太准确）
+# 总样本数 = 5 batches × 100 samples = 500
 python Model_AIIC/evaluate_models.py \
   --exp_dir "./experiments" \
-  --num_samples 500 \
+  --num_batches 5 \
   --batch_size 100 \
   --output "./results"
 ```
@@ -101,9 +103,11 @@ python Model_AIIC/evaluate_models.py \
   --models "stages=2_share=False,stages=3_share=False,stages=3_share=True" \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
-  --num_samples 2000 \
+  --num_batches 10 \
   --batch_size 200 \
   --output "./evaluation_results"
+
+# 总样本数 = 10 batches × 200 samples = 2000 per SNR point
 ```
 
 ### 参数说明
@@ -114,9 +118,11 @@ python Model_AIIC/evaluate_models.py \
 | `--models` | 要评估的模型（逗号分隔）| 所有模型 |
 | `--tdl` | TDL 配置（逗号分隔） | A-30,B-100,C-300 |
 | `--snr_range` | SNR 范围 (start:step:end) | 30:-3:0 |
-| `--num_samples` | 每个 SNR 点的样本数 | 1000 |
+| `--num_batches` | 每个 SNR 点的批次数 | 10 |
 | `--batch_size` | 评估批大小 | 100 |
 | `--output` | 结果保存目录 | ./evaluation_results |
+
+**注意**: 总样本数 = `num_batches` × `batch_size`
 
 ---
 

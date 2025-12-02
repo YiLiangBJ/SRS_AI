@@ -1,0 +1,40 @@
+{
+  "hyperparameters": {
+    "num_stages": 2,
+    "share_weights": true,
+    "batch_size": 4096,
+    "max_batches": 100000,
+    "snr_db": "(0.0, 30.0)",
+    "tdl_configs": [
+      "A-30",
+      "B-100",
+      "C-300"
+    ],
+    "early_stop_loss": 0.001,
+    "validation_interval": 100,
+    "patience": 5
+  },
+  "results": {
+    "final_train_loss": 0.01680956594645977,
+    "final_train_loss_db": -17.744435006884977,
+    "best_val_loss": 0.01541010644286871,
+    "best_val_loss_db": -18.121943614508954,
+    "test_nmse": 0.016194991767406464,
+    "test_nmse_db": -17.906192779541016,
+    "port_wise_nmse": [
+      0.016135381534695625,
+      0.01705603301525116,
+      0.016294339671730995,
+      0.015411457978188992
+    ],
+    "port_wise_nmse_db": [
+      -17.92220687866211,
+      -17.68121910095215,
+      -17.8796329498291,
+      -18.121562957763672
+    ],
+    "num_batches_trained": 100000,
+    "stopped_early": false
+  },
+  "timestamp": "2025-12-01T19:34:55.918365"
+}
