@@ -1,0 +1,3422 @@
+[
+  {
+    "config": {
+      "num_stages": 2,
+      "share_weights": true,
+      "seq_len": 12,
+      "num_ports": 4,
+      "hidden_dim": 64
+    },
+    "parameters": {
+      "total": 52320,
+      "trainable": 52320,
+      "memory_bytes": 418560,
+      "details": {
+        "port_mlps.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        }
+      }
+    },
+    "complexity": {
+      "input_shape": [
+        1,
+        12
+      ],
+      "output_shape": [
+        1,
+        4,
+        12
+      ],
+      "batch_size": 1,
+      "total_flops": 102592,
+      "total_macs": 51200,
+      "total_real_muls": 51200,
+      "total_real_adds": 51392,
+      "layer_details": [
+        {
+          "stage": 0,
+          "port": 0,
+          "layer": "port0_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 1,
+          "layer": "port1_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 2,
+          "layer": "port2_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 3,
+          "layer": "port3_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 0,
+          "layer": "port0_stage1 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 1,
+          "layer": "port1_stage1 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 2,
+          "layer": "port2_stage1 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 3,
+          "layer": "port3_stage1 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        }
+      ]
+    },
+    "memory": {
+      "parameters": 418560,
+      "input": 96,
+      "output": 384,
+      "activations": 4096,
+      "total": 423136
+    }
+  },
+  {
+    "config": {
+      "num_stages": 2,
+      "share_weights": false,
+      "seq_len": 12,
+      "num_ports": 4,
+      "hidden_dim": 64
+    },
+    "parameters": {
+      "total": 104640,
+      "trainable": 104640,
+      "memory_bytes": 837120,
+      "details": {
+        "port_mlps.0.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        }
+      }
+    },
+    "complexity": {
+      "input_shape": [
+        1,
+        12
+      ],
+      "output_shape": [
+        1,
+        4,
+        12
+      ],
+      "batch_size": 1,
+      "total_flops": 204992,
+      "total_macs": 102400,
+      "total_real_muls": 102400,
+      "total_real_adds": 102592,
+      "layer_details": [
+        {
+          "stage": 0,
+          "port": 0,
+          "layer": "port0_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 1,
+          "layer": "port1_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 2,
+          "layer": "port2_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 3,
+          "layer": "port3_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 0,
+          "layer": "port0_stage1",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 1,
+          "layer": "port1_stage1",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 2,
+          "layer": "port2_stage1",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 3,
+          "layer": "port3_stage1",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        }
+      ]
+    },
+    "memory": {
+      "parameters": 837120,
+      "input": 96,
+      "output": 384,
+      "activations": 4096,
+      "total": 841696
+    }
+  },
+  {
+    "config": {
+      "num_stages": 3,
+      "share_weights": true,
+      "seq_len": 12,
+      "num_ports": 4,
+      "hidden_dim": 64
+    },
+    "parameters": {
+      "total": 52320,
+      "trainable": 52320,
+      "memory_bytes": 418560,
+      "details": {
+        "port_mlps.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        }
+      }
+    },
+    "complexity": {
+      "input_shape": [
+        1,
+        12
+      ],
+      "output_shape": [
+        1,
+        4,
+        12
+      ],
+      "batch_size": 1,
+      "total_flops": 102688,
+      "total_macs": 51200,
+      "total_real_muls": 51200,
+      "total_real_adds": 51488,
+      "layer_details": [
+        {
+          "stage": 0,
+          "port": 0,
+          "layer": "port0_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 1,
+          "layer": "port1_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 2,
+          "layer": "port2_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 3,
+          "layer": "port3_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 0,
+          "layer": "port0_stage1 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 1,
+          "layer": "port1_stage1 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 2,
+          "layer": "port2_stage1 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 3,
+          "layer": "port3_stage1 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 2,
+          "port": 0,
+          "layer": "port0_stage2 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 2,
+          "port": 1,
+          "layer": "port1_stage2 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 2,
+          "port": 2,
+          "layer": "port2_stage2 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 2,
+          "port": 3,
+          "layer": "port3_stage2 (shared)",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        }
+      ]
+    },
+    "memory": {
+      "parameters": 418560,
+      "input": 96,
+      "output": 384,
+      "activations": 6144,
+      "total": 425184
+    }
+  },
+  {
+    "config": {
+      "num_stages": 3,
+      "share_weights": false,
+      "seq_len": 12,
+      "num_ports": 4,
+      "hidden_dim": 64
+    },
+    "parameters": {
+      "total": 156960,
+      "trainable": 156960,
+      "memory_bytes": 1255680,
+      "details": {
+        "port_mlps.0.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.0.2.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.1.2.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.2.2.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.0.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.1.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_real.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_real.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_real.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_real.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_real.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_real.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_imag.0.weight": {
+          "shape": [
+            64,
+            24
+          ],
+          "numel": 1536,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_imag.0.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_imag.2.weight": {
+          "shape": [
+            64,
+            64
+          ],
+          "numel": 4096,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_imag.2.bias": {
+          "shape": [
+            64
+          ],
+          "numel": 64,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_imag.4.weight": {
+          "shape": [
+            12,
+            64
+          ],
+          "numel": 768,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        },
+        "port_mlps.3.2.mlp_imag.4.bias": {
+          "shape": [
+            12
+          ],
+          "numel": 12,
+          "dtype": "torch.float32",
+          "requires_grad": true
+        }
+      }
+    },
+    "complexity": {
+      "input_shape": [
+        1,
+        12
+      ],
+      "output_shape": [
+        1,
+        4,
+        12
+      ],
+      "batch_size": 1,
+      "total_flops": 307488,
+      "total_macs": 153600,
+      "total_real_muls": 153600,
+      "total_real_adds": 153888,
+      "layer_details": [
+        {
+          "stage": 0,
+          "port": 0,
+          "layer": "port0_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 1,
+          "layer": "port1_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 2,
+          "layer": "port2_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 0,
+          "port": 3,
+          "layer": "port3_stage0",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 0,
+          "layer": "port0_stage1",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 1,
+          "layer": "port1_stage1",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 2,
+          "layer": "port2_stage1",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 1,
+          "port": 3,
+          "layer": "port3_stage1",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 2,
+          "port": 0,
+          "layer": "port0_stage2",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 2,
+          "port": 1,
+          "layer": "port1_stage2",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 2,
+          "port": 2,
+          "layer": "port2_stage2",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        },
+        {
+          "stage": 2,
+          "port": 3,
+          "layer": "port3_stage2",
+          "type": "ComplexMLP",
+          "flops": 25600,
+          "macs": 12800,
+          "real_muls": 12800,
+          "real_adds": 12800
+        }
+      ]
+    },
+    "memory": {
+      "parameters": 1255680,
+      "input": 96,
+      "output": 384,
+      "activations": 6144,
+      "total": 1262304
+    }
+  }
+]
