@@ -81,6 +81,149 @@ from system_config import create_default_system_config
 from utils import calculate_nmse
 
 
+# ============================================================================
+# SNR-Aware Loss Functions
+# ============================================================================
+
+def calculate_loss(h_pred, h_targets, snr_db=None, loss_type='nmse'):
+    """
+    统一的损失计算函数，支持多种损失类型
+    
+    **默认行为**: 对每个样本单独计算 NMSE，然后取平均
+    
+    Args:
+        h_pred: 预测的信道 (B, P, L) complex
+        h_targets: 目标信道 (B, P, L) complex
+        snr_db: SNR in dB，可以是:
+                - None: 使用原始 NMSE
+                - float: 所有样本相同 SNR
+                - list/array/tensor: 每个样本不同 SNR
+        loss_type: 损失类型
+                - 'nmse': 原始 NMSE（默认，每样本单独计算）
+                - 'normalized': SNR 归一化损失（推荐用于大范围 SNR）
+                - 'log': 对数空间（dB）损失
+                - 'weighted': SNR 区间加权损失
+    
+    Returns:
+        loss: 标量损失值
+    """
+    batch_size = h_pred.shape[0]
+    
+    # 对每个样本单独计算 NMSE
+    nmse_per_sample = []
+    for i in range(batch_size):
+        mse_i = (h_pred[i] - h_targets[i]).abs().pow(2).mean()
+        signal_power_i = h_targets[i].abs().pow(2).mean()
+        nmse_i = mse_i / (signal_power_i + 1e-10)
+        nmse_per_sample.append(nmse_i)
+    
+    # 转换为 tensor
+    nmse_per_sample = torch.stack(nmse_per_sample)  # (B,)
+    
+    if loss_type == 'nmse':
+        # 原始 NMSE：每个样本单独计算，然后取平均
+        return nmse_per_sample.mean()
+    
+    elif loss_type == 'normalized':
+        # SNR 归一化损失（推荐用于 0-30 dB 大范围训练）
+        # 核心思想：loss = actual_nmse / theoretical_best_nmse
+        
+        if snr_db is None:
+            # 如果没有提供 SNR，回退到原始 NMSE
+            return nmse_per_sample.mean()
+        
+        # 处理 tuple 类型（范围）
+        if isinstance(snr_db, tuple):
+            # tuple 表示范围，但这里需要具体值
+            # 使用中间值作为估计
+            snr_db = (snr_db[0] + snr_db[1]) / 2
+        
+        # 处理 SNR 输入，支持每个样本不同 SNR
+        if isinstance(snr_db, (list, np.ndarray)):
+            snr_db_array = np.array(snr_db)
+            if len(snr_db_array) == batch_size:
+                # 每个样本不同 SNR（推荐）
+                snr_linear = 10 ** (snr_db_array / 10)
+            else:
+                # 所有样本相同 SNR
+                snr_linear = 10 ** (np.mean(snr_db_array) / 10)
+                snr_linear = np.full(batch_size, snr_linear)
+        elif isinstance(snr_db, torch.Tensor):
+            if snr_db.numel() == batch_size:
+                snr_linear = 10 ** (snr_db.cpu().numpy() / 10)
+            else:
+                snr_linear = 10 ** (snr_db.mean().item() / 10)
+                snr_linear = np.full(batch_size, snr_linear)
+        else:
+            # 单一 SNR 值
+            snr_linear = 10 ** (snr_db / 10)
+            snr_linear = np.full(batch_size, snr_linear)
+        
+        # 理论最优 NMSE（考虑噪声影响）
+        # 在高斯噪声下，理论 MMSE ≈ σ²_noise / σ²_signal = 1 / (1 + SNR)
+        theoretical_nmse = torch.tensor(1.0 / (1.0 + snr_linear), dtype=torch.float32, device=nmse_per_sample.device)
+        
+        # 归一化损失：每个样本单独归一化
+        normalized_loss_per_sample = nmse_per_sample / (theoretical_nmse + 1e-10)
+        
+        return normalized_loss_per_sample.mean()
+    
+    elif loss_type == 'log':
+        # 对数空间（dB）损失：每个样本单独计算
+        nmse_db_per_sample = 10 * torch.log10(nmse_per_sample + 1e-10)
+        
+        # 返回绝对值的平均，确保损失为正
+        return torch.abs(nmse_db_per_sample).mean()
+    
+    elif loss_type == 'weighted':
+        # SNR 区间加权损失：每个样本单独加权
+        
+        if snr_db is None:
+            # 如果没有提供 SNR，回退到原始 NMSE
+            return nmse_per_sample.mean()
+        
+        # 处理 tuple 类型（范围）
+        if isinstance(snr_db, tuple):
+            # tuple 表示范围，使用中间值作为估计
+            snr_db = (snr_db[0] + snr_db[1]) / 2
+        
+        # 处理 SNR 输入
+        if isinstance(snr_db, (list, np.ndarray)):
+            snr_db_array = np.array(snr_db)
+            if len(snr_db_array) != batch_size:
+                # 如果不是每个样本一个 SNR，用平均值
+                snr_db_array = np.full(batch_size, np.mean(snr_db_array))
+        elif isinstance(snr_db, torch.Tensor):
+            if snr_db.numel() != batch_size:
+                snr_db_array = np.full(batch_size, snr_db.mean().item())
+            else:
+                snr_db_array = snr_db.cpu().numpy()
+        else:
+            # 单一 SNR 值
+            snr_db_array = np.full(batch_size, snr_db)
+        
+        # 根据每个样本的 SNR 区间设置权重
+        weights = np.zeros(batch_size)
+        for i in range(batch_size):
+            if snr_db_array[i] < 0:
+                weights[i] = 0.5  # 低 SNR: 降低权重（接近理论极限）
+            elif snr_db_array[i] < 10:
+                weights[i] = 0.8  # 中低 SNR
+            elif snr_db_array[i] < 20:
+                weights[i] = 1.0  # 中 SNR: 标准权重
+            else:
+                weights[i] = 1.5  # 高 SNR: 增加权重（更有改进空间）
+        
+        weights_tensor = torch.tensor(weights, dtype=torch.float32, device=nmse_per_sample.device)
+        weighted_loss_per_sample = weights_tensor * nmse_per_sample
+        
+        return weighted_loss_per_sample.mean()
+    
+    else:
+        raise ValueError(f"Unknown loss_type: {loss_type}. "
+                        f"Choose from: 'nmse', 'normalized', 'log', 'weighted'")
+
+
 def export_to_onnx(model, save_path: str, seq_len: int = 12, batch_size: int = 1):
     """
     Export PyTorch model to ONNX format
@@ -274,6 +417,7 @@ def test_model(
     share_weights=False,
     pos_values=[0, 3, 6, 9],  # Port positions, e.g., [0, 3, 6, 9] or [0, 2, 4, 6, 8, 10]
     tdl_configs='A-30',  # Can be string or list of strings
+    loss_type='nmse',  # Loss function type: 'nmse', 'normalized', 'log', 'weighted'
     early_stop_loss=None,  # Stop if loss below this value
     validation_interval=100,  # Validate every N batches
     patience=5,  # Number of validation checks that must pass early stop threshold
@@ -292,6 +436,11 @@ def test_model(
         pos_values: Port positions. Default [0, 3, 6, 9] for 4 ports.
                     Examples: [0, 3, 6, 9] (4 ports), [0, 2, 4, 6, 8, 10] (6 ports)
         tdl_configs: TDL configuration(s). String like 'A-30' or list like ['A-30', 'B-100', 'C-300']
+        loss_type: Loss function type
+                   - 'nmse': Original NMSE (default)
+                   - 'normalized': SNR-normalized loss (recommended for wide SNR range)
+                   - 'log': Log-space (dB) loss
+                   - 'weighted': SNR-weighted loss
         early_stop_loss: If not None, stop training when loss < this value (with patience)
         validation_interval: How often to run validation
         patience: Number of consecutive validation passes needed for early stopping
@@ -329,6 +478,7 @@ def test_model(
     print(f"  Num stages: {num_stages}")
     print(f"  Share weights: {share_weights}")
     print(f"  SNR: {snr_db} dB")
+    print(f"  Loss type: {loss_type}")
     print(f"  Batch size: {batch_size}")
     print(f"  Max training batches: {num_batches}")
     print(f"  TDL configs: {tdl_configs}")
@@ -371,6 +521,7 @@ def test_model(
             'batch_size': batch_size,
             'snr_db': str(snr_db),
             'tdl_configs': str(tdl_configs),
+            'loss_type': loss_type,
             'hidden_dim': 64,
             'num_params': num_params
         }
@@ -412,11 +563,8 @@ def test_model(
         h_pred = model(y)
         forward_time += time.time() - t0
         
-        # Loss: NMSE (normalized mean squared error)
-        mse = (h_pred - h_targets).abs().pow(2).mean()
-        signal_power = h_targets.abs().pow(2).mean()
-        nmse = mse / (signal_power + 1e-10)
-        loss = nmse
+        # Calculate loss using specified loss function
+        loss = calculate_loss(h_pred, h_targets, snr_db, loss_type=loss_type)
         
         # Backward
         t0 = time.time()
@@ -632,7 +780,8 @@ def test_model(
                 'pos_values': pos_values,
                 'batch_size': batch_size,
                 'snr_db': str(snr_db),
-                'tdl_configs': tdl_configs
+                'tdl_configs': tdl_configs,
+                'loss_type': loss_type
             },
             'losses': losses,
             'val_losses': val_losses,
@@ -671,6 +820,7 @@ def test_model(
                 'max_batches': num_batches,
                 'snr_db': str(snr_db),
                 'tdl_configs': tdl_configs,
+                'loss_type': loss_type,
                 'early_stop_loss': early_stop_loss,
                 'validation_interval': validation_interval,
                 'patience': patience
@@ -873,6 +1023,8 @@ if __name__ == "__main__":
                        help='TDL config(s). Single: "A-30", Multiple: "A-30,B-100,C-300"')
     parser.add_argument('--share_weights', type=str, default='False',
                        help='Share weights across stages. Single: "True", Multiple: "True,False"')
+    parser.add_argument('--loss_type', type=str, default='nmse',
+                       help='Loss function type: "nmse" (default), "normalized" (SNR-aware), "log" (dB space), "weighted" (SNR-weighted)')
     parser.add_argument('--early_stop', type=float, default=None,
                        help='Early stop threshold for loss')
     parser.add_argument('--val_interval', type=int, default=100,
@@ -911,10 +1063,19 @@ if __name__ == "__main__":
     # Parse hyperparameter lists
     stages_list = [int(x.strip()) for x in args.stages.split(',')]
     share_weights_list = [x.strip().lower() == 'true' for x in args.share_weights.split(',')]
+    loss_type_list = [x.strip() for x in args.loss_type.split(',')]
+    
+    # Validate loss types
+    valid_loss_types = ['nmse', 'normalized', 'log', 'weighted']
+    for loss_type in loss_type_list:
+        if loss_type not in valid_loss_types:
+            print(f"❌ Error: Invalid loss_type '{loss_type}'")
+            print(f"   Valid options: {', '.join(valid_loss_types)}")
+            sys.exit(1)
     
     # Generate all hyperparameter combinations
     from itertools import product
-    hyperparameter_combinations = list(product(stages_list, share_weights_list))
+    hyperparameter_combinations = list(product(stages_list, share_weights_list, loss_type_list))
     
     print(f"\n{'='*80}")
     print(f"Hyperparameter Search Configuration")
@@ -922,6 +1083,7 @@ if __name__ == "__main__":
     print(f"Total combinations: {len(hyperparameter_combinations)}")
     print(f"  stages: {stages_list}")
     print(f"  share_weights: {share_weights_list}")
+    print(f"  loss_type: {loss_type_list}")
     print(f"Common settings:")
     if pos_values:
         print(f"  Port positions: {pos_values} ({len(pos_values)} ports)")
@@ -939,8 +1101,8 @@ if __name__ == "__main__":
     
     # Run all combinations
     results = []
-    for idx, (num_stages, share_weights) in enumerate(hyperparameter_combinations):
-        exp_name = f"stages={num_stages}_share={share_weights}"
+    for idx, (num_stages, share_weights, loss_type) in enumerate(hyperparameter_combinations):
+        exp_name = f"stages={num_stages}_share={share_weights}_loss={loss_type}"
         
         print(f"\n{'#'*80}")
         print(f"# Experiment {idx+1}/{len(hyperparameter_combinations)}: {exp_name}")
@@ -955,6 +1117,7 @@ if __name__ == "__main__":
                 share_weights=share_weights,
                 pos_values=pos_values,
                 tdl_configs=tdl_configs,
+                loss_type=loss_type,
                 early_stop_loss=args.early_stop,
                 validation_interval=args.val_interval,
                 patience=args.patience,
@@ -966,6 +1129,7 @@ if __name__ == "__main__":
                 'experiment': exp_name,
                 'num_stages': num_stages,
                 'share_weights': share_weights,
+                'loss_type': loss_type,
                 'final_loss': losses[-1] if losses else None,
                 'min_loss': min(losses) if losses else None,
                 'num_batches_trained': len(losses),
@@ -980,6 +1144,7 @@ if __name__ == "__main__":
                 'experiment': exp_name,
                 'num_stages': num_stages,
                 'share_weights': share_weights,
+                'loss_type': loss_type,
                 'status': 'failed',
                 'error': str(e)
             })
@@ -996,12 +1161,12 @@ if __name__ == "__main__":
         # Sort by min_loss
         sorted_results = sorted(successful_results, key=lambda x: x['min_loss'])
         
-        print(f"\n{'Rank':<6} {'Experiment':<35} {'Min Loss':<15} {'Final Loss':<15} {'Batches':<10}")
-        print(f"{'-'*85}")
+        print(f"\n{'Rank':<6} {'Experiment':<50} {'Min Loss':<15} {'Final Loss':<15} {'Batches':<10}")
+        print(f"{'-'*100}")
         for i, result in enumerate(sorted_results):
             min_loss_db = 10 * np.log10(result['min_loss']) if result['min_loss'] > 0 else -np.inf
             final_loss_db = 10 * np.log10(result['final_loss']) if result['final_loss'] > 0 else -np.inf
-            print(f"{i+1:<6} {result['experiment']:<35} "
+            print(f"{i+1:<6} {result['experiment']:<50} "
                   f"{result['min_loss']:.4f} ({min_loss_db:>6.2f}dB) "
                   f"{result['final_loss']:.4f} ({final_loss_db:>6.2f}dB) "
                   f"{result['num_batches_trained']:<10}")
