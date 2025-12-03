@@ -54,10 +54,25 @@ def load_model(model_dir):
     checkpoint = torch.load(model_path, map_location='cpu')
     config = checkpoint['config']
     
-    # 创建模型
+    # 从 hyperparameters 中获取 pos_values（如果存在）
+    hyperparams = checkpoint.get('hyperparameters', {})
+    pos_values = hyperparams.get('pos_values', None)
+    
+    # 如果没有 pos_values，根据 num_ports 生成默认值
+    if pos_values is None:
+        num_ports = config.get('num_ports', 4)
+        if num_ports == 4:
+            pos_values = [0, 3, 6, 9]
+        elif num_ports == 6:
+            pos_values = [0, 2, 4, 6, 8, 10]
+        else:
+            # 均匀分布
+            pos_values = list(range(0, 12, 12 // num_ports))[:num_ports]
+    
+    # 创建模型（num_ports 从 pos_values 推导）
     model = ResidualRefinementSeparator(
         seq_len=config['seq_len'],
-        num_ports=config['num_ports'],
+        num_ports=len(pos_values),
         hidden_dim=config['hidden_dim'],
         num_stages=config['num_stages'],
         share_weights_across_stages=config['share_weights'],
@@ -68,10 +83,13 @@ def load_model(model_dir):
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     
+    # 将 pos_values 添加到 config 中返回
+    config['pos_values'] = pos_values
+    
     return model, config
 
 
-def evaluate_model_at_snr(model, snr_db, tdl_config, num_batches=10, batch_size=100):
+def evaluate_model_at_snr(model, snr_db, tdl_config, pos_values, num_batches=10, batch_size=100):
     """
     评估模型在特定 SNR 和 TDL 配置下的性能
     
@@ -79,6 +97,7 @@ def evaluate_model_at_snr(model, snr_db, tdl_config, num_batches=10, batch_size=
         model: 模型
         snr_db: 信噪比 (dB)
         tdl_config: TDL 配置 (e.g., 'A-30')
+        pos_values: 端口位置列表 (e.g., [0, 3, 6, 9])
         num_batches: 评估批次数
         batch_size: 批大小
         
@@ -92,7 +111,7 @@ def evaluate_model_at_snr(model, snr_db, tdl_config, num_batches=10, batch_size=
         总样本数 = num_batches × batch_size
     """
     seq_len = 12
-    num_ports = 4
+    num_ports = len(pos_values)
     
     total_mse = 0.0
     total_power = 0.0
@@ -106,7 +125,7 @@ def evaluate_model_at_snr(model, snr_db, tdl_config, num_batches=10, batch_size=
                 batch_size=batch_size,
                 snr_db=snr_db,
                 seq_len=seq_len,
-                num_ports=num_ports,
+                pos_values=pos_values,
                 tdl_config=tdl_config
             )
             
@@ -271,7 +290,7 @@ def main():
                 for snr_db in tqdm(snr_list, desc=f"    {tdl_config}"):
                     # 评估
                     nmse, nmse_db, port_nmse, port_nmse_db = evaluate_model_at_snr(
-                        model, snr_db, tdl_config, 
+                        model, snr_db, tdl_config, config['pos_values'],
                         num_batches=args.num_batches,
                         batch_size=args.batch_size
                     )

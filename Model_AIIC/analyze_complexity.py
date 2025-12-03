@@ -279,6 +279,8 @@ def main():
                        help='要分析的阶段数（逗号分隔）')
     parser.add_argument('--share_weights', type=str, default='True,False',
                        help='是否共享权重（逗号分隔）')
+    parser.add_argument('--num_ports', type=int, default=4,
+                       help='端口数量（默认 4）')
     parser.add_argument('--batch_size', type=int, default=1,
                        help='推理批大小（用于计算 FLOPs）')
     parser.add_argument('--output', type=str, default='./model_complexity_analysis',
@@ -295,12 +297,13 @@ def main():
     print("="*80)
     print(f"阶段数: {stages_list}")
     print(f"共享权重: {share_weights_list}")
+    print(f"端口数: {args.num_ports}")
     print(f"推理批大小: {args.batch_size}")
     print("="*80)
     
     # 固定参数
     seq_len = 12
-    num_ports = 4
+    num_ports = args.num_ports
     hidden_dim = 64
     
     # 分析所有组合

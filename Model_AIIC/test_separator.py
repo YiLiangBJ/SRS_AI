@@ -126,7 +126,7 @@ def generate_training_data(
     batch_size: int = 32,
     snr_db = 20.0,  # Can be: scalar, list [snr0, snr1, snr2, snr3], or tuple (min, max) for random
     seq_len: int = 12,
-    num_ports: int = 4,
+    pos_values: list = [0, 3, 6, 9],  # Port positions, e.g., [0, 3, 6, 9] or [0, 2, 4, 6, 8, 10]
     tdl_config: str = 'A-30'  # Format: 'MODEL-DELAY_NS' e.g., 'A-30', 'B-100', 'C-300'
 ):
     """
@@ -137,6 +137,8 @@ def generate_training_data(
                 - Scalar: same SNR for all ports
                 - List [snr0, snr1, snr2, snr3]: fixed SNR per port
                 - Tuple (min, max): random SNR uniformly sampled per sample
+        pos_values: Port positions (shifts). If None, defaults to [0, 3, 6, 9] for 4 ports
+                    Examples: [0, 3, 6, 9] (4 ports), [0, 2, 4, 6, 8, 10] (6 ports)
         tdl_config: TDL configuration string 'MODEL-DELAY_NS'
                     e.g., 'A-30' = TDL-A with 30ns delay spread
                           'B-100' = TDL-B with 100ns delay spread
@@ -148,8 +150,8 @@ def generate_training_data(
         pos_values: list of port positions
         h_true: (B, P, L) original channels (adjusted for SNR)
     """
-    # Fixed port positions for 4 ports
-    pos_values = [0, 3, 6, 9]
+    # num_ports is determined by length of pos_values
+    num_ports = len(pos_values)
     
     # Calculate random timing offset for each port
     # ±256*Tc where Tc = 1/(480e3*4096) ≈ 0.509 ns
@@ -270,6 +272,7 @@ def test_model(
     num_stages=3, 
     snr_db=20.0,  # Can be scalar, list, or tuple (min, max)
     share_weights=False,
+    pos_values=[0, 3, 6, 9],  # Port positions, e.g., [0, 3, 6, 9] or [0, 2, 4, 6, 8, 10]
     tdl_configs='A-30',  # Can be string or list of strings
     early_stop_loss=None,  # Stop if loss below this value
     validation_interval=100,  # Validate every N batches
@@ -286,6 +289,8 @@ def test_model(
         num_stages: Number of refinement stages
         snr_db: SNR configuration (scalar, list, or (min, max) tuple)
         share_weights: Whether to share weights across stages
+        pos_values: Port positions. Default [0, 3, 6, 9] for 4 ports.
+                    Examples: [0, 3, 6, 9] (4 ports), [0, 2, 4, 6, 8, 10] (6 ports)
         tdl_configs: TDL configuration(s). String like 'A-30' or list like ['A-30', 'B-100', 'C-300']
         early_stop_loss: If not None, stop training when loss < this value (with patience)
         validation_interval: How often to run validation
@@ -313,11 +318,14 @@ def test_model(
     
     # Configuration
     seq_len = 12
-    num_ports = 4
+    
+    # num_ports is determined by length of pos_values
+    num_ports = len(pos_values)
     
     print(f"\nConfiguration:")
     print(f"  Sequence length: {seq_len}")
     print(f"  Number of ports: {num_ports}")
+    print(f"  Port positions: {pos_values}")
     print(f"  Num stages: {num_stages}")
     print(f"  Share weights: {share_weights}")
     print(f"  SNR: {snr_db} dB")
@@ -358,6 +366,8 @@ def test_model(
         hparam_dict = {
             'num_stages': num_stages,
             'share_weights': share_weights,
+            'num_ports': num_ports,
+            'pos_values': str(pos_values),
             'batch_size': batch_size,
             'snr_db': str(snr_db),
             'tdl_configs': str(tdl_configs),
@@ -387,11 +397,11 @@ def test_model(
     for batch_idx in range(num_batches):
         # Generate batch on-the-fly using TDL
         t0 = time.time()
-        y, h_targets, pos_values, h_true = generate_training_data(
+        y, h_targets, _, h_true = generate_training_data(
             batch_size=batch_size, 
             snr_db=snr_db, 
             seq_len=seq_len, 
-            num_ports=num_ports,
+            pos_values=pos_values,
             tdl_config=tdl_configs
         )
         data_gen_time += time.time() - t0
@@ -471,7 +481,7 @@ def test_model(
                         batch_size=batch_size,
                         snr_db=snr_db,
                         seq_len=seq_len,
-                        num_ports=num_ports,
+                        pos_values=pos_values,
                         tdl_config=tdl_configs
                     )
                     h_pred_val = model(y_val)
@@ -522,11 +532,11 @@ def test_model(
     
     with torch.no_grad():
         # Generate test batch
-        y_test, h_targets_test, pos_values, h_true_test = generate_training_data(
+        y_test, h_targets_test, _, h_true_test = generate_training_data(
             batch_size=200, 
             snr_db=snr_db, 
             seq_len=seq_len, 
-            num_ports=num_ports
+            pos_values=pos_values
         )
         
         # Predict
@@ -618,6 +628,8 @@ def test_model(
             'hyperparameters': {
                 'num_stages': num_stages,
                 'share_weights': share_weights,
+                'num_ports': num_ports,
+                'pos_values': pos_values,
                 'batch_size': batch_size,
                 'snr_db': str(snr_db),
                 'tdl_configs': tdl_configs
@@ -653,6 +665,8 @@ def test_model(
             'hyperparameters': {
                 'num_stages': num_stages,
                 'share_weights': share_weights,
+                'num_ports': num_ports,
+                'pos_values': pos_values,
                 'batch_size': batch_size,
                 'max_batches': num_batches,
                 'snr_db': str(snr_db),
@@ -700,6 +714,7 @@ def test_model(
             f.write(f"|-----------|-------|\n")
             f.write(f"| Sequence Length | {seq_len} |\n")
             f.write(f"| Number of Ports | {num_ports} |\n")
+            f.write(f"| Port Positions | {pos_values} |\n")
             f.write(f"| Hidden Dimension | 64 |\n")
             f.write(f"| Number of Stages | {num_stages} |\n")
             f.write(f"| Share Weights | {share_weights} |\n")
@@ -850,6 +865,8 @@ if __name__ == "__main__":
                        help='Batch size (larger=better CPU utilization, e.g., 2048-4096 for 56 cores)')
     parser.add_argument('--stages', type=str, default='3',
                        help='Number of refinement stages. Single: "3", Multiple: "2,3,4"')
+    parser.add_argument('--ports', type=str, default='0,3,6,9',
+                       help='Port positions (comma-separated). E.g., "0,3,6,9" (4 ports) or "0,2,4,6,8,10" (6 ports). Default: "0,3,6,9"')
     parser.add_argument('--snr', type=str, default='20.0',
                        help='SNR in dB. Can be: scalar (e.g., "20"), range (e.g., "10,30"), or list (e.g., "[15,18,20,22]")')
     parser.add_argument('--tdl', type=str, default='A-30',
@@ -868,6 +885,9 @@ if __name__ == "__main__":
                        help='Ratio of physical CPU cores to use (0.0-1.0). Default: 1.0 (use all cores)')
     
     args = parser.parse_args()
+    
+    # Parse port positions
+    pos_values = [int(x.strip()) for x in args.ports.split(',')]
     
     # Parse SNR argument
     snr_str = args.snr.strip()
@@ -903,6 +923,10 @@ if __name__ == "__main__":
     print(f"  stages: {stages_list}")
     print(f"  share_weights: {share_weights_list}")
     print(f"Common settings:")
+    if pos_values:
+        print(f"  Port positions: {pos_values} ({len(pos_values)} ports)")
+    else:
+        print(f"  Port positions: Auto-generated (default)")
     print(f"  SNR: {snr_db}")
     print(f"  TDL: {tdl_configs}")
     print(f"  Batch size: {args.batch_size}")
@@ -929,6 +953,7 @@ if __name__ == "__main__":
                 num_stages=num_stages,
                 snr_db=snr_db,
                 share_weights=share_weights,
+                pos_values=pos_values,
                 tdl_configs=tdl_configs,
                 early_stop_loss=args.early_stop,
                 validation_interval=args.val_interval,
