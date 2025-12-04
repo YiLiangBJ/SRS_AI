@@ -227,6 +227,11 @@ cat ./out6ports_eval/evaluation_results.json
 - 模型会自动识别端口数并生成对应的测试数据
 - 评估时使用较小的 `batch_size` (100) 以避免内存问题
 
+**图表特性** ⭐:
+- 图例自动显示**参数量**：如 `stages=2_share=False (104.6K)`
+- 标题包含端口配置：如 `4 Ports: [0,3,6,9]`
+- 支持多种布局：单图、按 TDL 分图、按模型分图
+
 ---
 
 ## 📖 test_separator.py 使用指南
@@ -1005,7 +1010,28 @@ python Model_AIIC/plot_results.py \
   --filter_tdl "A-30,B-100"
 ```
 
-### 6.5 输出说明
+### 6.5 图表信息说明 ⭐
+
+绘图脚本会自动在图表中显示：
+
+**图例信息**:
+- ✅ 模型配置（stages, share_weights, loss_type）
+- ✅ **参数量**（如 `104.6K`, `1.2M`）
+- ✅ TDL 信道类型
+
+**标题信息**:
+- ✅ 完整模型配置 + 参数量
+- ✅ 端口配置（如 `Ports: [0,2,4,6,8,10]`）
+- ✅ SNR 范围
+
+**图例示例**:
+```
+stages=2_share=False_loss=nmse (104.6K) - A-30
+stages=3_share=True_loss=normalized (78.3K) - B-100
+stages=4_share=False_loss=log (209.3K) - C-300
+```
+
+### 6.6 输出文件
 
 绘图脚本会在输入目录中生成图片：
 

@@ -54,9 +54,10 @@ def load_model(model_dir):
     checkpoint = torch.load(model_path, map_location='cpu')
     config = checkpoint['config']
     
-    # 从 hyperparameters 中获取 pos_values（如果存在）
+    # 从 hyperparameters 中获取 pos_values 和 num_params（如果存在）
     hyperparams = checkpoint.get('hyperparameters', {})
     pos_values = hyperparams.get('pos_values', None)
+    num_params = hyperparams.get('num_params', None)
     
     # 如果没有 pos_values，根据 num_ports 生成默认值
     if pos_values is None:
@@ -83,8 +84,13 @@ def load_model(model_dir):
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     
-    # 将 pos_values 添加到 config 中返回
+    # 如果没有保存 num_params，现在计算它
+    if num_params is None:
+        num_params = sum(p.numel() for p in model.parameters())
+    
+    # 将 pos_values 和 num_params 添加到 config 中返回
     config['pos_values'] = pos_values
+    config['num_params'] = num_params
     
     return model, config
 

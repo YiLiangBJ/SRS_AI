@@ -91,6 +91,45 @@ def get_port_info_str(config):
     return f"{num_ports} Ports: [{ports_str}]"
 
 
+def format_num_params(num_params):
+    """
+    格式化参数量为可读字符串
+    
+    Args:
+        num_params: 参数数量
+        
+    Returns:
+        str: 格式化的字符串，例如 "104.6K" 或 "1.2M"
+    """
+    if num_params is None:
+        return "N/A"
+    
+    if num_params >= 1_000_000:
+        return f"{num_params / 1_000_000:.1f}M"
+    elif num_params >= 1_000:
+        return f"{num_params / 1_000:.1f}K"
+    else:
+        return str(num_params)
+
+
+def get_model_label(model_name, config):
+    """
+    生成包含参数量的模型标签
+    
+    Args:
+        model_name: 模型名称
+        config: 模型配置
+        
+    Returns:
+        str: 完整的模型标签，例如 "stages=2_share=False (104.6K params)"
+    """
+    num_params = config.get('num_params', None)
+    if num_params is not None:
+        params_str = format_num_params(num_params)
+        return f"{model_name} ({params_str})"
+    return model_name
+
+
 def plot_single_figure(results, model_filter=None, tdl_filter=None, output_dir=None):
     """
     在单个图中绘制所有曲线
@@ -127,7 +166,8 @@ def plot_single_figure(results, model_filter=None, tdl_filter=None, output_dir=N
             nmse_db = tdl_data['nmse_db']
             
             # 绘制曲线
-            label = f"{model_name} - {tdl_config}"
+            model_label = get_model_label(model_name, model_data['config'])
+            label = f"{model_label} - {tdl_config}"
             linestyle = linestyles[tdl_idx % len(linestyles)]
             marker = markers[color_idx % len(markers)]
             
@@ -220,13 +260,16 @@ def plot_subplots_by_tdl(results, model_filter=None, tdl_filter=None, output_dir
             snr = tdl_data['snr']
             nmse_db = tdl_data['nmse_db']
             
+            # 生成包含参数量的标签
+            model_label = get_model_label(model_name, model_data['config'])
+            
             # 绘制曲线
             ax.plot(snr, nmse_db,
                    color=colors[color_idx % len(colors)],
                    marker=markers[color_idx % len(markers)],
                    markersize=6,
                    linewidth=2,
-                   label=model_name,
+                   label=model_label,
                    markevery=2)
             
             color_idx += 1
@@ -318,12 +361,13 @@ def plot_subplots_by_model(results, model_filter=None, tdl_filter=None, output_d
             
             color_idx += 1
         
-        # 获取端口信息
+        # 获取端口信息和参数量
         port_info = " - " + get_port_info_str(model_data['config'])
+        model_label = get_model_label(model_name, model_data['config'])
         
         ax.set_xlabel('SNR (dB)', fontsize=12, fontweight='bold')
         ax.set_ylabel('NMSE (dB)', fontsize=12, fontweight='bold')
-        ax.set_title(f'{model_name}{port_info}', fontsize=13, fontweight='bold')
+        ax.set_title(f'{model_label}{port_info}', fontsize=13, fontweight='bold')
         ax.grid(True, alpha=0.3, linestyle='--')
         ax.legend(loc='best', fontsize=9)
     
