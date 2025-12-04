@@ -99,24 +99,57 @@ python Model_AIIC_onnx/evaluate_models.py \
 
 ### 导出 ONNX
 
+#### 标准导出（通用）
+
 ```bash
 python Model_AIIC_onnx/export_onnx.py \
   --checkpoint ./Model_AIIC_onnx/out6ports/stages=3_share=False/model.pth \
   --output model.onnx
 ```
 
+#### MATLAB 专用导出 ⭐ 推荐
+
+```bash
+# MATLAB 有特殊限制，需要使用专用导出脚本
+python Model_AIIC_onnx/export_onnx_matlab.py \
+  --checkpoint ./Model_AIIC_onnx/out6ports/stages=3_share=False/model.pth \
+  --output model_matlab.onnx \
+  --opset 9
+```
+
+**关键差异**：
+- Opset 9（MATLAB 最高支持）
+- 固定 batch size
+- 能量归一化在 MATLAB 中完成
+
 ### MATLAB 使用
 
+#### 方法 1：快速测试
+
 ```matlab
-% 加载 ONNX 模型
-net = importONNXNetwork('model.onnx', 'OutputLayerType', 'regression');
+% 运行完整演示脚本
+run('read_onnx_matlab.m')
+```
+
+#### 方法 2：手动使用
+
+```matlab
+% 加载 MATLAB 兼容的 ONNX 模型
+net = importONNXNetwork('model_matlab.onnx', 'OutputLayerType', 'regression');
 
 % 准备数据（复数 -> 实数格式）
 y = randn(1, 12) + 1i*randn(1, 12);  % 复数信号
 y_stacked = [real(y), imag(y)];      % 转换为 [real; imag]
 
+% ⚠️ 重要：能量归一化（MATLAB 模型需要）
+y_energy = sqrt(mean(abs(y).^2));
+y_normalized = y_stacked / y_energy;
+
 % 预测
-h_stacked = predict(net, y_stacked);  % 输出: (1, 4, 24)
+h_stacked = predict(net, y_normalized);  % 输出: (1, 4, 24)
+
+% ⚠️ 重要：恢复能量
+h_stacked = h_stacked * y_energy;
 
 % 转换回复数
 L = 12; P = 4;
@@ -124,6 +157,8 @@ h_real = h_stacked(:, :, 1:L);
 h_imag = h_stacked(:, :, L+1:end);
 h = complex(h_real, h_imag);  % (1, 4, 12)
 ```
+
+**详细指南**：查看 `MATLAB_GUIDE.md`
 
 ## 📊 关键差异 vs Model_AIIC
 

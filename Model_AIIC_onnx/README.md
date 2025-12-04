@@ -73,17 +73,29 @@ python Model_AIIC_onnx/plot_results.py \
 
 ### 4. 导出 ONNX
 
+#### 标准导出（PyTorch, ONNX Runtime）
+
 ```bash
 python Model_AIIC_onnx/export_onnx.py \
   --checkpoint ./Model_AIIC_onnx/out6ports/stages=3_share=False_act=split_relu/model.pth \
   --output model.onnx
 ```
 
+#### MATLAB 兼容导出 ⭐
+
+```bash
+# MATLAB 需要 Opset 9 和固定batch size
+python Model_AIIC_onnx/export_onnx_matlab.py \
+  --checkpoint ./Model_AIIC_onnx/out6ports/stages=3_share=False_act=split_relu/model.pth \
+  --output model_matlab.onnx \
+  --opset 9
+```
+
 ### 5. MATLAB 使用
 
 ```matlab
 %% 加载 ONNX 模型
-net = importONNXNetwork('model.onnx', 'OutputLayerType', 'regression');
+net = importONNXNetwork('model_matlab.onnx', 'OutputLayerType', 'regression');
 
 %% 准备输入数据
 % 生成复数信号
@@ -92,8 +104,15 @@ y_complex = randn(1, 12) + 1i*randn(1, 12);
 % 转换为实数格式 [real; imag]
 y_real_imag = [real(y_complex), imag(y_complex)];  % (1, 24)
 
+%% ⚠️ 重要：能量归一化（MATLAB 版本需要手动做）
+y_energy = sqrt(mean(abs(y_complex).^2));
+y_normalized = y_real_imag / y_energy;
+
 %% 推理
-h_real_imag = predict(net, y_real_imag);  % (1, 6, 24)
+h_real_imag = predict(net, y_normalized);  % (1, 6, 24)
+
+%% ⚠️ 重要：恢复能量
+h_real_imag = h_real_imag * y_energy;
 
 %% 转换回复数
 L = 12;  % 序列长度
