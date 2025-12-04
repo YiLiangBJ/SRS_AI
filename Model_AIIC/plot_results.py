@@ -62,6 +62,35 @@ def load_results(result_dir):
     return results
 
 
+def get_port_info_str(config):
+    """
+    从配置中提取端口信息字符串
+    
+    Args:
+        config: 模型配置字典
+        
+    Returns:
+        str: 端口信息字符串，例如 "Ports: [0,3,6,9]" 或 "6 Ports: [0,2,4,6,8,10]"
+    """
+    pos_values = config.get('pos_values', None)
+    
+    if pos_values is None:
+        num_ports = config.get('num_ports', 4)
+        return f"{num_ports} Ports"
+    
+    # 如果 pos_values 是字符串，尝试解析
+    if isinstance(pos_values, str):
+        try:
+            pos_values = eval(pos_values)
+        except:
+            return f"{config.get('num_ports', 4)} Ports"
+    
+    # 格式化端口信息
+    num_ports = len(pos_values)
+    ports_str = ','.join(map(str, pos_values))
+    return f"{num_ports} Ports: [{ports_str}]"
+
+
 def plot_single_figure(results, model_filter=None, tdl_filter=None, output_dir=None):
     """
     在单个图中绘制所有曲线
@@ -113,9 +142,15 @@ def plot_single_figure(results, model_filter=None, tdl_filter=None, output_dir=N
         
         color_idx += 1
     
+    # 获取端口信息（从第一个模型）
+    port_info = ""
+    if results['models']:
+        first_model = list(results['models'].values())[0]
+        port_info = " - " + get_port_info_str(first_model['config'])
+    
     plt.xlabel('SNR (dB)', fontsize=14, fontweight='bold')
     plt.ylabel('NMSE (dB)', fontsize=14, fontweight='bold')
-    plt.title('Channel Estimation Performance', fontsize=16, fontweight='bold')
+    plt.title(f'Channel Estimation Performance{port_info}', fontsize=16, fontweight='bold')
     plt.grid(True, alpha=0.3, linestyle='--')
     plt.legend(loc='best', fontsize=10, ncol=2)
     plt.tight_layout()
@@ -196,9 +231,18 @@ def plot_subplots_by_tdl(results, model_filter=None, tdl_filter=None, output_dir
             
             color_idx += 1
         
+        # 获取端口信息（从第一个有数据的模型）
+        port_info = ""
+        for model_name, model_data in results['models'].items():
+            if model_filter and model_name not in model_filter:
+                continue
+            if tdl_config in model_data['tdl_results']:
+                port_info = " - " + get_port_info_str(model_data['config'])
+                break
+        
         ax.set_xlabel('SNR (dB)', fontsize=12, fontweight='bold')
         ax.set_ylabel('NMSE (dB)', fontsize=12, fontweight='bold')
-        ax.set_title(f'TDL-{tdl_config}', fontsize=13, fontweight='bold')
+        ax.set_title(f'TDL-{tdl_config}{port_info}', fontsize=13, fontweight='bold')
         ax.grid(True, alpha=0.3, linestyle='--')
         ax.legend(loc='best', fontsize=9)
     
@@ -274,9 +318,12 @@ def plot_subplots_by_model(results, model_filter=None, tdl_filter=None, output_d
             
             color_idx += 1
         
+        # 获取端口信息
+        port_info = " - " + get_port_info_str(model_data['config'])
+        
         ax.set_xlabel('SNR (dB)', fontsize=12, fontweight='bold')
         ax.set_ylabel('NMSE (dB)', fontsize=12, fontweight='bold')
-        ax.set_title(model_name, fontsize=13, fontweight='bold')
+        ax.set_title(f'{model_name}{port_info}', fontsize=13, fontweight='bold')
         ax.grid(True, alpha=0.3, linestyle='--')
         ax.legend(loc='best', fontsize=9)
     
