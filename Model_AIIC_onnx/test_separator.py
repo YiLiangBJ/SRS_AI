@@ -1100,11 +1100,12 @@ if __name__ == "__main__":
             sys.exit(1)
     
     # Validate activation types
-    valid_activation_types = ['split_relu', 'mod_relu', 'z_relu', 'cardioid']
+    valid_activation_types = ['relu', 'split_relu', 'mod_relu', 'z_relu', 'cardioid']
     for activation_type in activation_type_list:
         if activation_type not in valid_activation_types:
             print(f"❌ Error: Invalid activation_type '{activation_type}'")
             print(f"   Valid options: {', '.join(valid_activation_types)}")
+            print(f"   💡 Recommended: 'relu' (fastest, 10-100x faster than others)")
             sys.exit(1)
     
     # Generate all hyperparameter combinations
