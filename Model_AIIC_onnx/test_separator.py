@@ -437,6 +437,7 @@ def test_model(
     tdl_configs='A-30',  # Can be string or list of strings
     loss_type='nmse',  # Loss function type: 'nmse', 'normalized', 'log', 'weighted'
     activation_type='split_relu',  # Complex activation: 'split_relu', 'mod_relu', 'z_relu', 'cardioid'
+    onnx_mode=False,  # ⭐ ONNX Opset 9 compatible mode (~20% slower but MATLAB compatible)
     early_stop_loss=None,  # Stop if loss below this value
     validation_interval=100,  # Validate every N batches
     patience=5,  # Number of validation checks that must pass early stop threshold
@@ -513,7 +514,8 @@ def test_model(
         num_stages=num_stages,
         share_weights_across_stages=share_weights,
         normalize_energy=True,
-        activation_type=activation_type  # New parameter for ONNX version
+        activation_type=activation_type,  # New parameter for ONNX version
+        onnx_mode=onnx_mode  # ⭐ ONNX Opset 9 compatibility mode
     )
     
     # Count parameters
@@ -791,7 +793,8 @@ def test_model(
                 'hidden_dim': 64,
                 'num_stages': num_stages,
                 'share_weights': share_weights,
-                'normalize_energy': True
+                'normalize_energy': True,
+                'onnx_mode': getattr(model, 'onnx_mode', False)  # ⭐ Save onnx_mode as hyperparameter
             },
             'hyperparameters': {
                 'num_stages': num_stages,
@@ -1047,6 +1050,8 @@ if __name__ == "__main__":
                        help='Loss function type: "nmse" (default), "normalized" (SNR-aware), "log" (dB space), "weighted" (SNR-weighted)')
     parser.add_argument('--activation_type', type=str, default='split_relu',
                        help='Complex activation: "split_relu" (default), "mod_relu", "z_relu", "cardioid". Multiple: "split_relu,cardioid"')
+    parser.add_argument('--onnx_mode', action='store_true',
+                       help='Use ONNX Opset 9 compatible mode (slower ~20%% but MATLAB compatible)')
     parser.add_argument('--early_stop', type=float, default=None,
                        help='Early stop threshold for loss')
     parser.add_argument('--val_interval', type=int, default=100,
@@ -1150,6 +1155,7 @@ if __name__ == "__main__":
                 pos_values=pos_values,
                 tdl_configs=tdl_configs,
                 activation_type=activation_type,  # New parameter
+                onnx_mode=args.onnx_mode,  # ⭐ ONNX compatibility mode
                 loss_type=loss_type,
                 early_stop_loss=args.early_stop,
                 validation_interval=args.val_interval,

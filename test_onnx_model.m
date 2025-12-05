@@ -3,10 +3,11 @@
 %
 % Usage:
 %   test_onnx_model('model.onnx')
+%   test_onnx_model()  % Uses default 'model_onnx_mode.onnx'
 
 function test_onnx_model(model_path)
     if nargin < 1
-        model_path = 'model.onnx';
+        model_path = 'model_onnx_mode.onnx';  % ⭐ 默认使用 onnx_mode 导出的模型
     end
     
     fprintf('========================================\n');
@@ -15,9 +16,14 @@ function test_onnx_model(model_path)
     
     %% Step 1: Import ONNX model
     fprintf('Step 1: Importing ONNX model...\n');
+    fprintf('  Model path: %s\n', model_path);
+    
     if ~exist(model_path, 'file')
-        error('Model file not found: %s\nPlease export model first:\n  python Model_AIIC_onnx/export_onnx.py --checkpoint <path> --output %s --opset 9', ...
-              model_path, model_path);
+        error(['Model file not found: %s\n\n' ...
+               'Please export model first:\n' ...
+               '  cd c:/GitRepo/SRS_AI\n' ...
+               '  python Model_AIIC_onnx/export_onnx.py --checkpoint Model_AIIC_onnx/test/stages=2_share=False_loss=nmse_act=split_relu/model.pth --output model_onnx_mode.onnx --opset 9\n'], ...
+              model_path);
     end
     
     try
@@ -26,9 +32,13 @@ function test_onnx_model(model_path)
     catch ME
         fprintf('  ✗ Import failed: %s\n\n', ME.message);
         fprintf('Common issues:\n');
-        fprintf('  1. Make sure model was exported with Opset 9\n');
-        fprintf('  2. Check MATLAB version (R2020b+ required)\n');
-        fprintf('  3. Verify Deep Learning Toolbox is installed\n\n');
+        fprintf('  1. Model must be exported with --opset 9 and onnx_mode=True\n');
+        fprintf('  2. MATLAB version must be R2020b or newer\n');
+        fprintf('  3. Deep Learning Toolbox must be installed\n');
+        fprintf('  4. Some operators (Slice, Gather, Unsqueeze) may not be supported\n\n');
+        fprintf('If import fails with operator errors, you may need to:\n');
+        fprintf('  - Use importONNXFunction instead of importONNXNetwork\n');
+        fprintf('  - Further modify the model to avoid unsupported operators\n\n');
         rethrow(ME);
     end
     

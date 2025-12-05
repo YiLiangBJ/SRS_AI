@@ -24,12 +24,12 @@ except ImportError:
 
 class ResidualRefinementSeparatorReal(nn.Module):
     """
-    Real-valued Residual Refinement Separator (ONNX compatible)
+    Real-valued Residual Refinement Separator (ONNX Opset 9 compatible)
     
     Architecture:
     - Per-port independent MLPs (using real block matrix)
     - Ports coupled through residual correction
-    - Energy normalization (optional)
+    - Energy normalization handled externally
     - Multiple complex activation options
     
     Args:
@@ -38,19 +38,27 @@ class ResidualRefinementSeparatorReal(nn.Module):
         hidden_dim: Hidden dimension for MLPs (default: 64)
         num_stages: Number of refinement stages (default: 3)
         share_weights_across_stages: If True, same port uses same MLP (default: False)
-        normalize_energy: If True, normalize input energy (default: True)
         activation_type: Complex activation ('split_relu', 'mod_relu', 'z_relu', 'cardioid')
+        onnx_mode: If True, use ONNX Opset 9 compatible operations (default: False)
+                   Trade-off: ~20% slower training but MATLAB compatible export
+    
+    Input/Output (when onnx_mode affects behavior):
+        Input:  y_normalized (B, L*2) - pre-normalized [y_R; y_I]
+        Output: h_features (B, P, L*2) - separated channels, not energy-restored
+        
+    Note: Energy normalization and restoration must be done externally.
     """
     def __init__(self, seq_len=12, num_ports=4, hidden_dim=64, num_stages=3,
-                 share_weights_across_stages=False, normalize_energy=True,
-                 activation_type='split_relu'):
+                 share_weights_across_stages=False, 
+                 activation_type='split_relu',
+                 onnx_mode=False):
         super().__init__()
         self.seq_len = seq_len
         self.num_ports = num_ports
         self.num_stages = num_stages
         self.share_weights_across_stages = share_weights_across_stages
-        self.normalize_energy = normalize_energy
         self.activation_type = activation_type
+        self.onnx_mode = onnx_mode  # ⭐ Flag to control ONNX compatibility
         
         if share_weights_across_stages:
             # Shared weights across stages
@@ -68,75 +76,107 @@ class ResidualRefinementSeparatorReal(nn.Module):
                 for _ in range(num_ports)
             ])
     
-    def forward(self, y_stacked):
+    def forward(self, y_normalized):
         """
-        Forward pass with per-port independent processing
+        Forward pass with optional ONNX Opset 9 compatibility mode
+        
+        ⚠️ IMPORTANT: Input must be pre-normalized externally!
+        Energy normalization and restoration are handled outside the model.
         
         Args:
-            y_stacked: (B, L*2) real tensor [y_R; y_I]
+            y_normalized: (B, L*2) real tensor [y_R; y_I] (already energy-normalized)
         
         Returns:
-            features: (B, P, L*2) real tensor
+            features: (B, P, L*2) real tensor (not yet energy-restored)
+        
+        Mode behavior:
+            - onnx_mode=False (training): Fast operations, may use unsupported ONNX ops
+            - onnx_mode=True (export): Opset 9 compatible, ~20% slower but MATLAB compatible
         """
-        B = y_stacked.shape[0]
+        B = y_normalized.shape[0]
         L = self.seq_len
+        P = self.num_ports
         
-        # Energy normalization
-        if self.normalize_energy:
-            # ✅ Opset 9: Use torch.chunk instead of dynamic slicing
-            y_R, y_I = torch.chunk(y_stacked, 2, dim=-1)
-            # Complex magnitude squared: |y|^2 = y_R^2 + y_I^2
-            y_mag_sq = y_R.pow(2) + y_I.pow(2)
-            # Energy: sqrt(mean(|y|^2))
-            y_energy = y_mag_sq.mean(dim=-1, keepdim=True).sqrt()  # (B, 1)
-            
-            # Normalize both components
-            # y_energy is (B, 1), need to broadcast to (B, L*2)
-            y_normalized = y_stacked / (y_energy + 1e-8)
+        # ═══════════════════════════════════════════════════════════════════
+        # Step 1: Feature Initialization
+        # ═══════════════════════════════════════════════════════════════════
+        if self.onnx_mode:
+            # ONNX Mode: Avoid index_put (not supported in Opset 9)
+            # Create list and concatenate instead of in-place assignment
+            features_list = [y_normalized.unsqueeze(1) for _ in range(P)]
+            features = torch.cat(features_list, dim=1)  # (B, P, L*2)
         else:
-            y_normalized = y_stacked
-            y_energy = torch.ones(B, 1, device=y_stacked.device)
+            # Training Mode: Efficient implementation using unsqueeze + repeat
+            features = y_normalized.unsqueeze(1).repeat(1, P, 1)  # (B, P, L*2)
         
-        # Initialize all ports with normalized y
-        # y_normalized: (B, L*2) -> (B, 1, L*2) -> (B, P, L*2)
-        # ✅ Opset 9: Use repeat instead of expand for explicit memory layout
-        features = y_normalized.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L*2)
-        
-        # Iterative refinement
+        # ═══════════════════════════════════════════════════════════════════
+        # Step 2: Iterative Refinement with Residual Coupling
+        # ═══════════════════════════════════════════════════════════════════
         for stage_idx in range(self.num_stages):
-            new_features = []
-            
-            # Each port processes independently
-            for port_idx in range(self.num_ports):
-                x = features[:, port_idx]  # (B, L*2)
+            # ───────────────────────────────────────────────────────────────
+            # 2.1: Per-port MLP Processing
+            # ───────────────────────────────────────────────────────────────
+            new_features_list = []
+            for port_idx in range(P):
+                x = features[:, port_idx, :]  # (B, L*2)
                 
+                # Select MLP
                 if self.share_weights_across_stages:
                     mlp = self.port_mlps[port_idx]
                 else:
                     mlp = self.port_mlps[port_idx][stage_idx]
                 
+                # Process through MLP
                 output = mlp(x)  # (B, L*2)
-                new_features.append(output)
+                new_features_list.append(output.unsqueeze(1))  # (B, 1, L*2)
             
-            features = torch.stack(new_features, dim=1)  # (B, P, L*2)
+            # Concatenate instead of in-place assignment (Opset 9 compatible)
+            features = torch.cat(new_features_list, dim=1)  # (B, P, L*2)
             
-            # Residual correction (complex addition in real domain)
-            # y_recon = sum of all ports
-            # ✅ Opset 9: Use torch.chunk instead of dynamic slicing
-            features_R, features_I = torch.chunk(features, 2, dim=-1)
-            y_recon_R = features_R.sum(dim=1)  # (B, L)
-            y_recon_I = features_I.sum(dim=1)  # (B, L)
-            y_recon = torch.cat([y_recon_R, y_recon_I], dim=-1)  # (B, L*2)
+            # ───────────────────────────────────────────────────────────────
+            # 2.2: Residual Computation (Reconstruct y from all ports)
+            # ───────────────────────────────────────────────────────────────
+            if self.onnx_mode:
+                # ONNX Mode: Avoid chunk/split and ReduceSum
+                # Manual indexing + explicit loop summation
+                features_R = features[:, :, :L]  # (B, P, L)
+                features_I = features[:, :, L:]  # (B, P, L)
+                
+                # Sum across ports using explicit loop
+                y_recon_R = features_R[:, 0, :].clone()  # (B, L)
+                y_recon_I = features_I[:, 0, :].clone()  # (B, L)
+                for p in range(1, P):
+                    y_recon_R = y_recon_R + features_R[:, p, :]
+                    y_recon_I = y_recon_I + features_I[:, p, :]
+                
+                y_recon = torch.cat([y_recon_R, y_recon_I], dim=-1)  # (B, L*2)
+            else:
+                # Training Mode: Efficient implementation using chunk + sum
+                features_R, features_I = torch.chunk(features, 2, dim=-1)
+                y_recon_R = features_R.sum(dim=1)  # (B, L)
+                y_recon_I = features_I.sum(dim=1)  # (B, L)
+                y_recon = torch.cat([y_recon_R, y_recon_I], dim=-1)  # (B, L*2)
             
-            # Compute and add residual
-            residual = y_normalized - y_recon
-            features = features + residual.unsqueeze(1)
+            # ───────────────────────────────────────────────────────────────
+            # 2.3: Residual Addition
+            # ───────────────────────────────────────────────────────────────
+            residual = y_normalized - y_recon  # (B, L*2)
+            
+            if self.onnx_mode:
+                # ONNX Mode: Avoid both Unsqueeze and index_put (in-place assignment)
+                # Create list and concatenate instead
+                features_with_residual_list = []
+                for p in range(P):
+                    port_features = features[:, p, :] + residual  # (B, L*2)
+                    features_with_residual_list.append(port_features.unsqueeze(1))  # (B, 1, L*2)
+                features = torch.cat(features_with_residual_list, dim=1)  # (B, P, L*2)
+            else:
+                # Training Mode: Broadcasting (generates Unsqueeze in ONNX)
+                features = features + residual.unsqueeze(1)  # (B, P, L*2)
         
-        # Restore energy
-        if self.normalize_energy:
-            # y_energy is (B, 1), need to expand to (B, P, L*2)
-            features = features * y_energy.unsqueeze(1)
-        
+        # ═══════════════════════════════════════════════════════════════════
+        # Return: No energy restoration - must be done externally
+        # ═══════════════════════════════════════════════════════════════════
         return features
     
     def get_unshifted_channels(self, separated_stacked, pos_values):

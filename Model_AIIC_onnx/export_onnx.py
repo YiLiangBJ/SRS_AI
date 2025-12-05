@@ -84,6 +84,11 @@ def export_to_onnx(
     if verbose:
         print(f"  Activation:      {activation_type}")
     
+    # Get onnx_mode (default to False if not in config, but will set to True for export)
+    onnx_mode_saved = config.get('onnx_mode', False)
+    if verbose:
+        print(f"  ONNX mode (saved): {onnx_mode_saved}")
+    
     # Create model
     model = ResidualRefinementSeparatorReal(
         seq_len=seq_len,
@@ -91,12 +96,18 @@ def export_to_onnx(
         hidden_dim=config['hidden_dim'],
         num_stages=config['num_stages'],
         share_weights_across_stages=config['share_weights'],
-        normalize_energy=config['normalize_energy'],
-        activation_type=activation_type
+        activation_type=activation_type,
+        onnx_mode=False  # Create with onnx_mode=False first (for weight loading compatibility)
     )
     
     # Load weights
     model.load_state_dict(checkpoint['model_state_dict'])
+    
+    # ⭐ Switch to ONNX mode for export (ensures MATLAB compatibility)
+    model.onnx_mode = True
+    if verbose:
+        print(f"  ⭐ ONNX mode set to: True (for MATLAB compatible export)")
+    
     model.eval()
     
     # Count parameters
@@ -149,14 +160,21 @@ def export_to_onnx(
             print("MATLAB Usage:")
             print("─" * 80)
             print("% Load ONNX model")
-            print(f"net = importONNXNetwork('{output_path}', 'OutputLayerType', 'regression');")
+            print(f"net = importONNXNetwork('{Path(output_path).name}', 'OutputLayerType', 'regression');")
             print()
             print("% Prepare input (convert complex to [real; imag])")
             print(f"y = randn(1, {seq_len}) + 1i*randn(1, {seq_len});  % Complex signal")
-            print("y_real_imag = [real(y), imag(y)];  % Convert to real stacked")
+            print("y_stacked = [real(y), imag(y)];  % Convert to real stacked")
+            print()
+            print("% ⚠️  IMPORTANT: Energy normalization (done externally)")
+            print("y_energy = sqrt(mean(abs(y).^2));")
+            print("y_normalized = y_stacked / y_energy;")
             print()
             print("% Predict")
-            print("h_real_imag = predict(net, y_real_imag);")
+            print("h_normalized = predict(net, y_normalized);")
+            print()
+            print("% ⚠️  IMPORTANT: Restore energy")
+            print("h_stacked = h_normalized * y_energy;")
             print()
             print("% Convert back to complex")
             print(f"L = {seq_len}; P = {num_ports};")

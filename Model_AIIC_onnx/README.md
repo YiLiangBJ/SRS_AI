@@ -20,6 +20,8 @@ cd Model_AIIC_onnx
 ## 🚀 快速开始
 
 > 📖 **完整部署指南**: 查看 [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) 了解从训练到 MATLAB/OpenVINO 部署的完整流程。
+> 
+> 🧪 **MATLAB 快速测试**: 查看 [`../MATLAB_TEST_README.md`](../MATLAB_TEST_README.md) 了解如何在 MATLAB 中快速测试模型。
 
 ### 1. 训练模型
 
