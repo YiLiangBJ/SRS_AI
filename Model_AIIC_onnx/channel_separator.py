@@ -116,22 +116,42 @@ class ResidualRefinementSeparatorReal(nn.Module):
             # ───────────────────────────────────────────────────────────────
             # 2.1: Per-port MLP Processing
             # ───────────────────────────────────────────────────────────────
-            new_features_list = []
-            for port_idx in range(P):
-                x = features[:, port_idx, :]  # (B, L*2)
+            if self.onnx_mode:
+                # ONNX Mode: Explicit loop (for ONNX export compatibility)
+                new_features_list = []
+                for port_idx in range(P):
+                    x = features[:, port_idx, :]  # (B, L*2)
+                    
+                    # Select MLP
+                    if self.share_weights_across_stages:
+                        mlp = self.port_mlps[port_idx]
+                    else:
+                        mlp = self.port_mlps[port_idx][stage_idx]
+                    
+                    # Process through MLP
+                    output = mlp(x)  # (B, L*2)
+                    new_features_list.append(output.unsqueeze(1))  # (B, 1, L*2)
                 
-                # Select MLP
+                # Concatenate
+                features = torch.cat(new_features_list, dim=1)  # (B, P, L*2)
+            else:
+                # Training Mode: Vectorized processing using torch.stack (MUCH faster!)
+                # Process all ports in parallel using list comprehension + stack
                 if self.share_weights_across_stages:
-                    mlp = self.port_mlps[port_idx]
+                    # Each port has its own MLP
+                    outputs = [
+                        self.port_mlps[port_idx](features[:, port_idx, :])
+                        for port_idx in range(P)
+                    ]
                 else:
-                    mlp = self.port_mlps[port_idx][stage_idx]
+                    # Each port + stage has its own MLP
+                    outputs = [
+                        self.port_mlps[port_idx][stage_idx](features[:, port_idx, :])
+                        for port_idx in range(P)
+                    ]
                 
-                # Process through MLP
-                output = mlp(x)  # (B, L*2)
-                new_features_list.append(output.unsqueeze(1))  # (B, 1, L*2)
-            
-            # Concatenate instead of in-place assignment (Opset 9 compatible)
-            features = torch.cat(new_features_list, dim=1)  # (B, P, L*2)
+                # Stack efficiently: (B, P, L*2)
+                features = torch.stack(outputs, dim=1)
             
             # ───────────────────────────────────────────────────────────────
             # 2.2: Residual Computation (Reconstruct y from all ports)

@@ -378,22 +378,20 @@ def generate_training_data(
     noise = (torch.randn(batch_size, seq_len) + 1j * torch.randn(batch_size, seq_len))
     noise = noise / noise.abs().pow(2).mean().sqrt()
     
-    # Adjust signal power based on SNR
+    # Adjust signal power based on SNR (vectorized - no loops!)
     if isinstance(snr_db, tuple) and len(snr_db) == 2:
-        # Random SNR: (min, max) - uniform per sample
+        # Random SNR: (min, max) - uniform per sample (vectorized!)
         snr_min, snr_max = snr_db
-        h_true = torch.zeros_like(h_base)
-        for b in range(batch_size):
-            # Random SNR for this sample
-            sample_snr = np.random.uniform(snr_min, snr_max)
-            signal_power = torch.tensor(10 ** (sample_snr / 10))
-            h_true[b] = h_base[b] * signal_power.sqrt()
+        # Generate random SNRs for all samples at once
+        sample_snrs = torch.FloatTensor(batch_size).uniform_(snr_min, snr_max)  # (B,)
+        signal_powers = 10 ** (sample_snrs / 10)  # (B,)
+        # Broadcast: (B, 1, 1) * (B, P, L) -> (B, P, L)
+        h_true = h_base * signal_powers.sqrt().view(batch_size, 1, 1)
     elif isinstance(snr_db, list):
-        # Different SNR for each port (fixed)
-        h_true = torch.zeros_like(h_base)
-        for i in range(num_ports):
-            signal_power = torch.tensor(10 ** (snr_db[i] / 10))
-            h_true[:, i] = h_base[:, i] * signal_power.sqrt()
+        # Different SNR for each port (fixed) - vectorized!
+        signal_powers = torch.tensor([10 ** (snr / 10) for snr in snr_db])  # (P,)
+        # Broadcast: (B, P, L) * (1, P, 1) -> (B, P, L)
+        h_true = h_base * signal_powers.sqrt().view(1, num_ports, 1)
     else:
         # Same SNR for all ports (scalar)
         signal_power = torch.tensor(10 ** (snr_db / 10))
