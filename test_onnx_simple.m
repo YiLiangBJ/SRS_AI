@@ -73,9 +73,19 @@ function test_onnx_simple(model_path)
     try
         tic;
         if isa(net, 'DAGNetwork') || isa(net, 'dlnetwork')
+            % Network form - use predict
             h_normalized = predict(net, y_normalized);
+        elseif isa(net, 'function_handle')
+            % Function form - convert to dlarray
+            y_dl = dlarray(y_normalized, 'CB');  % Channel-Batch format
+            h_dl = net(y_dl);
+            h_normalized = extractdata(h_dl);
+            % Permute to match expected shape (B, P, L*2)
+            if ndims(h_normalized) == 3
+                h_normalized = permute(h_normalized, [3 2 1]);  % (C, P, B) -> (B, P, C)
+            end
         else
-            % Function form
+            % Try direct call
             h_normalized = net(y_normalized);
         end
         inference_time = toc;
@@ -85,6 +95,11 @@ function test_onnx_simple(model_path)
         
     catch ME
         fprintf('  ✗ Inference failed: %s\n\n', ME.message);
+        fprintf('  Stack trace:\n');
+        for i = 1:length(ME.stack)
+            fprintf('    %s (line %d)\n', ME.stack(i).name, ME.stack(i).line);
+        end
+        fprintf('\n');
         return;
     end
     
