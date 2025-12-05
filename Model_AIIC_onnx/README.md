@@ -19,6 +19,8 @@ cd Model_AIIC_onnx
 
 ## 🚀 快速开始
 
+> 📖 **完整部署指南**: 查看 [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) 了解从训练到 MATLAB/OpenVINO 部署的完整流程。
+
 ### 1. 训练模型
 
 ```bash
@@ -71,61 +73,87 @@ python Model_AIIC_onnx/plot_results.py \
   --layout single
 ```
 
-### 4. 导出 ONNX
-
-#### 标准导出（PyTorch, ONNX Runtime）
+### 4. 导出 ONNX (Opset 9)
 
 ```bash
+# 导出为 Opset 9（OpenVINO + MATLAB 兼容）⭐
 python Model_AIIC_onnx/export_onnx.py \
   --checkpoint ./Model_AIIC_onnx/out6ports/stages=3_share=False_act=split_relu/model.pth \
-  --output model.onnx
+  --output model.onnx \
+  --opset 9
 ```
 
-#### MATLAB 兼容导出 ⭐
-
+**验证导出**:
 ```bash
-# MATLAB 需要 Opset 9 和固定batch size
-python Model_AIIC_onnx/export_onnx_matlab.py \
+# 检查算子兼容性和精度
+python Model_AIIC_onnx/diagnose_onnx.py \
   --checkpoint ./Model_AIIC_onnx/out6ports/stages=3_share=False_act=split_relu/model.pth \
-  --output model_matlab.onnx \
   --opset 9
 ```
 
 ### 5. MATLAB 使用
 
 ```matlab
-%% 加载 ONNX 模型
-net = importONNXNetwork('model_matlab.onnx', 'OutputLayerType', 'regression');
+%% 导入 ONNX 模型（Opset 9）
+net = importONNXNetwork('model.onnx', 'OutputLayerType', 'regression');
+fprintf('✓ 模型导入成功！\n');
 
 %% 准备输入数据
-% 生成复数信号
-y_complex = randn(1, 12) + 1i*randn(1, 12);
+L = 12;  % 序列长度
+y_complex = randn(1, L) + 1i*randn(1, L);
+y_stacked = [real(y_complex), imag(y_complex)];  % (1, 24)
 
-% 转换为实数格式 [real; imag]
-y_real_imag = [real(y_complex), imag(y_complex)];  % (1, 24)
-
-%% ⚠️ 重要：能量归一化（MATLAB 版本需要手动做）
+%% ⚠️ 重要：能量归一化
 y_energy = sqrt(mean(abs(y_complex).^2));
-y_normalized = y_real_imag / y_energy;
+y_normalized = y_stacked / y_energy;
 
 %% 推理
-h_real_imag = predict(net, y_normalized);  % (1, 6, 24)
+h_stacked = predict(net, y_normalized);  % (1, P, 24)
 
 %% ⚠️ 重要：恢复能量
-h_real_imag = h_real_imag * y_energy;
+h_stacked = h_stacked * y_energy;
 
-%% 转换回复数
-L = 12;  % 序列长度
-P = 6;   % 端口数
+%% 转换为复数
+h_real = h_stacked(:, :, 1:L);
+h_imag = h_stacked(:, :, L+1:end);
+h_complex = complex(h_real, h_imag);  % (1, P, L)
 
-h_real = h_real_imag(:, :, 1:L);
-h_imag = h_real_imag(:, :, L+1:end);
-h_complex = complex(h_real, h_imag);  % (1, 6, 12)
-
-%% 显示结果
-disp('Separated channels:');
-disp(size(h_complex));  % [1, 6, 12]
+%% 验证重建
+y_recon = squeeze(sum(h_complex, 2));
+recon_error = norm(y_complex - y_recon) / norm(y_complex);
+fprintf('重建误差: %.2e (%.2f%%)\n', recon_error, recon_error * 100);
 ```
+
+> 📖 **详细 MATLAB 使用说明**: 参见 [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) 第三步。
+
+### 6. OpenVINO 部署
+
+```bash
+# 转换到 OpenVINO IR
+mo --input_model model.onnx \
+   --output_dir openvino_model \
+   --model_name channel_separator \
+   --data_type FP32
+
+# Python 推理
+python -c "
+from openvino.runtime import Core
+import numpy as np
+
+ie = Core()
+model = ie.read_model('openvino_model/channel_separator.xml')
+compiled = ie.compile_model(model, 'CPU')
+
+# 推理
+y = np.random.randn(1, 24).astype(np.float32)
+h = compiled([y])[0]
+print(f'✓ OpenVINO 推理成功: {h.shape}')
+"
+```
+
+> 📖 **详细 OpenVINO 使用说明**: 参见 [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md) 第四步。
+
+---
 
 ## 📖 参数说明
 

@@ -83,8 +83,8 @@ class ResidualRefinementSeparatorReal(nn.Module):
         
         # Energy normalization
         if self.normalize_energy:
-            y_R = y_stacked[:, :L]
-            y_I = y_stacked[:, L:]
+            # ✅ Opset 9: Use torch.chunk instead of dynamic slicing
+            y_R, y_I = torch.chunk(y_stacked, 2, dim=-1)
             # Complex magnitude squared: |y|^2 = y_R^2 + y_I^2
             y_mag_sq = y_R.pow(2) + y_I.pow(2)
             # Energy: sqrt(mean(|y|^2))
@@ -99,7 +99,8 @@ class ResidualRefinementSeparatorReal(nn.Module):
         
         # Initialize all ports with normalized y
         # y_normalized: (B, L*2) -> (B, 1, L*2) -> (B, P, L*2)
-        features = y_normalized.unsqueeze(1).expand(-1, self.num_ports, -1).contiguous()  # (B, P, L*2)
+        # ✅ Opset 9: Use repeat instead of expand for explicit memory layout
+        features = y_normalized.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L*2)
         
         # Iterative refinement
         for stage_idx in range(self.num_stages):
@@ -121,8 +122,10 @@ class ResidualRefinementSeparatorReal(nn.Module):
             
             # Residual correction (complex addition in real domain)
             # y_recon = sum of all ports
-            y_recon_R = features[:, :, :L].sum(dim=1)  # (B, L)
-            y_recon_I = features[:, :, L:].sum(dim=1)  # (B, L)
+            # ✅ Opset 9: Use torch.chunk instead of dynamic slicing
+            features_R, features_I = torch.chunk(features, 2, dim=-1)
+            y_recon_R = features_R.sum(dim=1)  # (B, L)
+            y_recon_I = features_I.sum(dim=1)  # (B, L)
             y_recon = torch.cat([y_recon_R, y_recon_I], dim=-1)  # (B, L*2)
             
             # Compute and add residual
