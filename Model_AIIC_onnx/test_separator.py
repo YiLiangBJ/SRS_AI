@@ -513,10 +513,10 @@ def test_model(
         hidden_dim=64,
         num_stages=num_stages,
         share_weights_across_stages=share_weights,
-        normalize_energy=True,
         activation_type=activation_type,  # New parameter for ONNX version
         onnx_mode=onnx_mode  # ⭐ ONNX Opset 9 compatibility mode
     )
+    # Note: Energy normalization is now handled externally (outside the model)
     
     # Count parameters
     num_params = sum(p.numel() for p in model.parameters())
@@ -793,8 +793,8 @@ def test_model(
                 'hidden_dim': 64,
                 'num_stages': num_stages,
                 'share_weights': share_weights,
-                'normalize_energy': True,
-                'onnx_mode': getattr(model, 'onnx_mode', False)  # ⭐ Save onnx_mode as hyperparameter
+                'onnx_mode': getattr(model, 'onnx_mode', False),  # ⭐ Save onnx_mode as hyperparameter
+                'activation_type': activation_type  # Save activation type
             },
             'hyperparameters': {
                 'num_stages': num_stages,

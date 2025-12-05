@@ -66,7 +66,6 @@ def export_to_onnx(
         print(f"  Hidden dim:      {config['hidden_dim']}")
         print(f"  Num stages:      {config['num_stages']}")
         print(f"  Share weights:   {config['share_weights']}")
-        print(f"  Normalize:       {config['normalize_energy']}")
     
     # Get parameters
     seq_len = config['seq_len']
