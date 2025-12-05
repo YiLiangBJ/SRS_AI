@@ -37,33 +37,58 @@ except ImportError:
 
 class MATLABCompatibleModel(nn.Module):
     """
-    Wrapper for MATLAB compatibility
+    Ultra-simplified model for MATLAB compatibility
     
-    Key changes:
-    - Disables energy normalization (done in MATLAB)
-    - Fixed batch size for static graph
-    - Simplified operations
+    MATLAB limitations require:
+    - No dynamic operations (expand, unsqueeze, etc.)
+    - No torch.cat across batch dimension
+    - Simple linear paths only
+    
+    This model processes each port independently without any complex tensor ops.
     """
     def __init__(self, base_model):
         super().__init__()
-        self.model = base_model
         self.seq_len = base_model.seq_len
         self.num_ports = base_model.num_ports
+        self.num_stages = base_model.num_stages
+        self.share_weights = base_model.share_weights_across_stages
         
-        # Disable energy normalization - will be done in MATLAB
-        self.model.normalize_energy = False
-    
+        # Extract just the MLPs from base model
+        self.port_mlps = base_model.port_mlps
+        
     def forward(self, y_real):
         """
-        Forward pass with simplified operations
+        Ultra-simple forward pass - each port independently
         
         Args:
-            y_real: (1, L*2) fixed batch size - [real; imag]
+            y_real: (1, L*2) - [real; imag] format
         
         Returns:
-            (1, P, L*2) separated channels
+            Concatenated outputs (1, P*L*2)
+            User must reshape in MATLAB to (1, P, L*2)
         """
-        return self.model(y_real)
+        outputs = []
+        
+        # Process each port independently
+        for port_idx in range(self.num_ports):
+            x = y_real  # Start with input
+            
+            # Run through stages for this port
+            for stage_idx in range(self.num_stages):
+                if self.share_weights:
+                    mlp = self.port_mlps[port_idx]
+                else:
+                    mlp = self.port_mlps[port_idx][stage_idx]
+                
+                x = mlp(x)  # (1, L*2)
+            
+            outputs.append(x)
+        
+        # Concatenate all port outputs into single vector
+        # MATLAB will need to reshape (1, P*L*2) -> (1, P, L*2)
+        result = torch.cat(outputs, dim=-1)  # (1, P*L*2)
+        
+        return result
 
 
 def export_to_onnx_matlab(
@@ -153,18 +178,21 @@ def export_to_onnx_matlab(
     # Create dummy input (fixed batch size = 1)
     dummy_input = torch.randn(1, seq_len * 2)
     
-    if verbose:
-        print("Input/Output Format:")
-        print(f"  Input:  (1, {seq_len * 2}) = [real({seq_len}); imag({seq_len})]")
-        print(f"  Output: (1, {num_ports}, {seq_len * 2}) = [[h0_real; h0_imag], ...]")
-        print()
-        print("⚠️  IMPORTANT: Energy normalization is DISABLED in the model!")
-        print("    You MUST normalize/denormalize in MATLAB:")
-        print("    1. Before inference: y_normalized = y_stacked / y_energy")
-        print("    2. After inference:  h_stacked = h_stacked * y_energy")
-        print()
-    
-    # Export to ONNX
+        if verbose:
+            print("Input/Output Format:")
+            print(f"  Input:  (1, {seq_len * 2}) = [real({seq_len}); imag({seq_len})]")
+            print(f"  Output: (1, {num_ports * seq_len * 2}) = concatenated port outputs")
+            print(f"          → Reshape in MATLAB to (1, {num_ports}, {seq_len * 2})")
+            print()
+            print("⚠️  IMPORTANT Notes:")
+            print("    1. Energy normalization is DISABLED (do in MATLAB)")
+            print("    2. Output is FLATTENED - must reshape in MATLAB")
+            print("    3. Residual coupling is REMOVED for simplicity")
+            print()
+            print("  Reshaping in MATLAB:")
+            print(f"    h_flat = predict(net, y);  % (1, {num_ports * seq_len * 2})")
+            print(f"    h = reshape(h_flat, [1, {num_ports}, {seq_len * 2}]);")
+            print()    # Export to ONNX
     if verbose:
         print("Exporting to ONNX...")
     
@@ -254,8 +282,11 @@ y_stacked = [real(y), imag(y)];  % Convert to [real; imag] format
 y_energy = sqrt(mean(abs(y).^2));
 y_normalized = y_stacked / y_energy;
 
-% Inference
-h_stacked = predict(net, y_normalized);  % (1, {num_ports}, {seq_len * 2})
+% Inference - output is flattened
+h_flat = predict(net, y_normalized);  % (1, {num_ports * seq_len * 2})
+
+% ⚠️ IMPORTANT: Reshape output
+h_stacked = reshape(h_flat, [1, {num_ports}, {seq_len * 2}]);
 
 % ⚠️ IMPORTANT: Restore energy
 h_stacked = h_stacked * y_energy;

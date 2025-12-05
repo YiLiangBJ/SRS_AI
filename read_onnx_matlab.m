@@ -69,9 +69,16 @@ fprintf('  ✓ Input normalized\n\n');
 %% Inference
 fprintf('Running inference...\n');
 tic;
-h_stacked = predict(net, y_normalized);  % (1, P, 24)
+h_flat = predict(net, y_normalized);  % (1, P*L*2) - flattened output
 inference_time = toc;
-fprintf('  ✓ Inference complete! (%.2f ms)\n\n', inference_time * 1000);
+fprintf('  ✓ Inference complete! (%.2f ms)\n', inference_time * 1000);
+fprintf('  Output shape (flat): (%d, %d)\n\n', size(h_flat));
+
+%% Reshape output (IMPORTANT: Output is flattened)
+fprintf('⚠️  Reshaping output...\n');
+h_stacked = reshape(h_flat, [1, P, L*2]);
+fprintf('  Reshaped to: (%d, %d, %d)\n', size(h_stacked));
+fprintf('  ✓ Reshape complete\n\n');
 
 %% Restore energy (IMPORTANT: Must restore after inference)
 fprintf('⚠️  Restoring energy...\n');
