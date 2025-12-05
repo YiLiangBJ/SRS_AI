@@ -275,7 +275,8 @@ def generate_training_data(
     snr_db = 20.0,  # Can be: scalar, list [snr0, snr1, snr2, snr3], or tuple (min, max) for random
     seq_len: int = 12,
     pos_values: list = [0, 3, 6, 9],  # Port positions, e.g., [0, 3, 6, 9] or [0, 2, 4, 6, 8, 10]
-    tdl_config: str = 'A-30'  # Format: 'MODEL-DELAY_NS' e.g., 'A-30', 'B-100', 'C-300'
+    tdl_config: str = 'A-30',  # Format: 'MODEL-DELAY_NS' e.g., 'A-30', 'B-100', 'C-300'
+    snr_sampler = None  # Optional: SNRSampler instance for smart SNR sampling
 ):
     """
     Generate training data with TDL channel and SNR control
@@ -379,23 +380,31 @@ def generate_training_data(
     noise = noise / noise.abs().pow(2).mean().sqrt()
     
     # Adjust signal power based on SNR (vectorized - no loops!)
+    # ⭐ IMPORTANT: For tuple (min, max), use SAME SNR for entire batch!
+    # This ensures each gradient update targets a specific SNR condition
     if isinstance(snr_db, tuple) and len(snr_db) == 2:
-        # Random SNR: (min, max) - uniform per sample (vectorized!)
-        snr_min, snr_max = snr_db
-        # Generate random SNRs for all samples at once
-        sample_snrs = torch.FloatTensor(batch_size).uniform_(snr_min, snr_max)  # (B,)
-        signal_powers = 10 ** (sample_snrs / 10)  # (B,)
-        # Broadcast: (B, 1, 1) * (B, P, L) -> (B, P, L)
-        h_true = h_base * signal_powers.sqrt().view(batch_size, 1, 1)
+        # Random SNR: (min, max) - SAME for all samples in batch
+        # Use SNRSampler if provided (smart sampling), otherwise uniform
+        if snr_sampler is not None:
+            batch_snr = snr_sampler.sample()  # Smart sampling (stratified/round-robin/etc)
+        else:
+            snr_min, snr_max = snr_db
+            batch_snr = np.random.uniform(snr_min, snr_max)  # Uniform random (can cluster)
+        
+        signal_power = torch.tensor(10 ** (batch_snr / 10))
+        h_true = h_base * signal_power.sqrt()
+        actual_batch_snr = batch_snr
     elif isinstance(snr_db, list):
         # Different SNR for each port (fixed) - vectorized!
         signal_powers = torch.tensor([10 ** (snr / 10) for snr in snr_db])  # (P,)
         # Broadcast: (B, P, L) * (1, P, 1) -> (B, P, L)
         h_true = h_base * signal_powers.sqrt().view(1, num_ports, 1)
+        actual_batch_snr = sum(snr_db) / len(snr_db)  # Average SNR
     else:
         # Same SNR for all ports (scalar)
         signal_power = torch.tensor(10 ** (snr_db / 10))
         h_true = h_base * signal_power.sqrt()
+        actual_batch_snr = snr_db
     
     # Create mixed signal with shifted channels
     y_clean = torch.zeros(batch_size, seq_len, dtype=torch.complex64)
@@ -422,7 +431,8 @@ def generate_training_data(
     # Return both complex and stacked versions
     # For ONNX model: use y_stacked, h_targets_stacked
     # For evaluation: can convert back from stacked to complex if needed
-    return y_stacked, h_targets_stacked, pos_values, h_true_stacked
+    # ⭐ Also return actual batch SNR used
+    return y_stacked, h_targets_stacked, pos_values, h_true_stacked, actual_batch_snr
 
 
 def test_model(
@@ -440,7 +450,9 @@ def test_model(
     validation_interval=100,  # Validate every N batches
     patience=5,  # Number of validation checks that must pass early stop threshold
     save_dir=None,  # Directory to save model and metrics
-    exp_name=None  # Experiment name for this run
+    exp_name=None,  # Experiment name for this run
+    snr_sampling_strategy='stratified',  # SNR sampling: 'uniform', 'stratified', 'round_robin'
+    snr_num_bins=10  # Number of SNR bins for stratified/round_robin sampling
 ):
     """
     Test Residual Refinement Channel Separator with online training using TDL channels
@@ -503,6 +515,15 @@ def test_model(
     if early_stop_loss is not None:
         print(f"  Early stop loss: {early_stop_loss:.6f} (patience: {patience})")
         print(f"  Validation interval: {validation_interval}")
+    
+    # ⭐ Create SNR sampler for smart SNR sampling (if SNR range specified)
+    from Model_AIIC_onnx.snr_sampler import create_snr_sampler
+    snr_sampler = create_snr_sampler(snr_db, strategy=snr_sampling_strategy, num_bins=snr_num_bins)
+    
+    if snr_sampler is not None:
+        print(f"  SNR sampling: {snr_sampling_strategy} ({snr_num_bins} bins)")
+        print(f"    → Ensures balanced coverage across SNR range")
+        print(f"    → Prevents clustering of SNR values")
     
     # Create model (Real-valued ONNX-compatible version)
     model = ResidualRefinementSeparatorReal(
@@ -568,12 +589,13 @@ def test_model(
     for batch_idx in range(num_batches):
         # Generate batch on-the-fly using TDL
         t0 = time.time()
-        y, h_targets, _, h_true = generate_training_data(
+        y, h_targets, _, h_true, batch_snr = generate_training_data(
             batch_size=batch_size, 
             snr_db=snr_db, 
             seq_len=seq_len, 
             pos_values=pos_values,
-            tdl_config=tdl_configs
+            tdl_config=tdl_configs,
+            snr_sampler=snr_sampler  # ⭐ Use smart SNR sampling
         )
         data_gen_time += time.time() - t0
         
@@ -583,22 +605,45 @@ def test_model(
         h_pred = model(y)
         forward_time += time.time() - t0
         
-        # Calculate loss using specified loss function
-        loss = calculate_loss(h_pred, h_targets, snr_db, loss_type=loss_type)
+        # Calculate raw NMSE (for skip decision)
+        mse = (h_pred - h_targets).abs().pow(2).mean()
+        signal_power = h_targets.abs().pow(2).mean()
+        nmse = mse / (signal_power + 1e-10)
         
-        # Backward
-        t0 = time.time()
-        loss.backward()
-        optimizer.step()
-        backward_time += time.time() - t0
+        # Calculate loss using specified loss function (for optimization)
+        loss = calculate_loss(h_pred, h_targets, batch_snr, loss_type=loss_type)
+        
+        # ⭐ SNR-aware training: Skip backward if NMSE already below SNR noise floor
+        # Use raw NMSE (not transformed loss) to decide skip
+        # Theoretical noise floor: NMSE = 1/SNR (in linear scale)
+        # Skip threshold: NMSE < 1/(10^((SNR+5)/10)) (5 dB margin)
+        snr_noise_floor_linear = 1.0 / (10 ** ((batch_snr + 5) / 10))
+        skip_backward = nmse.item() < snr_noise_floor_linear
+        
+        if not skip_backward:
+            # Backward
+            t0 = time.time()
+            loss.backward()
+            optimizer.step()
+            backward_time += time.time() - t0
+        else:
+            # Skip backward - already converged for this SNR
+            pass
         
         losses.append(loss.item())
         
         # Log to TensorBoard
         if writer is not None:
+            nmse_db = 10 * torch.log10(nmse)
             loss_db = 10 * torch.log10(loss)
+            
+            # Log both NMSE (raw metric) and loss (optimization objective)
+            writer.add_scalar('NMSE/train', nmse.item(), batch_idx)
+            writer.add_scalar('NMSE/train_db', nmse_db.item(), batch_idx)
             writer.add_scalar('Loss/train', loss.item(), batch_idx)
             writer.add_scalar('Loss/train_db', loss_db.item(), batch_idx)
+            writer.add_scalar('SNR/batch_snr', batch_snr, batch_idx)
+            writer.add_scalar('Skip/backward_skipped', 1.0 if skip_backward else 0.0, batch_idx)
             
             # Log per-port NMSE
             for p in range(num_ports):
@@ -630,11 +675,27 @@ def test_model(
             else:
                 timing_info = ""
             
-            # Convert loss to dB for display
+            # Convert NMSE and loss to dB for display
+            nmse_db = 10 * torch.log10(nmse)
             loss_db = 10 * torch.log10(loss)
             
-            print(f"  Batch {batch_idx+1}/{num_batches}, "
-                  f"Loss: {loss.item():.6f} ({loss_db.item():.2f} dB), "
+            # Show SNR info
+            if isinstance(snr_db, tuple):
+                snr_info = f"SNR:{batch_snr:.1f}dB"
+            else:
+                snr_info = f"SNR:{snr_db}dB"
+            
+            # Show if backward was skipped
+            skip_info = " [SKIP]" if skip_backward else ""
+            
+            # Show both NMSE and loss (if different)
+            if loss_type == 'nmse':
+                loss_str = f"NMSE: {nmse.item():.6f} ({nmse_db.item():.2f} dB)"
+            else:
+                loss_str = f"NMSE: {nmse.item():.6f} ({nmse_db.item():.2f} dB), Loss({loss_type}): {loss.item():.6f}"
+            
+            print(f"  Batch {batch_idx+1}/{num_batches}, {snr_info}, "
+                  f"{loss_str}{skip_info}, "
                   f"Throughput: {samples_per_sec:.0f} samples/s {timing_info}")
         
         # Validation and early stopping check
@@ -642,16 +703,20 @@ def test_model(
             model.eval()
             with torch.no_grad():
                 # Run validation on multiple batches for stability
+                # ⭐ Each validation batch uses different SNR (if range specified)
                 val_loss_sum = 0
                 val_batches = 5
+                val_snrs = []
                 for _ in range(val_batches):
-                    y_val, h_val, _, _ = generate_training_data(
+                    y_val, h_val, _, _, val_snr = generate_training_data(
                         batch_size=batch_size,
                         snr_db=snr_db,
                         seq_len=seq_len,
                         pos_values=pos_values,
-                        tdl_config=tdl_configs
+                        tdl_config=tdl_configs,
+                        snr_sampler=snr_sampler  # ⭐ Use smart SNR sampling for validation too
                     )
+                    val_snrs.append(val_snr)
                     h_pred_val = model(y_val)
                     mse_val = (h_pred_val - h_val).abs().pow(2).mean()
                     signal_power_val = h_val.abs().pow(2).mean()
@@ -660,6 +725,7 @@ def test_model(
                 
                 avg_val_loss = val_loss_sum / val_batches
                 val_losses.append(avg_val_loss)
+                avg_val_snr = sum(val_snrs) / len(val_snrs)
                 
                 # Convert to dB for display
                 avg_val_loss_db = 10 * np.log10(avg_val_loss) if avg_val_loss > 0 else -np.inf
@@ -669,9 +735,9 @@ def test_model(
                     writer.add_scalar('Loss/validation', avg_val_loss, batch_idx)
                     writer.add_scalar('Loss/validation_db', avg_val_loss_db, batch_idx)
                 
-                print(f"  → Validation Loss: {avg_val_loss:.6f} ({avg_val_loss_db:.2f} dB)")
+                print(f"  → Validation Loss: {avg_val_loss:.6f} ({avg_val_loss_db:.2f} dB) [Avg SNR: {avg_val_snr:.1f} dB]")
                 
-                # Check early stopping condition
+                # Check early stopping condition (user-specified threshold only)
                 if avg_val_loss < early_stop_loss:
                     early_stop_counter += 1
                     print(f"  → Early stop progress: {early_stop_counter}/{patience}")
@@ -689,6 +755,10 @@ def test_model(
             
             model.train()  # Back to training mode
     
+    # Print SNR sampler statistics
+    if snr_sampler is not None:
+        snr_sampler.print_stats()
+    
     # Final evaluation
     print(f"\n{'='*80}")
     print("Final Evaluation on Test Batch")
@@ -699,8 +769,8 @@ def test_model(
     best_val_loss = min(val_losses) if val_losses else None
     
     with torch.no_grad():
-        # Generate test batch
-        y_test, h_targets_test, _, h_true_test = generate_training_data(
+        # Generate test batch (will use random SNR if range specified)
+        y_test, h_targets_test, _, h_true_test, test_snr = generate_training_data(
             batch_size=200, 
             snr_db=snr_db, 
             seq_len=seq_len, 
@@ -748,6 +818,7 @@ def test_model(
             writer.add_hparams(hparam_dict, metric_dict)
             writer.close()
         
+        print(f"  Test SNR: {test_snr:.1f} dB")
         print(f"  Test NMSE: {test_nmse:.6f} ({test_nmse_db:.2f} dB)")
         print(f"  Port-wise NMSE (linear): {[f'{x:.6f}' for x in port_nmse_linear]}")
         print(f"  Port-wise NMSE (dB):     {[f'{x:.2f}' for x in port_nmse_db]} dB")
@@ -1044,7 +1115,7 @@ if __name__ == "__main__":
                        help='TDL config(s). Single: "A-30", Multiple: "A-30,B-100,C-300"')
     parser.add_argument('--share_weights', type=str, default='False',
                        help='Share weights across stages. Single: "True", Multiple: "True,False"')
-    parser.add_argument('--loss_type', type=str, default='nmse',
+    parser.add_argument('--loss_type', type=str, default='weighted',
                        help='Loss function type: "nmse" (default), "normalized" (SNR-aware), "log" (dB space), "weighted" (SNR-weighted)')
     parser.add_argument('--activation_type', type=str, default='relu',
                        help='Complex activation: "relu" (FASTEST, recommended), "split_relu", "mod_relu" (slow), "z_relu" (very slow), "cardioid" (very slow). Multiple: "relu,split_relu"')
@@ -1060,6 +1131,10 @@ if __name__ == "__main__":
                        help='Directory to save models and metrics (None = don\'t save)')
     parser.add_argument('--cpu_ratio', type=float, default=1.0,
                        help='Ratio of physical CPU cores to use (0.0-1.0). Default: 1.0 (use all cores)')
+    parser.add_argument('--snr_sampling', type=str, default='stratified',
+                       help='SNR sampling strategy: "uniform" (random, can cluster), "stratified" (balanced, default), "round_robin" (systematic)')
+    parser.add_argument('--snr_bins', type=int, default=10,
+                       help='Number of SNR bins for stratified/round_robin sampling. Default: 10')
     
     args = parser.parse_args()
     
@@ -1160,7 +1235,9 @@ if __name__ == "__main__":
                 validation_interval=args.val_interval,
                 patience=args.patience,
                 save_dir=args.save_dir,
-                exp_name=exp_name
+                exp_name=exp_name,
+                snr_sampling_strategy=args.snr_sampling,  # ⭐ Smart SNR sampling
+                snr_num_bins=args.snr_bins
             )
             
             results.append({
