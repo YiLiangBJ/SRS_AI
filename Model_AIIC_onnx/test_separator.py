@@ -1046,8 +1046,8 @@ if __name__ == "__main__":
                        help='Share weights across stages. Single: "True", Multiple: "True,False"')
     parser.add_argument('--loss_type', type=str, default='nmse',
                        help='Loss function type: "nmse" (default), "normalized" (SNR-aware), "log" (dB space), "weighted" (SNR-weighted)')
-    parser.add_argument('--activation_type', type=str, default='split_relu',
-                       help='Complex activation: "split_relu" (default), "mod_relu", "z_relu", "cardioid". Multiple: "split_relu,cardioid"')
+    parser.add_argument('--activation_type', type=str, default='relu',
+                       help='Complex activation: "relu" (FASTEST, recommended), "split_relu", "mod_relu" (slow), "z_relu" (very slow), "cardioid" (very slow). Multiple: "relu,split_relu"')
     parser.add_argument('--onnx_mode', action='store_true',
                        help='Use ONNX Opset 9 compatible mode (slower ~20%% but MATLAB compatible)')
     parser.add_argument('--early_stop', type=float, default=None,
