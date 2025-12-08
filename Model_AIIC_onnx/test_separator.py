@@ -88,6 +88,45 @@ from utils import calculate_nmse
 
 
 # ============================================================================
+# GPU Support
+# ============================================================================
+
+def get_device(force_cpu=False):
+    """
+    自动选择设备（GPU 优先，自动回退到 CPU）
+    
+    Args:
+        force_cpu: 强制使用 CPU（用于调试或对比）
+    
+    Returns:
+        torch.device
+    """
+    if force_cpu:
+        device = torch.device('cpu')
+        print(f"🔧 Device: CPU (forced)")
+        print(f"   Available CPUs: {available_cpus}")
+        print(f"   Using threads: {num_threads}")
+    elif torch.cuda.is_available():
+        device = torch.device('cuda')
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
+        cuda_version = torch.version.cuda
+        
+        print(f"🔧 Device: GPU (CUDA)")
+        print(f"   GPU: {gpu_name}")
+        print(f"   Memory: {gpu_memory:.1f} GB")
+        print(f"   CUDA version: {cuda_version}")
+        print(f"   PyTorch version: {torch.__version__}")
+    else:
+        device = torch.device('cpu')
+        print(f"🔧 Device: CPU (no GPU available)")
+        print(f"   Available CPUs: {available_cpus}")
+        print(f"   Using threads: {num_threads}")
+    
+    return device
+
+
+# ============================================================================
 # SNR-Aware Loss Functions
 # ============================================================================
 
@@ -477,6 +516,7 @@ def test_model(
     snr_sampling_strategy='stratified',  # SNR sampling: 'uniform', 'stratified', 'round_robin'
     snr_num_bins=10,  # Number of SNR bins for stratified/round_robin sampling
     snr_per_sample=False,  # ⭐ NEW: Per-sample SNR (True) vs per-batch SNR (False, default)
+    device=None,  # ⭐ Device: None (auto-detect), 'cuda', or 'cpu'
     progress_callback=None  # Callback function(current_batch, total_batches) for progress reporting
 ):
     """
@@ -513,11 +553,27 @@ def test_model(
     print("="*80)
     print(f"Residual Refinement Channel Separator - Online Training")
     print("="*80)
-    print(f"🔧 Thread Configuration:")
-    print(f"   Available CPUs: {len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else os.cpu_count()}")
-    print(f"   PyTorch intra-op threads: {torch.get_num_threads()}")
-    print(f"   PyTorch inter-op threads: {torch.get_num_interop_threads()}")
-    print(f"   OMP threads: {os.environ.get('OMP_NUM_THREADS', 'default')}")
+    
+    # ⭐ Initialize device (GPU if available, else CPU)
+    if device is None:
+        device = get_device()
+    elif isinstance(device, str):
+        if device == 'cuda':
+            if not torch.cuda.is_available():
+                print("⚠️  CUDA requested but not available, falling back to CPU")
+                device = get_device(force_cpu=True)
+            else:
+                device = get_device(force_cpu=False)
+        else:  # 'cpu'
+            device = get_device(force_cpu=True)
+    
+    # Only print thread info if using CPU
+    if device.type == 'cpu':
+        print(f"🔧 Thread Configuration:")
+        print(f"   Available CPUs: {len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else os.cpu_count()}")
+        print(f"   PyTorch intra-op threads: {torch.get_num_threads()}")
+        print(f"   PyTorch inter-op threads: {torch.get_num_interop_threads()}")
+        print(f"   OMP threads: {os.environ.get('OMP_NUM_THREADS', 'default')}")
     print(f"   Using custom NumPy TDL channel (no GIL limitation)")
     
     # Configuration
@@ -571,6 +627,8 @@ def test_model(
         activation_type=activation_type,  # New parameter for ONNX version
         onnx_mode=onnx_mode  # ⭐ ONNX Opset 9 compatibility mode
     )
+    # ⭐ Move model to device (GPU or CPU)
+    model = model.to(device)
     # Note: Energy normalization is now handled externally (outside the model)
     
     # Count parameters
@@ -640,6 +698,12 @@ def test_model(
             snr_per_sample=snr_per_sample  # ⭐ Per-sample SNR mode
         )
         data_gen_time += time.time() - t0
+        
+        # ⭐ Move data to device (GPU or CPU)
+        t0_transfer = time.time()
+        y = y.to(device, non_blocking=True)
+        h_targets = h_targets.to(device, non_blocking=True)
+        # data_transfer_time = time.time() - t0_transfer  # Optional: track transfer time
         
         # Forward
         t0 = time.time()
@@ -787,6 +851,9 @@ def test_model(
                         snr_sampler=snr_sampler,  # ⭐ Use smart SNR sampling for validation too
                         snr_per_sample=snr_per_sample  # ⭐ Same mode as training
                     )
+                    # ⭐ Move validation data to device
+                    y_val = y_val.to(device)
+                    h_val = h_val.to(device)
                     val_snrs.append(val_snr)
                     h_pred_val = model(y_val)
                     mse_val = (h_pred_val - h_val).abs().pow(2).mean()
@@ -847,6 +914,10 @@ def test_model(
             seq_len=seq_len, 
             pos_values=pos_values
         )
+        
+        # ⭐ Move test data to device
+        y_test = y_test.to(device)
+        h_targets_test = h_targets_test.to(device)
         
         # Predict
         h_pred = model(y_test)
@@ -1306,6 +1377,9 @@ if __name__ == "__main__":
                        help='Number of SNR bins for stratified/round_robin sampling. Default: 10')
     parser.add_argument('--snr_per_sample', action='store_true',
                        help='⭐ Per-sample SNR mode: each sample in batch gets different random SNR (old behavior). Default: False (per-batch SNR)')
+    parser.add_argument('--device', type=str, default='auto',
+                       choices=['auto', 'cpu', 'cuda'],
+                       help='Device to use: "auto" (GPU if available, default), "cpu" (force CPU), "cuda" (force GPU)')
     
     args = parser.parse_args()
     
@@ -1404,6 +1478,16 @@ if __name__ == "__main__":
     results = []
     overall_start_time = time.time()
     
+    # ⭐ Parse device argument
+    if args.device == 'cpu':
+        training_device = 'cpu'
+    elif args.device == 'cuda':
+        training_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        if not torch.cuda.is_available():
+            print("⚠️  CUDA requested but not available, using CPU")
+    else:  # 'auto'
+        training_device = None  # Let test_model auto-detect
+    
     # Initialize experiments info for progress tracking
     experiments_info = []
     for num_stages, share_weights, loss_type, activation_type in hyperparameter_combinations:
@@ -1460,6 +1544,7 @@ if __name__ == "__main__":
                 snr_sampling_strategy=args.snr_sampling,  # ⭐ Smart SNR sampling
                 snr_num_bins=args.snr_bins,
                 snr_per_sample=args.snr_per_sample,  # ⭐ Per-sample SNR mode
+                device=training_device,  # ⭐ GPU/CPU device
                 progress_callback=progress_callback  # ⭐ Pass progress callback
             )
             

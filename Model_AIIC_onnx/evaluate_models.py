@@ -202,7 +202,7 @@ def main():
     parser = argparse.ArgumentParser(description='评估训练好的模型在不同 SNR 和 TDL 配置下的性能')
     
     parser.add_argument('--exp_dir', type=str, 
-                       default='./experiments/20251208_143427_batch10000_bs128_ports4_snr0-30',
+                       default=r'C:\Users\YiLiang\Downloads\models_4ports_1206',
                        help='实验目录（包含训练好的模型）')
     parser.add_argument('--models', type=str, default=None,
                        help='要评估的模型列表（逗号分隔），如 "stages=2_share=False,stages=3_share=False"。'
