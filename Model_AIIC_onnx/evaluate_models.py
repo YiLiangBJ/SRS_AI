@@ -75,17 +75,19 @@ def load_model(model_dir):
             pos_values = list(range(0, 12, 12 // num_ports))[:num_ports]
     
     # 创建模型（num_ports 从 pos_values 推导）
-    # 获取激活函数类型（如果有）
-    activation_type = config.get('activation_type', 'split_relu')
+    # 获取激活函数类型（从保存的 config 中）
+    activation_type = config.get('activation_type', 'relu')
+    onnx_mode = config.get('onnx_mode', False)
     
+    # 新版本模型：normalize_energy 已外置，不再作为模型参数
     model = ResidualRefinementSeparatorReal(
         seq_len=config['seq_len'],
         num_ports=len(pos_values),
         hidden_dim=config['hidden_dim'],
         num_stages=config['num_stages'],
         share_weights_across_stages=config['share_weights'],
-        normalize_energy=config['normalize_energy'],
-        activation_type=activation_type
+        activation_type=activation_type,
+        onnx_mode=onnx_mode
     )
     
     # 加载权重
@@ -134,8 +136,8 @@ def evaluate_model_at_snr(model, snr_db, tdl_config, pos_values, num_batches=10,
     
     with torch.no_grad():
         for _ in range(num_batches):
-            # 生成测试数据
-            y, h_targets, _, _ = generate_training_data(
+            # 生成测试数据（返回 5 个值：y, h_targets, pos_values, h_true, batch_snr）
+            y, h_targets, _, _, _ = generate_training_data(
                 batch_size=batch_size,
                 snr_db=snr_db,
                 seq_len=seq_len,
@@ -199,7 +201,8 @@ def parse_snr_range(snr_str):
 def main():
     parser = argparse.ArgumentParser(description='评估训练好的模型在不同 SNR 和 TDL 配置下的性能')
     
-    parser.add_argument('--exp_dir', type=str, required=True,
+    parser.add_argument('--exp_dir', type=str, 
+                       default=r'C:\GitRepo\SRS_AI\test_per_sample',
                        help='实验目录（包含训练好的模型）')
     parser.add_argument('--models', type=str, default=None,
                        help='要评估的模型列表（逗号分隔），如 "stages=2_share=False,stages=3_share=False"。'
@@ -280,6 +283,8 @@ def main():
             model, config = load_model(model_dir)
             print(f"✓ 模型加载成功")
             print(f"  配置: stages={config['num_stages']}, share_weights={config['share_weights']}")
+            print(f"  激活函数: {config.get('activation_type', 'N/A')}")
+            print(f"  端口位置: {config.get('pos_values', 'N/A')}")
             
             # 为该模型创建结果存储
             results['models'][model_name] = {
@@ -325,6 +330,9 @@ def main():
             
         except Exception as e:
             print(f"✗ 模型 {model_name} 评估失败: {e}")
+            import traceback
+            print(f"详细错误信息:")
+            traceback.print_exc()
             continue
     
     # 保存结果

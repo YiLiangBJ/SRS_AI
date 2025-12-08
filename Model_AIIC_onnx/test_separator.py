@@ -279,7 +279,8 @@ def generate_training_data(
     seq_len: int = 12,
     pos_values: list = [0, 3, 6, 9],  # Port positions, e.g., [0, 3, 6, 9] or [0, 2, 4, 6, 8, 10]
     tdl_config: str = 'A-30',  # Format: 'MODEL-DELAY_NS' e.g., 'A-30', 'B-100', 'C-300'
-    snr_sampler = None  # Optional: SNRSampler instance for smart SNR sampling
+    snr_sampler = None,  # Optional: SNRSampler instance for smart SNR sampling
+    snr_per_sample: bool = False  # ⭐ NEW: If True, each sample in batch gets different SNR (old behavior)
 ):
     """
     Generate training data with TDL channel and SNR control
@@ -383,26 +384,45 @@ def generate_training_data(
     noise = noise / noise.abs().pow(2).mean().sqrt()
     
     # Adjust signal power based on SNR (vectorized - no loops!)
-    # ⭐ IMPORTANT: For tuple (min, max), use SAME SNR for entire batch!
-    # This ensures each gradient update targets a specific SNR condition
+    # ⭐ Two modes: per-batch SNR (default) vs per-sample SNR (old behavior)
     if isinstance(snr_db, tuple) and len(snr_db) == 2:
-        # Random SNR: (min, max) - SAME for all samples in batch
-        # Use SNRSampler if provided (smart sampling), otherwise uniform
-        if snr_sampler is not None:
-            batch_snr = snr_sampler.sample()  # Smart sampling (stratified/round-robin/etc)
-        else:
-            snr_min, snr_max = snr_db
-            batch_snr = np.random.uniform(snr_min, snr_max)  # Uniform random (can cluster)
+        snr_min, snr_max = snr_db
         
-        signal_power = torch.tensor(10 ** (batch_snr / 10))
-        h_true = h_base * signal_power.sqrt()
-        actual_batch_snr = batch_snr
+        if snr_per_sample:
+            # ⭐ Mode 2: Per-Sample SNR (old behavior)
+            # Each sample in batch gets DIFFERENT random SNR
+            # Better for learning SNR-invariant features
+            sample_snrs = np.random.uniform(snr_min, snr_max, batch_size)  # (B,)
+            signal_powers = torch.tensor([10 ** (snr / 10) for snr in sample_snrs])  # (B,)
+            # Broadcast: (B, P, L) * (B, 1, 1) -> (B, P, L)
+            h_true = h_base * signal_powers.sqrt().view(batch_size, 1, 1)
+            actual_batch_snr = float(np.mean(sample_snrs))  # Average SNR for logging
+        else:
+            # ⭐ Mode 1: Per-Batch SNR (current/default)
+            # All samples in batch get SAME SNR
+            # Better for learning specific SNR behaviors
+            if snr_sampler is not None:
+                batch_snr = snr_sampler.sample()  # Smart sampling (stratified/round-robin/etc)
+            else:
+                batch_snr = np.random.uniform(snr_min, snr_max)  # Uniform random (can cluster)
+            
+            signal_power = torch.tensor(10 ** (batch_snr / 10))
+            h_true = h_base * signal_power.sqrt()
+            actual_batch_snr = batch_snr
     elif isinstance(snr_db, list):
-        # Different SNR for each port (fixed) - vectorized!
-        signal_powers = torch.tensor([10 ** (snr / 10) for snr in snr_db])  # (P,)
-        # Broadcast: (B, P, L) * (1, P, 1) -> (B, P, L)
-        h_true = h_base * signal_powers.sqrt().view(1, num_ports, 1)
-        actual_batch_snr = sum(snr_db) / len(snr_db)  # Average SNR
+        # List of SNR values: randomly select one for this batch
+        # e.g., [5, 10, 15, 20, 25] -> pick one randomly
+        if len(snr_db) == num_ports:
+            # Special case: if list length matches num_ports, assume per-port SNR
+            signal_powers = torch.tensor([10 ** (snr / 10) for snr in snr_db])  # (P,)
+            h_true = h_base * signal_powers.sqrt().view(1, num_ports, 1)
+            actual_batch_snr = sum(snr_db) / len(snr_db)  # Average SNR
+        else:
+            # General case: randomly select one SNR from the list
+            batch_snr = np.random.choice(snr_db)
+            signal_power = torch.tensor(10 ** (batch_snr / 10))
+            h_true = h_base * signal_power.sqrt()
+            actual_batch_snr = batch_snr
     else:
         # Same SNR for all ports (scalar)
         signal_power = torch.tensor(10 ** (snr_db / 10))
@@ -456,6 +476,7 @@ def test_model(
     exp_name=None,  # Experiment name for this run
     snr_sampling_strategy='stratified',  # SNR sampling: 'uniform', 'stratified', 'round_robin'
     snr_num_bins=10,  # Number of SNR bins for stratified/round_robin sampling
+    snr_per_sample=False,  # ⭐ NEW: Per-sample SNR (True) vs per-batch SNR (False, default)
     progress_callback=None  # Callback function(current_batch, total_batches) for progress reporting
 ):
     """
@@ -528,6 +549,17 @@ def test_model(
         print(f"  SNR sampling: {snr_sampling_strategy} ({snr_num_bins} bins)")
         print(f"    → Ensures balanced coverage across SNR range")
         print(f"    → Prevents clustering of SNR values")
+    
+    # Print SNR mode
+    if isinstance(snr_db, tuple):
+        if snr_per_sample:
+            print(f"  SNR mode: Per-Sample (each sample gets different random SNR)")
+            print(f"    → Better for learning SNR-invariant features")
+            print(f"    → Gradient targets average SNR ≈ {sum(snr_db)/2:.1f} dB")
+        else:
+            print(f"  SNR mode: Per-Batch (all samples in batch get same SNR)")
+            print(f"    → Better for learning specific SNR behaviors")
+            print(f"    → Each gradient update targets a specific SNR point")
     
     # Create model (Real-valued ONNX-compatible version)
     model = ResidualRefinementSeparatorReal(
@@ -604,7 +636,8 @@ def test_model(
             seq_len=seq_len, 
             pos_values=pos_values,
             tdl_config=tdl_configs,
-            snr_sampler=snr_sampler  # ⭐ Use smart SNR sampling
+            snr_sampler=snr_sampler,  # ⭐ Use smart SNR sampling
+            snr_per_sample=snr_per_sample  # ⭐ Per-sample SNR mode
         )
         data_gen_time += time.time() - t0
         
@@ -689,9 +722,11 @@ def test_model(
             loss_db = 10 * torch.log10(loss)
             
             # Show SNR info
-            if isinstance(snr_db, tuple):
+            if isinstance(snr_db, (tuple, list)):
+                # For tuple/list: show actual SNR used in this batch
                 snr_info = f"SNR:{batch_snr:.1f}dB"
             else:
+                # For scalar: show fixed SNR
                 snr_info = f"SNR:{snr_db}dB"
             
             # Show if backward was skipped
@@ -749,7 +784,8 @@ def test_model(
                         seq_len=seq_len,
                         pos_values=pos_values,
                         tdl_config=tdl_configs,
-                        snr_sampler=snr_sampler  # ⭐ Use smart SNR sampling for validation too
+                        snr_sampler=snr_sampler,  # ⭐ Use smart SNR sampling for validation too
+                        snr_per_sample=snr_per_sample  # ⭐ Same mode as training
                     )
                     val_snrs.append(val_snr)
                     h_pred_val = model(y_val)
@@ -1260,14 +1296,16 @@ if __name__ == "__main__":
                        help='Validation interval (batches)')
     parser.add_argument('--patience', type=int, default=5,
                        help='Patience for early stopping')
-    parser.add_argument('--save_dir', type=str, default=None,
-                       help='Directory to save models and metrics (None = don\'t save)')
+    parser.add_argument('--save_dir', type=str, default='auto',
+                       help='Directory to save models and metrics. "auto" = auto-generate with timestamp (default), "none" = don\'t save, or specify custom path')
     parser.add_argument('--cpu_ratio', type=float, default=1.0,
                        help='Ratio of physical CPU cores to use (0.0-1.0). Default: 1.0 (use all cores)')
     parser.add_argument('--snr_sampling', type=str, default='stratified',
                        help='SNR sampling strategy: "uniform" (random, can cluster), "stratified" (balanced, default), "round_robin" (systematic)')
     parser.add_argument('--snr_bins', type=int, default=10,
                        help='Number of SNR bins for stratified/round_robin sampling. Default: 10')
+    parser.add_argument('--snr_per_sample', action='store_true',
+                       help='⭐ Per-sample SNR mode: each sample in batch gets different random SNR (old behavior). Default: False (per-batch SNR)')
     
     args = parser.parse_args()
     
@@ -1319,6 +1357,25 @@ if __name__ == "__main__":
     # Generate all hyperparameter combinations
     from itertools import product
     hyperparameter_combinations = list(product(stages_list, share_weights_list, loss_type_list, activation_type_list))
+    
+    # Auto-generate save directory if needed
+    if args.save_dir == 'auto':
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        num_ports = len(pos_values)
+        
+        # Format SNR string for filename
+        if isinstance(snr_db, tuple):
+            snr_str = f"snr{int(snr_db[0])}-{int(snr_db[1])}"
+        elif isinstance(snr_db, list):
+            snr_str = f"snr{'_'.join(map(str, snr_db))}"
+        else:
+            snr_str = f"snr{int(snr_db)}"
+        
+        args.save_dir = f"./experiments/{timestamp}_batch{args.batches}_bs{args.batch_size}_ports{num_ports}_{snr_str}"
+        print(f"📁 Auto-generated save directory: {args.save_dir}")
+    elif args.save_dir.lower() == 'none':
+        args.save_dir = None
     
     print(f"\n{'='*80}")
     print(f"Hyperparameter Search Configuration")
@@ -1402,6 +1459,7 @@ if __name__ == "__main__":
                 exp_name=exp_name,
                 snr_sampling_strategy=args.snr_sampling,  # ⭐ Smart SNR sampling
                 snr_num_bins=args.snr_bins,
+                snr_per_sample=args.snr_per_sample,  # ⭐ Per-sample SNR mode
                 progress_callback=progress_callback  # ⭐ Pass progress callback
             )
             
