@@ -63,6 +63,9 @@ print(f"   NUMA nodes: Run with 'numactl --hardware' to check")
 import torch
 import torch.nn.functional as F
 import numpy as np
+import time
+import json
+import traceback
 from torch.utils.tensorboard import SummaryWriter
 
 # Set PyTorch inter-op threads globally (can only be set once)
@@ -452,7 +455,8 @@ def test_model(
     save_dir=None,  # Directory to save model and metrics
     exp_name=None,  # Experiment name for this run
     snr_sampling_strategy='stratified',  # SNR sampling: 'uniform', 'stratified', 'round_robin'
-    snr_num_bins=10  # Number of SNR bins for stratified/round_robin sampling
+    snr_num_bins=10,  # Number of SNR bins for stratified/round_robin sampling
+    progress_callback=None  # Callback function(current_batch, total_batches) for progress reporting
 ):
     """
     Test Residual Refinement Channel Separator with online training using TDL channels
@@ -586,6 +590,11 @@ def test_model(
     early_stop_counter = 0
     best_val_loss = float('inf')
     
+    # Progress tracking
+    training_start_time = time.time()
+    last_progress_print = 0
+    progress_print_interval = 100  # Print detailed progress every N batches
+    
     for batch_idx in range(num_batches):
         # Generate batch on-the-fly using TDL
         t0 = time.time()
@@ -697,6 +706,32 @@ def test_model(
             print(f"  Batch {batch_idx+1}/{num_batches}, {snr_info}, "
                   f"{loss_str}{skip_info}, "
                   f"Throughput: {samples_per_sec:.0f} samples/s {timing_info}")
+        
+        # Print detailed progress every N batches
+        if (batch_idx + 1) % progress_print_interval == 0:
+            training_elapsed = time.time() - training_start_time
+            progress_pct = (batch_idx + 1) / num_batches * 100
+            
+            # Estimate remaining time
+            if batch_idx > 0:
+                avg_time_per_batch = training_elapsed / (batch_idx + 1)
+                remaining_batches = num_batches - (batch_idx + 1)
+                est_remaining = avg_time_per_batch * remaining_batches
+                est_hours = int(est_remaining // 3600)
+                est_mins = int((est_remaining % 3600) // 60)
+                est_secs = int(est_remaining % 60)
+                
+                elapsed_hours = int(training_elapsed // 3600)
+                elapsed_mins = int((training_elapsed % 3600) // 60)
+                elapsed_secs = int(training_elapsed % 60)
+                
+                print(f"  ⏱️  Progress: {progress_pct:.1f}% ({batch_idx+1}/{num_batches} batches) | "
+                      f"Elapsed: {elapsed_hours:02d}:{elapsed_mins:02d}:{elapsed_secs:02d} | "
+                      f"ETA: {est_hours:02d}:{est_mins:02d}:{est_secs:02d}")
+            
+            # Call progress callback if provided
+            if progress_callback:
+                progress_callback(batch_idx + 1, num_batches)
         
         # Validation and early stopping check
         if early_stop_loss is not None and (batch_idx + 1) % validation_interval == 0:
@@ -1097,6 +1132,104 @@ def test_model(
     return model, losses
 
 
+def print_overall_progress(experiments_info, current_exp_idx, current_exp_progress, current_exp_start_time, overall_start_time):
+    """
+    Print comprehensive progress report for all experiments
+    
+    Args:
+        experiments_info: List of dicts with experiment info
+        current_exp_idx: Index of current experiment (0-based)
+        current_exp_progress: Progress of current experiment (0.0-1.0)
+        current_exp_start_time: Start time of current experiment
+        overall_start_time: Start time of all experiments
+    """
+    print("\n" + "="*100)
+    print("🔄 OVERALL TRAINING PROGRESS")
+    print("="*100)
+    
+    total_exps = len(experiments_info)
+    completed_exps = [e for e in experiments_info if e['status'] == 'completed']
+    failed_exps = [e for e in experiments_info if e['status'] == 'failed']
+    
+    # Overall statistics
+    elapsed_total = time.time() - overall_start_time
+    elapsed_h = int(elapsed_total // 3600)
+    elapsed_m = int((elapsed_total % 3600) // 60)
+    elapsed_s = int(elapsed_total % 60)
+    
+    print(f"\n📊 Summary:")
+    print(f"  Total experiments: {total_exps}")
+    print(f"  ✅ Completed: {len(completed_exps)}")
+    print(f"  🔄 In progress: {1 if current_exp_idx < total_exps else 0}")
+    print(f"  ⏳ Pending: {total_exps - current_exp_idx - 1}")
+    print(f"  ❌ Failed: {len(failed_exps)}")
+    print(f"  ⏱️  Total elapsed: {elapsed_h:02d}:{elapsed_m:02d}:{elapsed_s:02d}")
+    
+    # ETA calculation
+    if len(completed_exps) > 0:
+        avg_duration = sum(e['duration'] for e in completed_exps) / len(completed_exps)
+        remaining_exps = total_exps - current_exp_idx - 1
+        # Add remaining time for current experiment
+        current_exp_elapsed = time.time() - current_exp_start_time if current_exp_start_time else 0
+        est_current_remaining = (current_exp_elapsed / max(current_exp_progress, 0.01)) * (1 - current_exp_progress)
+        est_remaining = est_current_remaining + (remaining_exps * avg_duration)
+        
+        eta_h = int(est_remaining // 3600)
+        eta_m = int((est_remaining % 3600) // 60)
+        eta_s = int(est_remaining % 60)
+        print(f"  🎯 Estimated remaining: {eta_h:02d}:{eta_m:02d}:{eta_s:02d}")
+    
+    # Completed experiments
+    if completed_exps:
+        print(f"\n✅ Completed ({len(completed_exps)}):")
+        for exp in completed_exps[-3:]:  # Show last 3
+            dur_h = int(exp['duration'] // 3600)
+            dur_m = int((exp['duration'] % 3600) // 60)
+            dur_s = int(exp['duration'] % 60)
+            print(f"  • {exp['name']:<60} [{dur_h:02d}:{dur_m:02d}:{dur_s:02d}]")
+        if len(completed_exps) > 3:
+            print(f"  ... and {len(completed_exps) - 3} more")
+    
+    # Current experiment
+    if current_exp_idx < total_exps:
+        current_exp = experiments_info[current_exp_idx]
+        current_elapsed = time.time() - current_exp_start_time if current_exp_start_time else 0
+        curr_h = int(current_elapsed // 3600)
+        curr_m = int((current_elapsed % 3600) // 60)
+        curr_s = int(current_elapsed % 60)
+        
+        print(f"\n🔄 In Progress:")
+        print(f"  • {current_exp['name']}")
+        print(f"    Progress: {current_exp_progress*100:.1f}% | Elapsed: {curr_h:02d}:{curr_m:02d}:{curr_s:02d}")
+        
+        # Estimate remaining time for current experiment
+        if current_exp_progress > 0.01:
+            est_total = current_elapsed / current_exp_progress
+            est_remain = est_total - current_elapsed
+            est_h = int(est_remain // 3600)
+            est_m = int((est_remain % 3600) // 60)
+            est_s = int(est_remain % 60)
+            print(f"    Estimated remaining: {est_h:02d}:{est_m:02d}:{est_s:02d}")
+    
+    # Pending experiments
+    pending_start = current_exp_idx + 1
+    pending_exps = experiments_info[pending_start:]
+    if pending_exps:
+        print(f"\n⏳ Pending ({len(pending_exps)}):")
+        for exp in pending_exps[:5]:  # Show first 5
+            print(f"  • {exp['name']}")
+        if len(pending_exps) > 5:
+            print(f"  ... and {len(pending_exps) - 5} more")
+    
+    # Failed experiments
+    if failed_exps:
+        print(f"\n❌ Failed ({len(failed_exps)}):")
+        for exp in failed_exps:
+            print(f"  • {exp['name']}: {exp.get('error', 'Unknown error')}")
+    
+    print("="*100 + "\n")
+
+
 if __name__ == "__main__":
     import argparse
     
@@ -1212,12 +1345,43 @@ if __name__ == "__main__":
     
     # Run all combinations
     results = []
-    for idx, (num_stages, share_weights, loss_type, activation_type) in enumerate(hyperparameter_combinations):
+    overall_start_time = time.time()
+    
+    # Initialize experiments info for progress tracking
+    experiments_info = []
+    for num_stages, share_weights, loss_type, activation_type in hyperparameter_combinations:
         exp_name = f"stages={num_stages}_share={share_weights}_loss={loss_type}_act={activation_type}"
+        experiments_info.append({
+            'name': exp_name,
+            'status': 'pending',
+            'duration': 0,
+            'num_stages': num_stages,
+            'share_weights': share_weights,
+            'loss_type': loss_type,
+            'activation_type': activation_type
+        })
+    
+    for idx, (num_stages, share_weights, loss_type, activation_type) in enumerate(hyperparameter_combinations):
+        exp_name = experiments_info[idx]['name']
+        experiments_info[idx]['status'] = 'in_progress'
         
-        print(f"\n{'#'*80}")
+        # Print initial experiment header
+        print(f"\n{'#'*100}")
         print(f"# Experiment {idx+1}/{len(hyperparameter_combinations)}: {exp_name}")
-        print(f"{'#'*80}\n")
+        print(f"# Overall Progress: {idx}/{len(hyperparameter_combinations)} completed ({idx/len(hyperparameter_combinations)*100:.1f}%)")
+        print(f"{'#'*100}\n")
+        
+        exp_start_time = time.time()
+        
+        # Define progress callback to print overall progress periodically
+        last_overall_progress_print = [0]  # Use list to make it mutable in closure
+        
+        def progress_callback(current_batch, total_batches):
+            # Print overall progress every 500 batches
+            if current_batch - last_overall_progress_print[0] >= 500:
+                last_overall_progress_print[0] = current_batch
+                progress = current_batch / total_batches
+                print_overall_progress(experiments_info, idx, progress, exp_start_time, overall_start_time)
         
         try:
             model, losses = test_model(
@@ -1237,24 +1401,48 @@ if __name__ == "__main__":
                 save_dir=args.save_dir,
                 exp_name=exp_name,
                 snr_sampling_strategy=args.snr_sampling,  # ⭐ Smart SNR sampling
-                snr_num_bins=args.snr_bins
+                snr_num_bins=args.snr_bins,
+                progress_callback=progress_callback  # ⭐ Pass progress callback
             )
+            
+            exp_duration = time.time() - exp_start_time
+            exp_hours = int(exp_duration // 3600)
+            exp_mins = int((exp_duration % 3600) // 60)
+            exp_secs = int(exp_duration % 60)
+            
+            # Update experiment status
+            experiments_info[idx]['status'] = 'completed'
+            experiments_info[idx]['duration'] = exp_duration
+            
+            print(f"\n{'='*100}")
+            print(f"✓ Experiment {idx+1}/{len(hyperparameter_combinations)} completed in {exp_hours:02d}:{exp_mins:02d}:{exp_secs:02d}")
+            print(f"{'='*100}")
             
             results.append({
                 'experiment': exp_name,
                 'num_stages': num_stages,
                 'share_weights': share_weights,
                 'loss_type': loss_type,
+                'activation_type': activation_type,
                 'final_loss': losses[-1] if losses else None,
                 'min_loss': min(losses) if losses else None,
                 'num_batches_trained': len(losses),
+                'duration_seconds': exp_duration,
                 'status': 'success'
             })
+            
+            # Print overall progress after completion
+            print_overall_progress(experiments_info, idx + 1, 0, None, overall_start_time)
             
         except Exception as e:
             print(f"\n✗ Experiment {exp_name} failed: {e}")
             import traceback
             traceback.print_exc()
+            
+            # Update experiment status
+            experiments_info[idx]['status'] = 'failed'
+            experiments_info[idx]['error'] = str(e)
+            
             results.append({
                 'experiment': exp_name,
                 'num_stages': num_stages,
@@ -1263,12 +1451,24 @@ if __name__ == "__main__":
                 'status': 'failed',
                 'error': str(e)
             })
+            
+            # Print overall progress after failure
+            print_overall_progress(experiments_info, idx + 1, 0, None, overall_start_time)
     
     # Print summary
+    total_elapsed = time.time() - overall_start_time
+    total_hours = int(total_elapsed // 3600)
+    total_mins = int((total_elapsed % 3600) // 60)
+    total_secs = int(total_elapsed % 60)
+    
     print(f"\n{'='*80}")
     print(f"All Experiments Complete!")
     print(f"{'='*80}")
-    print(f"Results Summary:")
+    print(f"Total time: {total_hours:02d}:{total_mins:02d}:{total_secs:02d}")
+    print(f"Total experiments: {len(hyperparameter_combinations)}")
+    print(f"Successful: {len([r for r in results if r['status'] == 'success'])}")
+    print(f"Failed: {len([r for r in results if r['status'] == 'failed'])}")
+    print(f"\nResults Summary:")
     print(f"{'-'*80}")
     
     successful_results = [r for r in results if r['status'] == 'success']
@@ -1276,19 +1476,34 @@ if __name__ == "__main__":
         # Sort by min_loss
         sorted_results = sorted(successful_results, key=lambda x: x['min_loss'])
         
-        print(f"\n{'Rank':<6} {'Experiment':<50} {'Min Loss':<15} {'Final Loss':<15} {'Batches':<10}")
-        print(f"{'-'*100}")
+        print(f"\n{'Rank':<6} {'Experiment':<50} {'Min Loss':<15} {'Final Loss':<15} {'Duration':<12} {'Batches':<10}")
+        print(f"{'-'*120}")
         for i, result in enumerate(sorted_results):
             min_loss_db = 10 * np.log10(result['min_loss']) if result['min_loss'] > 0 else -np.inf
             final_loss_db = 10 * np.log10(result['final_loss']) if result['final_loss'] > 0 else -np.inf
+            
+            duration = result.get('duration_seconds', 0)
+            dur_hours = int(duration // 3600)
+            dur_mins = int((duration % 3600) // 60)
+            dur_secs = int(duration % 60)
+            duration_str = f"{dur_hours:02d}:{dur_mins:02d}:{dur_secs:02d}"
+            
             print(f"{i+1:<6} {result['experiment']:<50} "
                   f"{result['min_loss']:.4f} ({min_loss_db:>6.2f}dB) "
                   f"{result['final_loss']:.4f} ({final_loss_db:>6.2f}dB) "
+                  f"{duration_str:<12} "
                   f"{result['num_batches_trained']:<10}")
         
         best_loss_db = 10 * np.log10(sorted_results[0]['min_loss']) if sorted_results[0]['min_loss'] > 0 else -np.inf
         print(f"\nBest configuration: {sorted_results[0]['experiment']}")
         print(f"  Min Loss: {sorted_results[0]['min_loss']:.6f} ({best_loss_db:.2f} dB)")
+        
+        # Show average time per experiment
+        avg_duration = sum(r.get('duration_seconds', 0) for r in successful_results) / len(successful_results)
+        avg_hours = int(avg_duration // 3600)
+        avg_mins = int((avg_duration % 3600) // 60)
+        avg_secs = int(avg_duration % 60)
+        print(f"  Average time per experiment: {avg_hours:02d}:{avg_mins:02d}:{avg_secs:02d}")
     
     failed_results = [r for r in results if r['status'] == 'failed']
     if failed_results:
