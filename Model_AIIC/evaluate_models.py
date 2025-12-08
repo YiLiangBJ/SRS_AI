@@ -191,7 +191,7 @@ def parse_snr_range(snr_str):
 def main():
     parser = argparse.ArgumentParser(description='评估训练好的模型在不同 SNR 和 TDL 配置下的性能')
     
-    parser.add_argument('--exp_dir', type=str, required=True,
+    parser.add_argument('--exp_dir', type=str, default='./oldnn',
                        help='实验目录（包含训练好的模型）')
     parser.add_argument('--models', type=str, default=None,
                        help='要评估的模型列表（逗号分隔），如 "stages=2_share=False,stages=3_share=False"。'
@@ -200,9 +200,9 @@ def main():
                        help='TDL 配置列表（逗号分隔），如 "A-30,B-100,C-300"')
     parser.add_argument('--snr_range', type=str, default='30:-3:0',
                        help='SNR 范围，格式: "start:step:end"，如 "30:-3:0" 表示 [30, 27, ..., 3, 0]')
-    parser.add_argument('--num_batches', type=int, default=10,
+    parser.add_argument('--num_batches', type=int, default=100,
                        help='每个 SNR 点的评估批次数（总样本数 = num_batches × batch_size）')
-    parser.add_argument('--batch_size', type=int, default=100,
+    parser.add_argument('--batch_size', type=int, default=2048,
                        help='评估批大小（总样本数 = num_batches × batch_size）')
     parser.add_argument('--output', type=str, default='./evaluation_results',
                        help='结果保存目录')
