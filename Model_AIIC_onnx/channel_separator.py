@@ -37,6 +37,7 @@ class ResidualRefinementSeparatorReal(nn.Module):
         num_ports: Number of ports (default: 4)
         hidden_dim: Hidden dimension for MLPs (default: 64)
         num_stages: Number of refinement stages (default: 3)
+        num_sub_stages: Number of hidden layers in each MLP (default: 2, i.e., 2 hidden layers)
         share_weights_across_stages: If True, same port uses same MLP (default: False)
         activation_type: Complex activation ('split_relu', 'mod_relu', 'z_relu', 'cardioid')
         onnx_mode: If True, use ONNX Opset 9 compatible operations (default: False)
@@ -49,13 +50,15 @@ class ResidualRefinementSeparatorReal(nn.Module):
     Note: Energy normalization and restoration must be done externally.
     """
     def __init__(self, seq_len=12, num_ports=4, hidden_dim=64, num_stages=3,
-                 share_weights_across_stages=False, 
+                 num_sub_stages=2, share_weights_across_stages=False, 
                  activation_type='split_relu',
                  onnx_mode=False):
         super().__init__()
         self.seq_len = seq_len
         self.num_ports = num_ports
+        self.hidden_dim = hidden_dim
         self.num_stages = num_stages
+        self.num_sub_stages = num_sub_stages
         self.share_weights_across_stages = share_weights_across_stages
         self.activation_type = activation_type
         self.onnx_mode = onnx_mode  # ⭐ Flag to control ONNX compatibility
@@ -63,14 +66,14 @@ class ResidualRefinementSeparatorReal(nn.Module):
         if share_weights_across_stages:
             # Shared weights across stages
             self.port_mlps = nn.ModuleList([
-                ComplexMLPReal(seq_len, hidden_dim, activation_type)
+                ComplexMLPReal(seq_len, hidden_dim, num_sub_stages, activation_type)
                 for _ in range(num_ports)
             ])
         else:
             # Independent weights per stage
             self.port_mlps = nn.ModuleList([
                 nn.ModuleList([
-                    ComplexMLPReal(seq_len, hidden_dim, activation_type)
+                    ComplexMLPReal(seq_len, hidden_dim, num_sub_stages, activation_type)
                     for _ in range(num_stages)
                 ])
                 for _ in range(num_ports)

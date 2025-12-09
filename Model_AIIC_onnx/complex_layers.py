@@ -284,27 +284,35 @@ class ComplexMLPReal(nn.Module):
     """
     Complex MLP using only real tensors (ONNX compatible)
     
-    Architecture: Input -> FC1 -> Activation -> FC2 -> Activation -> FC3 -> Output
+    Architecture: Input -> FC1 -> Activation -> [FC_hidden -> Activation] x (num_sub_stages-1) -> FC_out -> Output
     All operations use real-valued block matrix
     
     Args:
         seq_len: Sequence length
         hidden_dim: Hidden dimension
+        num_sub_stages: Number of hidden layers (default: 2, i.e., 2 hidden layers)
         activation_type: Type of complex activation ('split_relu', 'mod_relu', 'z_relu', 'cardioid')
     """
-    def __init__(self, seq_len, hidden_dim, activation_type='split_relu'):
+    def __init__(self, seq_len, hidden_dim, num_sub_stages=2, activation_type='split_relu'):
         super().__init__()
         self.seq_len = seq_len
         self.hidden_dim = hidden_dim
+        self.num_sub_stages = num_sub_stages
         self.activation_type = activation_type
         
+        # Input layer
         self.fc1 = ComplexLinearReal(seq_len, hidden_dim)
         self.act1 = ComplexActivation(activation_type)
         
-        self.fc2 = ComplexLinearReal(hidden_dim, hidden_dim)
-        self.act2 = ComplexActivation(activation_type)
+        # Hidden layers (num_sub_stages - 1)
+        self.hidden_layers = nn.ModuleList()
+        self.hidden_activations = nn.ModuleList()
+        for _ in range(num_sub_stages - 1):
+            self.hidden_layers.append(ComplexLinearReal(hidden_dim, hidden_dim))
+            self.hidden_activations.append(ComplexActivation(activation_type))
         
-        self.fc3 = ComplexLinearReal(hidden_dim, seq_len)
+        # Output layer
+        self.fc_out = ComplexLinearReal(hidden_dim, seq_len)
     
     def forward(self, x_stacked):
         """
@@ -314,16 +322,17 @@ class ComplexMLPReal(nn.Module):
         Returns:
             (B, seq_len*2) real tensor [y_R; y_I]
         """
-        # Layer 1
+        # Input layer
         x = self.fc1(x_stacked)
         x = self.act1(x, self.hidden_dim)
         
-        # Layer 2
-        x = self.fc2(x)
-        x = self.act2(x, self.hidden_dim)
+        # Hidden layers
+        for fc, act in zip(self.hidden_layers, self.hidden_activations):
+            x = fc(x)
+            x = act(x, self.hidden_dim)
         
-        # Layer 3
-        x = self.fc3(x)
+        # Output layer
+        x = self.fc_out(x)
         
         return x
 

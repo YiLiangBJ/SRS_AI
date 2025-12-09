@@ -78,13 +78,16 @@ def load_model(model_dir):
     # 获取激活函数类型（从保存的 config 中）
     activation_type = config.get('activation_type', 'relu')
     onnx_mode = config.get('onnx_mode', False)
+    hidden_dim = config.get('hidden_dim', 64)  # ⭐ Get from config with default
+    num_sub_stages = config.get('num_sub_stages', 2)  # ⭐ Get from config with default
     
     # 新版本模型：normalize_energy 已外置，不再作为模型参数
     model = ResidualRefinementSeparatorReal(
         seq_len=config['seq_len'],
         num_ports=len(pos_values),
-        hidden_dim=config['hidden_dim'],
+        hidden_dim=hidden_dim,  # ⭐ Use loaded value
         num_stages=config['num_stages'],
+        num_sub_stages=num_sub_stages,  # ⭐ Use loaded value
         share_weights_across_stages=config['share_weights'],
         activation_type=activation_type,
         onnx_mode=onnx_mode
@@ -202,7 +205,7 @@ def main():
     parser = argparse.ArgumentParser(description='评估训练好的模型在不同 SNR 和 TDL 配置下的性能')
     
     parser.add_argument('--exp_dir', type=str, 
-                       default=r'C:\Users\YiLiang\Downloads\models_4ports_1206',
+                       default=r'C:\Users\YiLiang\Downloads\20251208_201629_batch10000_bs4096_ports6_snr0-30',
                        help='实验目录（包含训练好的模型）')
     parser.add_argument('--models', type=str, default=None,
                        help='要评估的模型列表（逗号分隔），如 "stages=2_share=False,stages=3_share=False"。'

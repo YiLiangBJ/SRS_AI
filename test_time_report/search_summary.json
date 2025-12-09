@@ -1,0 +1,36 @@
+{
+  "hyperparameters": {
+    "stages": [
+      2
+    ],
+    "hidden_dim": [
+      32
+    ],
+    "num_sub_stages": [
+      1
+    ],
+    "share_weights": [
+      false
+    ],
+    "snr_db": "20.0",
+    "tdl_configs": "A-30",
+    "batch_size": 32,
+    "max_batches": 5
+  },
+  "results": [
+    {
+      "experiment": "stages=2_hd=32_sub=1_share=False_loss=weighted_act=relu",
+      "num_stages": 2,
+      "hidden_dim": 32,
+      "num_sub_stages": 1,
+      "share_weights": false,
+      "loss_type": "weighted",
+      "activation_type": "relu",
+      "final_loss": 5.220222473144531,
+      "min_loss": 5.220222473144531,
+      "num_batches_trained": 5,
+      "duration_seconds": 2.5693936347961426,
+      "status": "success"
+    }
+  ]
+}
