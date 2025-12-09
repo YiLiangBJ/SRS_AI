@@ -79,7 +79,7 @@ def load_model(model_dir):
     activation_type = config.get('activation_type', 'relu')
     onnx_mode = config.get('onnx_mode', False)
     hidden_dim = config.get('hidden_dim', 64)  # ⭐ Get from config with default
-    num_sub_stages = config.get('num_sub_stages', 2)  # ⭐ Get from config with default
+    mlp_depth = config.get('mlp_depth', config.get('num_sub_stages', 3))  # ⭐ Support both old and new names
     
     # 新版本模型：normalize_energy 已外置，不再作为模型参数
     model = ResidualRefinementSeparatorReal(
@@ -87,7 +87,7 @@ def load_model(model_dir):
         num_ports=len(pos_values),
         hidden_dim=hidden_dim,  # ⭐ Use loaded value
         num_stages=config['num_stages'],
-        num_sub_stages=num_sub_stages,  # ⭐ Use loaded value
+        mlp_depth=mlp_depth,  # ⭐ Use loaded value (backward compatible)
         share_weights_across_stages=config['share_weights'],
         activation_type=activation_type,
         onnx_mode=onnx_mode

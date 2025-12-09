@@ -284,30 +284,41 @@ class ComplexMLPReal(nn.Module):
     """
     Complex MLP using only real tensors (ONNX compatible)
     
-    Architecture: Input -> FC1 -> Activation -> [FC_hidden -> Activation] x (num_sub_stages-1) -> FC_out -> Output
+    Architecture: Input -> Hidden1 -> ... -> HiddenN -> Output
     All operations use real-valued block matrix
     
     Args:
         seq_len: Sequence length
         hidden_dim: Hidden dimension
-        num_sub_stages: Number of hidden layers (default: 2, i.e., 2 hidden layers)
+        mlp_depth: Total number of layers (default: 3, i.e., Input + 1 Hidden + Output)
+                   - 2: Input -> Output (no hidden layer, minimal depth)
+                   - 3: Input -> Hidden -> Output (1 hidden layer, default)
+                   - 4: Input -> Hidden1 -> Hidden2 -> Output (2 hidden layers)
         activation_type: Type of complex activation ('split_relu', 'mod_relu', 'z_relu', 'cardioid')
     """
-    def __init__(self, seq_len, hidden_dim, num_sub_stages=2, activation_type='split_relu'):
+    def __init__(self, seq_len, hidden_dim, mlp_depth=3, activation_type='split_relu'):
         super().__init__()
+        
+        # Validate mlp_depth
+        if mlp_depth < 2:
+            raise ValueError(f"mlp_depth must be >= 2 (got {mlp_depth}). Minimum is 2 (Input -> Output).")
+        
         self.seq_len = seq_len
         self.hidden_dim = hidden_dim
-        self.num_sub_stages = num_sub_stages
+        self.mlp_depth = mlp_depth
         self.activation_type = activation_type
+        
+        # Number of hidden layers = depth - 2 (excluding input and output layers)
+        num_hidden = mlp_depth - 2
         
         # Input layer
         self.fc1 = ComplexLinearReal(seq_len, hidden_dim)
         self.act1 = ComplexActivation(activation_type)
         
-        # Hidden layers (num_sub_stages - 1)
+        # Hidden layers
         self.hidden_layers = nn.ModuleList()
         self.hidden_activations = nn.ModuleList()
-        for _ in range(num_sub_stages - 1):
+        for _ in range(num_hidden):
             self.hidden_layers.append(ComplexLinearReal(hidden_dim, hidden_dim))
             self.hidden_activations.append(ComplexActivation(activation_type))
         

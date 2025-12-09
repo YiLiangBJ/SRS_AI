@@ -502,7 +502,7 @@ def test_model(
     batch_size=32, 
     num_stages=3, 
     hidden_dim=64,  # ⭐ Hidden dimension for MLPs
-    num_sub_stages=2,  # ⭐ Number of hidden layers in each MLP
+    mlp_depth=3,  # ⭐ MLP depth (total layers: Input + Hidden + Output)
     snr_db=20.0,  # Can be scalar, list, or tuple (min, max)
     share_weights=False,
     pos_values=[0, 3, 6, 9],  # Port positions, e.g., [0, 3, 6, 9] or [0, 2, 4, 6, 8, 10]
@@ -625,7 +625,7 @@ def test_model(
         num_ports=num_ports,
         hidden_dim=hidden_dim,  # ⭐ Configurable hidden dimension
         num_stages=num_stages,
-        num_sub_stages=num_sub_stages,  # ⭐ Configurable number of hidden layers
+        mlp_depth=mlp_depth,  # ⭐ Configurable number of hidden layers
         share_weights_across_stages=share_weights,
         activation_type=activation_type,  # New parameter for ONNX version
         onnx_mode=onnx_mode  # ⭐ ONNX Opset 9 compatibility mode
@@ -1012,7 +1012,7 @@ def test_model(
                 'num_ports': num_ports,
                 'hidden_dim': hidden_dim,  # ⭐ Save actual hidden_dim
                 'num_stages': num_stages,
-                'num_sub_stages': num_sub_stages,  # ⭐ Save num_sub_stages
+                'mlp_depth': mlp_depth,  # ⭐ Save mlp_depth
                 'share_weights': share_weights,
                 'onnx_mode': getattr(model, 'onnx_mode', False),  # ⭐ Save onnx_mode as hyperparameter
                 'activation_type': activation_type  # Save activation type
@@ -1020,7 +1020,7 @@ def test_model(
             'hyperparameters': {
                 'num_stages': num_stages,
                 'hidden_dim': hidden_dim,  # ⭐ Save in hyperparameters too
-                'num_sub_stages': num_sub_stages,  # ⭐ Save in hyperparameters too
+                'mlp_depth': mlp_depth,  # ⭐ Save in hyperparameters too
                 'share_weights': share_weights,
                 'num_ports': num_ports,
                 'pos_values': pos_values,
@@ -1135,7 +1135,7 @@ def test_model(
             f.write(f"| Number of Ports | {num_ports} |\n")
             f.write(f"| Port Positions | {pos_values} |\n")
             f.write(f"| Hidden Dimension | {hidden_dim} |\n")  # ⭐ Use actual value
-            f.write(f"| Number of Sub-stages | {num_sub_stages} |\n")  # ⭐ Add new row
+            f.write(f"| Number of Sub-stages | {mlp_depth} |\n")  # ⭐ Add new row
             f.write(f"| Number of Stages | {num_stages} |\n")
             f.write(f"| Share Weights | {share_weights} |\n")
             f.write(f"| Normalize Energy | True |\n")
@@ -1385,7 +1385,7 @@ if __name__ == "__main__":
                        help='Number of refinement stages. Single: "3", Multiple: "2,3,4"')
     parser.add_argument('--hidden_dim', type=str, default='64',
                        help='⭐ Hidden dimension for MLPs. Single: "64", Multiple: "32,64,128"')
-    parser.add_argument('--num_sub_stages', type=str, default='2',
+    parser.add_argument('--mlp_depth', type=str, default='2',
                        help='⭐ Number of hidden layers in each MLP. Single: "2", Multiple: "1,2,3,4"')
     parser.add_argument('--ports', type=str, default='0,3,6,9',
                        help='Port positions (comma-separated). E.g., "0,3,6,9" (4 ports) or "0,2,4,6,8,10" (6 ports). Default: "0,3,6,9"')
@@ -1448,7 +1448,7 @@ if __name__ == "__main__":
     # Parse hyperparameter lists
     stages_list = [int(x.strip()) for x in args.stages.split(',')]
     hidden_dim_list = [int(x.strip()) for x in args.hidden_dim.split(',')]  # ⭐ New
-    num_sub_stages_list = [int(x.strip()) for x in args.num_sub_stages.split(',')]  # ⭐ New
+    mlp_depth_list = [int(x.strip()) for x in args.mlp_depth.split(',')]  # ⭐ New
     share_weights_list = [x.strip().lower() == 'true' for x in args.share_weights.split(',')]
     loss_type_list = [x.strip() for x in args.loss_type.split(',')]
     activation_type_list = [x.strip() for x in args.activation_type.split(',')]
@@ -1473,7 +1473,7 @@ if __name__ == "__main__":
     # Generate all hyperparameter combinations
     from itertools import product
     hyperparameter_combinations = list(product(
-        stages_list, hidden_dim_list, num_sub_stages_list,  # ⭐ Added new hyperparameters
+        stages_list, hidden_dim_list, mlp_depth_list,  # ⭐ Added new hyperparameters
         share_weights_list, loss_type_list, activation_type_list
     ))
     
@@ -1502,7 +1502,7 @@ if __name__ == "__main__":
     print(f"Total combinations: {len(hyperparameter_combinations)}")
     print(f"  stages: {stages_list}")
     print(f"  hidden_dim: {hidden_dim_list}")  # ⭐ New
-    print(f"  num_sub_stages: {num_sub_stages_list}")  # ⭐ New
+    print(f"  mlp_depth: {mlp_depth_list}")  # ⭐ New
     print(f"  share_weights: {share_weights_list}")
     print(f"  loss_type: {loss_type_list}")
     print(f"  activation_type: {activation_type_list}")
@@ -1537,21 +1537,21 @@ if __name__ == "__main__":
     
     # Initialize experiments info for progress tracking
     experiments_info = []
-    for num_stages, hidden_dim, num_sub_stages, share_weights, loss_type, activation_type in hyperparameter_combinations:
-        exp_name = f"stages={num_stages}_hd={hidden_dim}_sub={num_sub_stages}_share={share_weights}_loss={loss_type}_act={activation_type}"
+    for num_stages, hidden_dim, mlp_depth, share_weights, loss_type, activation_type in hyperparameter_combinations:
+        exp_name = f"stages={num_stages}_hd={hidden_dim}_sub={mlp_depth}_share={share_weights}_loss={loss_type}_act={activation_type}"
         experiments_info.append({
             'name': exp_name,
             'status': 'pending',
             'duration': 0,
             'num_stages': num_stages,
             'hidden_dim': hidden_dim,
-            'num_sub_stages': num_sub_stages,
+            'mlp_depth': mlp_depth,
             'share_weights': share_weights,
             'loss_type': loss_type,
             'activation_type': activation_type
         })
     
-    for idx, (num_stages, hidden_dim, num_sub_stages, share_weights, loss_type, activation_type) in enumerate(hyperparameter_combinations):
+    for idx, (num_stages, hidden_dim, mlp_depth, share_weights, loss_type, activation_type) in enumerate(hyperparameter_combinations):
         exp_name = experiments_info[idx]['name']
         experiments_info[idx]['status'] = 'in_progress'
         
@@ -1579,7 +1579,7 @@ if __name__ == "__main__":
                 batch_size=args.batch_size,
                 num_stages=num_stages,
                 hidden_dim=hidden_dim,  # ⭐ New parameter
-                num_sub_stages=num_sub_stages,  # ⭐ New parameter
+                mlp_depth=mlp_depth,  # ⭐ New parameter
                 snr_db=snr_db,
                 share_weights=share_weights,
                 pos_values=pos_values,
@@ -1616,7 +1616,7 @@ if __name__ == "__main__":
                 'experiment': exp_name,
                 'num_stages': num_stages,
                 'hidden_dim': hidden_dim,  # ⭐ Save new parameter
-                'num_sub_stages': num_sub_stages,  # ⭐ Save new parameter
+                'mlp_depth': mlp_depth,  # ⭐ Save new parameter
                 'share_weights': share_weights,
                 'loss_type': loss_type,
                 'activation_type': activation_type,
@@ -1643,7 +1643,7 @@ if __name__ == "__main__":
                 'experiment': exp_name,
                 'num_stages': num_stages,
                 'hidden_dim': hidden_dim,  # ⭐ Save new parameter
-                'num_sub_stages': num_sub_stages,  # ⭐ Save new parameter
+                'mlp_depth': mlp_depth,  # ⭐ Save new parameter
                 'share_weights': share_weights,
                 'loss_type': loss_type,
                 'status': 'failed',
@@ -1720,7 +1720,7 @@ if __name__ == "__main__":
                 'hyperparameters': {
                     'stages': stages_list,
                     'hidden_dim': hidden_dim_list,  # ⭐ Add new hyperparameter
-                    'num_sub_stages': num_sub_stages_list,  # ⭐ Add new hyperparameter
+                    'mlp_depth': mlp_depth_list,  # ⭐ Add new hyperparameter
                     'share_weights': share_weights_list,
                     'snr_db': str(snr_db),
                     'tdl_configs': tdl_configs,
