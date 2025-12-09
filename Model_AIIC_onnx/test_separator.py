@@ -78,9 +78,9 @@ torch.set_num_interop_threads(1)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from Model_AIIC_onnx.channel_separator import ResidualRefinementSeparatorReal
+    from Model_AIIC_onnx.channel_separator import ResidualRefinementSeparator, ResidualRefinementSeparatorReal
 except ImportError:
-    from channel_separator import ResidualRefinementSeparatorReal
+    from channel_separator import ResidualRefinementSeparator, ResidualRefinementSeparatorReal
 from data_generator import BaseSRSDataGenerator
 from user_config import SRSConfig, create_example_config
 from system_config import create_default_system_config
@@ -503,13 +503,14 @@ def test_model(
     num_stages=3, 
     hidden_dim=64,  # ⭐ Hidden dimension for MLPs
     mlp_depth=3,  # ⭐ MLP depth (total layers: Input + Hidden + Output)
+    model_type=1,  # ⭐ Model type: 1 (Dual-Path MLP) or 2 (ComplexLinear)
     snr_db=20.0,  # Can be scalar, list, or tuple (min, max)
     share_weights=False,
     pos_values=[0, 3, 6, 9],  # Port positions, e.g., [0, 3, 6, 9] or [0, 2, 4, 6, 8, 10]
     tdl_configs='A-30',  # Can be string or list of strings
     loss_type='nmse',  # Loss function type: 'nmse', 'normalized', 'log', 'weighted'
     activation_type='split_relu',  # Complex activation: 'split_relu', 'mod_relu', 'z_relu', 'cardioid'
-    onnx_mode=False,  # ⭐ ONNX Opset 9 compatible mode (~20% slower but MATLAB compatible)
+    onnx_mode=False,  # ⭐ ONNX Opset 9 compatible mode (~20% slower but MATLAB compatible, only for type 2)
     early_stop_loss=None,  # Stop if loss below this value
     validation_interval=100,  # Validate every N batches
     patience=5,  # Number of validation checks that must pass early stop threshold
@@ -619,17 +620,34 @@ def test_model(
             print(f"    → Better for learning specific SNR behaviors")
             print(f"    → Each gradient update targets a specific SNR point")
     
-    # Create model (Real-valued ONNX-compatible version)
-    model = ResidualRefinementSeparatorReal(
-        seq_len=seq_len,
-        num_ports=num_ports,
-        hidden_dim=hidden_dim,  # ⭐ Configurable hidden dimension
-        num_stages=num_stages,
-        mlp_depth=mlp_depth,  # ⭐ Configurable number of hidden layers
-        share_weights_across_stages=share_weights,
-        activation_type=activation_type,  # New parameter for ONNX version
-        onnx_mode=onnx_mode  # ⭐ ONNX Opset 9 compatibility mode
-    )
+    # Create model based on model_type
+    if model_type == 1:
+        # Type 1: Dual-Path Real MLP (split real/imag)
+        model = ResidualRefinementSeparator(
+            seq_len=seq_len,
+            num_ports=num_ports,
+            hidden_dim=hidden_dim,
+            num_stages=num_stages,
+            mlp_depth=mlp_depth,
+            share_weights_across_stages=share_weights
+        )
+        print(f"  Model: Type 1 (Dual-Path Real MLP)")
+    elif model_type == 2:
+        # Type 2: ComplexLinear (shared weights)
+        model = ResidualRefinementSeparatorReal(
+            seq_len=seq_len,
+            num_ports=num_ports,
+            hidden_dim=hidden_dim,
+            num_stages=num_stages,
+            mlp_depth=mlp_depth,
+            share_weights_across_stages=share_weights,
+            activation_type=activation_type,
+            onnx_mode=onnx_mode
+        )
+        print(f"  Model: Type 2 (ComplexLinear, activation={activation_type})")
+    else:
+        raise ValueError(f"Invalid model_type: {model_type}. Must be 1 or 2.")
+    
     # ⭐ Move model to device (GPU or CPU)
     model = model.to(device)
     # Note: Energy normalization is now handled externally (outside the model)
@@ -1013,6 +1031,7 @@ def test_model(
                 'hidden_dim': hidden_dim,  # ⭐ Save actual hidden_dim
                 'num_stages': num_stages,
                 'mlp_depth': mlp_depth,  # ⭐ Save mlp_depth
+                'model_type': model_type,  # ⭐ Save model type
                 'share_weights': share_weights,
                 'onnx_mode': getattr(model, 'onnx_mode', False),  # ⭐ Save onnx_mode as hyperparameter
                 'activation_type': activation_type  # Save activation type
@@ -1021,6 +1040,7 @@ def test_model(
                 'num_stages': num_stages,
                 'hidden_dim': hidden_dim,  # ⭐ Save in hyperparameters too
                 'mlp_depth': mlp_depth,  # ⭐ Save in hyperparameters too
+                'model_type': model_type,  # ⭐ Save model type
                 'share_weights': share_weights,
                 'num_ports': num_ports,
                 'pos_values': pos_values,
@@ -1387,6 +1407,8 @@ if __name__ == "__main__":
                        help='⭐ Hidden dimension for MLPs. Single: "64", Multiple: "32,64,128"')
     parser.add_argument('--mlp_depth', type=str, default='3',
                        help='⭐ MLP depth (total layers). Single: "3" (1 hidden), Multiple: "2,3,4,5". Min: 2 (no hidden)')
+    parser.add_argument('--model_type', type=str, default='1',
+                       help='⭐ Model type: "1" (Dual-Path MLP, default), "2" (ComplexLinear). Single or Multiple: "1,2"')
     parser.add_argument('--ports', type=str, default='0,3,6,9',
                        help='Port positions (comma-separated). E.g., "0,3,6,9" (4 ports) or "0,2,4,6,8,10" (6 ports). Default: "0,3,6,9"')
     parser.add_argument('--snr', type=str, default='20.0',
@@ -1449,6 +1471,7 @@ if __name__ == "__main__":
     stages_list = [int(x.strip()) for x in args.stages.split(',')]
     hidden_dim_list = [int(x.strip()) for x in args.hidden_dim.split(',')]  # ⭐ New
     mlp_depth_list = [int(x.strip()) for x in args.mlp_depth.split(',')]  # ⭐ New
+    model_type_list = [int(x.strip()) for x in args.model_type.split(',')]  # ⭐ New
     share_weights_list = [x.strip().lower() == 'true' for x in args.share_weights.split(',')]
     loss_type_list = [x.strip() for x in args.loss_type.split(',')]
     activation_type_list = [x.strip() for x in args.activation_type.split(',')]
@@ -1473,7 +1496,7 @@ if __name__ == "__main__":
     # Generate all hyperparameter combinations
     from itertools import product
     hyperparameter_combinations = list(product(
-        stages_list, hidden_dim_list, mlp_depth_list,  # ⭐ Added new hyperparameters
+        stages_list, hidden_dim_list, mlp_depth_list, model_type_list,  # ⭐ Added model_type
         share_weights_list, loss_type_list, activation_type_list
     ))
     
@@ -1503,6 +1526,7 @@ if __name__ == "__main__":
     print(f"  stages: {stages_list}")
     print(f"  hidden_dim: {hidden_dim_list}")  # ⭐ New
     print(f"  mlp_depth: {mlp_depth_list}")  # ⭐ New
+    print(f"  model_type: {model_type_list}")  # ⭐ New
     print(f"  share_weights: {share_weights_list}")
     print(f"  loss_type: {loss_type_list}")
     print(f"  activation_type: {activation_type_list}")
@@ -1537,8 +1561,8 @@ if __name__ == "__main__":
     
     # Initialize experiments info for progress tracking
     experiments_info = []
-    for num_stages, hidden_dim, mlp_depth, share_weights, loss_type, activation_type in hyperparameter_combinations:
-        exp_name = f"stages={num_stages}_hd={hidden_dim}_depth={mlp_depth}_share={share_weights}_loss={loss_type}_act={activation_type}"
+    for num_stages, hidden_dim, mlp_depth, model_type, share_weights, loss_type, activation_type in hyperparameter_combinations:
+        exp_name = f"stages={num_stages}_hd={hidden_dim}_depth={mlp_depth}_type={model_type}_share={share_weights}_loss={loss_type}_act={activation_type}"
         experiments_info.append({
             'name': exp_name,
             'status': 'pending',
@@ -1546,12 +1570,13 @@ if __name__ == "__main__":
             'num_stages': num_stages,
             'hidden_dim': hidden_dim,
             'mlp_depth': mlp_depth,
+            'model_type': model_type,
             'share_weights': share_weights,
             'loss_type': loss_type,
             'activation_type': activation_type
         })
     
-    for idx, (num_stages, hidden_dim, mlp_depth, share_weights, loss_type, activation_type) in enumerate(hyperparameter_combinations):
+    for idx, (num_stages, hidden_dim, mlp_depth, model_type, share_weights, loss_type, activation_type) in enumerate(hyperparameter_combinations):
         exp_name = experiments_info[idx]['name']
         experiments_info[idx]['status'] = 'in_progress'
         
@@ -1580,6 +1605,7 @@ if __name__ == "__main__":
                 num_stages=num_stages,
                 hidden_dim=hidden_dim,  # ⭐ New parameter
                 mlp_depth=mlp_depth,  # ⭐ New parameter
+                model_type=model_type,  # ⭐ Model type parameter
                 snr_db=snr_db,
                 share_weights=share_weights,
                 pos_values=pos_values,
@@ -1617,6 +1643,7 @@ if __name__ == "__main__":
                 'num_stages': num_stages,
                 'hidden_dim': hidden_dim,  # ⭐ Save new parameter
                 'mlp_depth': mlp_depth,  # ⭐ Save new parameter
+                'model_type': model_type,  # ⭐ Save model type
                 'share_weights': share_weights,
                 'loss_type': loss_type,
                 'activation_type': activation_type,
@@ -1644,6 +1671,7 @@ if __name__ == "__main__":
                 'num_stages': num_stages,
                 'hidden_dim': hidden_dim,  # ⭐ Save new parameter
                 'mlp_depth': mlp_depth,  # ⭐ Save new parameter
+                'model_type': model_type,  # ⭐ Save model type
                 'share_weights': share_weights,
                 'loss_type': loss_type,
                 'status': 'failed',
@@ -1721,6 +1749,7 @@ if __name__ == "__main__":
                     'stages': stages_list,
                     'hidden_dim': hidden_dim_list,  # ⭐ Add new hyperparameter
                     'mlp_depth': mlp_depth_list,  # ⭐ Add new hyperparameter
+                    'model_type': model_type_list,  # ⭐ Add model type
                     'share_weights': share_weights_list,
                     'snr_db': str(snr_db),
                     'tdl_configs': tdl_configs,

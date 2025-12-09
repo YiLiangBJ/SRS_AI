@@ -1,0 +1,52 @@
+{
+  "hyperparameters": {
+    "stages": [
+      2
+    ],
+    "hidden_dim": [
+      32
+    ],
+    "mlp_depth": [
+      3
+    ],
+    "model_type": [
+      1,
+      2
+    ],
+    "share_weights": [
+      false
+    ],
+    "snr_db": "20.0",
+    "tdl_configs": "A-30",
+    "batch_size": 32,
+    "max_batches": 3
+  },
+  "results": [
+    {
+      "experiment": "stages=2_hd=32_depth=3_type=1_share=False_loss=weighted_act=relu",
+      "num_stages": 2,
+      "hidden_dim": 32,
+      "mlp_depth": 3,
+      "model_type": 1,
+      "share_weights": false,
+      "loss_type": "weighted",
+      "status": "failed",
+      "error": "imag is not implemented for tensors with non-complex dtypes."
+    },
+    {
+      "experiment": "stages=2_hd=32_depth=3_type=2_share=False_loss=weighted_act=relu",
+      "num_stages": 2,
+      "hidden_dim": 32,
+      "mlp_depth": 3,
+      "model_type": 2,
+      "share_weights": false,
+      "loss_type": "weighted",
+      "activation_type": "relu",
+      "final_loss": 5.029989719390869,
+      "min_loss": 5.029989719390869,
+      "num_batches_trained": 3,
+      "duration_seconds": 0.7943673133850098,
+      "status": "success"
+    }
+  ]
+}

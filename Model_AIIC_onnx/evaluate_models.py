@@ -31,10 +31,10 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from Model_AIIC_onnx.channel_separator import ResidualRefinementSeparatorReal
+    from Model_AIIC_onnx.channel_separator import ResidualRefinementSeparator, ResidualRefinementSeparatorReal
     from Model_AIIC_onnx.test_separator import generate_training_data
 except ImportError:
-    from channel_separator import ResidualRefinementSeparatorReal
+    from channel_separator import ResidualRefinementSeparator, ResidualRefinementSeparatorReal
     from test_separator import generate_training_data
 
 
@@ -75,23 +75,38 @@ def load_model(model_dir):
             pos_values = list(range(0, 12, 12 // num_ports))[:num_ports]
     
     # 创建模型（num_ports 从 pos_values 推导）
-    # 获取激活函数类型（从保存的 config 中）
+    # 获取配置参数
     activation_type = config.get('activation_type', 'relu')
     onnx_mode = config.get('onnx_mode', False)
     hidden_dim = config.get('hidden_dim', 64)  # ⭐ Get from config with default
     mlp_depth = config.get('mlp_depth', config.get('num_sub_stages', 3))  # ⭐ Support both old and new names
+    model_type = config.get('model_type', 2)  # ⭐ Default to Type 2 for backward compatibility
     
-    # 新版本模型：normalize_energy 已外置，不再作为模型参数
-    model = ResidualRefinementSeparatorReal(
-        seq_len=config['seq_len'],
-        num_ports=len(pos_values),
-        hidden_dim=hidden_dim,  # ⭐ Use loaded value
-        num_stages=config['num_stages'],
-        mlp_depth=mlp_depth,  # ⭐ Use loaded value (backward compatible)
-        share_weights_across_stages=config['share_weights'],
-        activation_type=activation_type,
-        onnx_mode=onnx_mode
-    )
+    # 根据 model_type 创建对应的模型
+    if model_type == 1:
+        # Type 1: Dual-Path Real MLP
+        model = ResidualRefinementSeparator(
+            seq_len=config['seq_len'],
+            num_ports=len(pos_values),
+            hidden_dim=hidden_dim,
+            num_stages=config['num_stages'],
+            mlp_depth=mlp_depth,
+            share_weights_across_stages=config['share_weights']
+        )
+    elif model_type == 2:
+        # Type 2: ComplexLinear
+        model = ResidualRefinementSeparatorReal(
+            seq_len=config['seq_len'],
+            num_ports=len(pos_values),
+            hidden_dim=hidden_dim,
+            num_stages=config['num_stages'],
+            mlp_depth=mlp_depth,
+            share_weights_across_stages=config['share_weights'],
+            activation_type=activation_type,
+            onnx_mode=onnx_mode
+        )
+    else:
+        raise ValueError(f"Unknown model_type: {model_type}. Expected 1 or 2.")
     
     # 加载权重
     model.load_state_dict(checkpoint['model_state_dict'])
