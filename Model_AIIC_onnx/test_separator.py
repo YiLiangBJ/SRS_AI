@@ -1135,7 +1135,7 @@ def test_model(
             f.write(f"| Number of Ports | {num_ports} |\n")
             f.write(f"| Port Positions | {pos_values} |\n")
             f.write(f"| Hidden Dimension | {hidden_dim} |\n")  # ⭐ Use actual value
-            f.write(f"| Number of Sub-stages | {mlp_depth} |\n")  # ⭐ Add new row
+            f.write(f"| MLP Depth | {mlp_depth} |\n")  # ⭐ Total layers (Input + Hidden + Output)
             f.write(f"| Number of Stages | {num_stages} |\n")
             f.write(f"| Share Weights | {share_weights} |\n")
             f.write(f"| Normalize Energy | True |\n")
@@ -1385,8 +1385,8 @@ if __name__ == "__main__":
                        help='Number of refinement stages. Single: "3", Multiple: "2,3,4"')
     parser.add_argument('--hidden_dim', type=str, default='64',
                        help='⭐ Hidden dimension for MLPs. Single: "64", Multiple: "32,64,128"')
-    parser.add_argument('--mlp_depth', type=str, default='2',
-                       help='⭐ Number of hidden layers in each MLP. Single: "2", Multiple: "1,2,3,4"')
+    parser.add_argument('--mlp_depth', type=str, default='3',
+                       help='⭐ MLP depth (total layers). Single: "3" (1 hidden), Multiple: "2,3,4,5". Min: 2 (no hidden)')
     parser.add_argument('--ports', type=str, default='0,3,6,9',
                        help='Port positions (comma-separated). E.g., "0,3,6,9" (4 ports) or "0,2,4,6,8,10" (6 ports). Default: "0,3,6,9"')
     parser.add_argument('--snr', type=str, default='20.0',
@@ -1538,7 +1538,7 @@ if __name__ == "__main__":
     # Initialize experiments info for progress tracking
     experiments_info = []
     for num_stages, hidden_dim, mlp_depth, share_weights, loss_type, activation_type in hyperparameter_combinations:
-        exp_name = f"stages={num_stages}_hd={hidden_dim}_sub={mlp_depth}_share={share_weights}_loss={loss_type}_act={activation_type}"
+        exp_name = f"stages={num_stages}_hd={hidden_dim}_depth={mlp_depth}_share={share_weights}_loss={loss_type}_act={activation_type}"
         experiments_info.append({
             'name': exp_name,
             'status': 'pending',
