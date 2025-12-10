@@ -16,16 +16,21 @@ import argparse
 import yaml
 from pathlib import Path
 import time
+import numpy as np
 
 # Import refactored modules
 from models import create_model, list_models
 from training import Trainer
-from utils import get_device, print_device_info, SNRSampler
+from utils import (
+    get_device, print_device_info,
+    parse_model_config, generate_config_name, print_search_space_summary,
+    SNRConfig, parse_snr_config
+)
 
 
 def load_config(config_path: str) -> dict:
     """Load YAML configuration file"""
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 
@@ -90,18 +95,10 @@ def main():
     print(f"  Available models: {list_models()}")
     print()
     
-    # Setup SNR sampler if needed
-    snr_sampler = None
-    if training_config.get('snr_sampling') == 'stratified':
-        snr_range = tuple(training_config['snr_range'])
-        num_bins = training_config.get('snr_num_bins', 10)
-        snr_sampler = SNRSampler(
-            snr_min=snr_range[0],
-            snr_max=snr_range[1],
-            strategy='stratified',
-            num_bins=num_bins
-        )
-        print(f"Using stratified SNR sampling: {num_bins} bins over {snr_range}")
+    # Parse SNR configuration
+    snr_config_dict = training_config.get('snr_config', {'type': 'range', 'min': 0, 'max': 30})
+    snr_config = parse_snr_config(snr_config_dict)
+    print(f"SNR Configuration: {snr_config}")
     
     # Train each model
     results = []
@@ -120,104 +117,151 @@ def main():
         # Merge common config
         full_model_config = {**common_config, **model_config}
         
-        # Create model
-        model_type = full_model_config.pop('model_type')
-        print(f"Creating model: {model_type}")
-        print(f"  Config: {full_model_config}")
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # Parse configuration (supports search space)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        parsed_configs = parse_model_config(full_model_config)
         
-        model = create_model(model_type, full_model_config)
-        print(f"  Parameters: {sum(p.numel() for p in model.parameters()):,}")
+        print_search_space_summary(parsed_configs, model_config_name)
         print()
         
-        # Create trainer
-        trainer = Trainer(
-            model=model,
-            learning_rate=training_config.get('learning_rate', 0.01),
-            loss_type=training_config.get('loss_type', 'nmse'),
-            device=device
-        )
-        
-        # Train
-        start_time = time.time()
-        
-        losses = trainer.train(
-            num_batches=training_config.get('num_batches', 10000),
-            batch_size=training_config.get('batch_size', 2048),
-            snr_db=tuple(training_config['snr_range']),
-            pos_values=training_config.get('pos_values', [0, 3, 6, 9]),
-            tdl_config=training_config.get('tdl_config', 'A-30'),
-            snr_sampler=snr_sampler,
-            snr_per_sample=training_config.get('snr_per_sample', False),
-            seq_len=full_model_config.get('seq_len', 12),
-            print_interval=training_config.get('print_interval', 100),
-            val_interval=training_config.get('validation_interval'),
-            early_stop_loss=training_config.get('early_stop_loss'),
-            patience=training_config.get('patience', 3)
-        )
-        
-        training_duration = time.time() - start_time
-        
-        # Evaluate
-        print("\n" + "─"*80)
-        print("Final Evaluation")
-        print("─"*80)
-        
-        eval_results = trainer.evaluate(
-            batch_size=200,
-            snr_db=sum(training_config['snr_range']) / 2,  # Mid-point SNR
-            pos_values=training_config.get('pos_values', [0, 3, 6, 9]),
-            tdl_config=training_config.get('tdl_config', 'A-30')
-        )
-        
-        print(f"  NMSE: {eval_results['nmse']:.6f} ({eval_results['nmse_db']:.2f} dB)")
-        print(f"  Per-port NMSE (dB): {eval_results['per_port_nmse_db']}")
-        
-        # Save model
-        save_dir = Path(args.save_dir) / model_config_name
-        save_dir.mkdir(parents=True, exist_ok=True)
-        
-        save_path = save_dir / 'model.pth'
-        trainer.save_checkpoint(
-            save_path,
-            additional_info={
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # Train each configuration in the search space
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        for config_idx, config in enumerate(parsed_configs, 1):
+            print(f"\n{'─'*80}")
+            if len(parsed_configs) > 1:
+                print(f"Configuration {config_idx}/{len(parsed_configs)}")
+            print(f"{'─'*80}\n")
+            
+            # Generate descriptive name for this configuration
+            config_instance_name = generate_config_name(config, model_config_name)
+            print(f"Configuration: {config_instance_name}")
+            
+            # Create model
+            model_type = config['model_type']
+            model_params = {k: v for k, v in config.items() if k != 'model_type'}
+            
+            print(f"  Model type: {model_type}")
+            print(f"  Parameters: {model_params}")
+            
+            model = create_model(model_type, config)
+            num_params = sum(p.numel() for p in model.parameters())
+            print(f"  Total parameters: {num_params:,}")
+            print()
+            
+            # Create trainer
+            trainer = Trainer(
+                model=model,
+                learning_rate=training_config.get('learning_rate', 0.01),
+                loss_type=training_config.get('loss_type', 'nmse'),
+                device=device
+            )
+            
+            # Train
+            start_time = time.time()
+            
+            losses = trainer.train(
+                num_batches=training_config.get('num_batches', 10000),
+                batch_size=training_config.get('batch_size', 2048),
+                snr_config=snr_config,
+                pos_values=config.get('pos_values', [0, 3, 6, 9]),  # From model_config
+                tdl_config=training_config.get('tdl_config', 'A-30'),
+                seq_len=config.get('seq_len', 12),
+                print_interval=training_config.get('print_interval', 100),
+                val_interval=training_config.get('validation_interval'),
+                early_stop_loss=training_config.get('early_stop_loss'),
+                patience=training_config.get('patience', 3)
+            )
+            
+            training_duration = time.time() - start_time
+            
+            # Evaluate
+            print("\n" + "─"*80)
+            print("Final Evaluation")
+            print("─"*80)
+            
+            # Evaluate at mid-point SNR
+            if snr_config.config_type == 'range':
+                eval_snr = (snr_config.min_snr + snr_config.max_snr) / 2
+            else:
+                eval_snr = float(np.mean(snr_config.snr_values))
+            
+            eval_results = trainer.evaluate(
+                batch_size=200,
+                snr_db=eval_snr,
+                pos_values=config.get('pos_values', [0, 3, 6, 9]),
+                tdl_config=training_config.get('tdl_config', 'A-30')
+            )
+            
+            print(f"  NMSE: {eval_results['nmse']:.6f} ({eval_results['nmse_db']:.2f} dB)")
+            print(f"  Per-port NMSE (dB): {eval_results['per_port_nmse_db']}")
+            
+            # Save model with hierarchical naming
+            # Structure: {save_dir}/{experiment_name}/{model_config}/{training_config}/
+            experiment_name = f"{model_config_name}_{args.training_config}"
+            save_dir = Path(args.save_dir) / experiment_name / config_instance_name
+            save_dir.mkdir(parents=True, exist_ok=True)
+            
+            save_path = save_dir / 'model.pth'
+            trainer.save_checkpoint(
+                save_path,
+                additional_info={
+                    'model_config_name': model_config_name,
+                    'config_instance_name': config_instance_name,
+                    'training_config_name': args.training_config,
+                    'model_config': config,
+                    'training_config': training_config,
+                    'training_duration': training_duration,
+                    'eval_results': eval_results
+                }
+            )
+            
+            # Save config for reproducibility
+            config_save_path = save_dir / 'config.yaml'
+            with open(config_save_path, 'w', encoding='utf-8') as f:
+                yaml.dump({
+                    'model_config': config,
+                    'training_config': training_config
+                }, f, default_flow_style=False, allow_unicode=True)
+            
+            print(f"✓ Model saved to: {save_dir}")
+            
+            results.append({
                 'model_config_name': model_config_name,
-                'training_config_name': args.training_config,
-                'model_config': full_model_config,
-                'training_config': training_config,
+                'config_instance_name': config_instance_name,
+                'final_loss': losses[-1],
+                'min_loss': min(losses),
+                'eval_nmse_db': eval_results['nmse_db'],
                 'training_duration': training_duration,
-                'eval_results': eval_results
-            }
-        )
-        
-        # Save config for reproducibility
-        config_save_path = save_dir / 'config.yaml'
-        with open(config_save_path, 'w') as f:
-            yaml.dump({
-                'model_config': full_model_config,
-                'training_config': training_config
-            }, f, default_flow_style=False)
-        
-        print(f"✓ Model saved to: {save_dir}")
-        
-        results.append({
-            'model_config_name': model_config_name,
-            'final_loss': losses[-1],
-            'min_loss': min(losses),
-            'eval_nmse_db': eval_results['nmse_db'],
-            'training_duration': training_duration
-        })
+                'num_params': num_params
+            })
     
     # Summary
     print(f"\n{'='*80}")
     print("Training Summary")
     print(f"{'='*80}\n")
     
-    for result in results:
-        print(f"  {result['model_config_name']}:")
-        print(f"    Final loss: {result['final_loss']:.6f}")
-        print(f"    Min loss: {result['min_loss']:.6f}")
-        print(f"    Eval NMSE: {result['eval_nmse_db']:.2f} dB")
-        print(f"    Duration: {result['training_duration']:.1f}s")
+    print(f"Total configurations trained: {len(results)}")
+    print()
+    
+    # Sort by evaluation NMSE (best first)
+    results_sorted = sorted(results, key=lambda x: x['eval_nmse_db'])
+    
+    for i, result in enumerate(results_sorted, 1):
+        print(f"{i}. {result['config_instance_name']}:")
+        print(f"   Final loss: {result['final_loss']:.6f}")
+        print(f"   Min loss: {result['min_loss']:.6f}")
+        print(f"   Eval NMSE: {result['eval_nmse_db']:.2f} dB")
+        print(f"   Parameters: {result['num_params']:,}")
+        print(f"   Duration: {result['training_duration']:.1f}s")
+        print()
+    
+    # Highlight best configuration
+    if results_sorted:
+        best = results_sorted[0]
+        print(f"🏆 Best configuration: {best['config_instance_name']}")
+        print(f"   NMSE: {best['eval_nmse_db']:.2f} dB")
         print()
     
     print("✓ All training completed!")

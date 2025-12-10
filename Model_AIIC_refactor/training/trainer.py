@@ -87,11 +87,9 @@ class Trainer:
         self,
         num_batches: int,
         batch_size: int,
-        snr_db: Union[float, List[float], Tuple[float, float]],
+        snr_config,  # SNRConfig object or legacy format
         pos_values: List[int] = None,
         tdl_config: Union[str, List[str]] = 'A-30',
-        snr_sampler = None,
-        snr_per_sample: bool = False,
         seq_len: int = None,
         print_interval: int = 100,
         val_interval: int = None,
@@ -104,11 +102,9 @@ class Trainer:
         Args:
             num_batches: Number of training batches
             batch_size: Batch size
-            snr_db: SNR configuration (scalar, list, or tuple)
+            snr_config: SNRConfig object (or legacy snr_db for backward compat)
             pos_values: Port positions (default: [0, 3, 6, 9])
             tdl_config: TDL configuration (default: 'A-30')
-            snr_sampler: Optional SNRSampler for smart sampling
-            snr_per_sample: Per-sample vs per-batch SNR
             seq_len: Sequence length (default: from model)
             print_interval: Print progress every N batches
             val_interval: Validate every N batches (optional)
@@ -118,6 +114,17 @@ class Trainer:
         Returns:
             losses: List of training losses
         """
+        # Handle legacy snr_db format
+        try:
+            from ..utils import SNRConfig
+            if not isinstance(snr_config, SNRConfig):
+                # Legacy format: convert to SNRConfig
+                if isinstance(snr_config, tuple):
+                    snr_config = SNRConfig({'type': 'range', 'min': snr_config[0], 'max': snr_config[1]})
+                elif isinstance(snr_config, (int, float)):
+                    snr_config = SNRConfig({'type': 'discrete', 'values': [snr_config]})
+        except:
+            pass
         if pos_values is None:
             pos_values = [0, 3, 6, 9]
         
@@ -138,15 +145,17 @@ class Trainer:
         for batch_idx in range(num_batches):
             self.current_batch = batch_idx
             
+            # Get SNR for this batch
+            snr_for_batch = snr_config.get_snr_for_data_generator()
+            
             # Generate data
             y, h_targets, _, _, actual_snr = generate_training_batch(
                 batch_size=batch_size,
                 seq_len=seq_len,
                 pos_values=pos_values,
-                snr_db=snr_db,
+                snr_db=snr_for_batch,
                 tdl_config=tdl_config,
-                snr_sampler=snr_sampler,
-                snr_per_sample=snr_per_sample,
+                snr_per_sample=snr_config.per_sample if hasattr(snr_config, 'per_sample') else False,
                 return_complex=False  # Always use real stacked format
             )
             

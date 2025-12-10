@@ -4,6 +4,7 @@
 common:
   seq_len: 12
   num_ports: 4
+  pos_values: [0, 3, 6, 9]  # Port positions (circular shift positions)
 
 # Model configurations
 models:
@@ -81,3 +82,104 @@ models:
     share_weights_across_stages: false
     activation_type: mod_relu  # Preserve phase
     onnx_mode: false
+  
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Grid Search Configurations (Search Space)
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  
+  # Example 1: Basic grid search (hidden_dim x num_stages)
+  separator1_grid_search_basic:
+    model_type: separator1
+    fixed_params:              # Fixed parameters (not searched)
+      mlp_depth: 3
+      share_weights_across_stages: false
+    search_space:              # Search parameters (generate combinations)
+      hidden_dim: [32, 64, 128]
+      num_stages: [2, 3, 4]
+    # Generates: 3 x 3 = 9 configurations
+  
+  # Example 2: Full grid search (all hyperparameters)
+  separator1_grid_search_full:
+    model_type: separator1
+    fixed_params:
+      mlp_depth: 3             # Keep depth fixed
+    search_space:
+      hidden_dim: [32, 64, 128]
+      num_stages: [2, 3, 4]
+      share_weights_across_stages: [true, false]
+    # Generates: 3 x 3 x 2 = 18 configurations
+  
+  # Example 3: Small search space (for quick tests)
+  separator1_grid_search_small:
+    model_type: separator1
+    fixed_params:
+      mlp_depth: 3
+      num_stages: 3
+      share_weights_across_stages: false
+    search_space:
+      hidden_dim: [32, 64]
+    # Generates: 2 configurations
+  
+  # Example 4: Separator2 with activation search
+  separator2_grid_search_activation:
+    model_type: separator2
+    fixed_params:
+      hidden_dim: 64
+      num_stages: 3
+      mlp_depth: 3
+      share_weights_across_stages: false
+      onnx_mode: false
+    search_space:
+      activation_type: [relu, split_relu, mod_relu]
+    # Generates: 3 configurations (compare activations)
+  
+  # Example 5: Architecture search
+  separator1_architecture_search:
+    model_type: separator1
+    fixed_params:
+      share_weights_across_stages: false
+    search_space:
+      hidden_dim: [32, 64, 128]
+      num_stages: [2, 3]
+      mlp_depth: [2, 3, 4]
+    # Generates: 3 x 2 x 3 = 18 configurations
+  
+  # Example 6: Range-based search (advanced)
+  separator1_range_search:
+    model_type: separator1
+    fixed_params:
+      mlp_depth: 3
+      share_weights_across_stages: false
+    search_space:
+      hidden_dim:
+        type: choice
+        values: [32, 64, 128, 256]
+      num_stages:
+        type: range
+        min: 2
+        max: 5
+        step: 1
+    # Generates: 4 x 4 = 16 configurations
+  
+  # Example 7: 6-port configuration
+  separator1_6ports:
+    model_type: separator1
+    num_ports: 6
+    pos_values: [0, 2, 4, 6, 8, 10]  # 6 ports with spacing 2
+    fixed_params:
+      hidden_dim: 64
+      num_stages: 3
+      mlp_depth: 3
+      share_weights_across_stages: false
+  
+  # Example 8: Grid search for 6-port
+  separator1_6ports_search:
+    model_type: separator1
+    num_ports: 6
+    pos_values: [0, 2, 4, 6, 8, 10]
+    fixed_params:
+      mlp_depth: 3
+      share_weights_across_stages: false
+    search_space:
+      hidden_dim: [32, 64]
+      num_stages: [2, 3]

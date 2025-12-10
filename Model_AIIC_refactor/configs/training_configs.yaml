@@ -7,15 +7,17 @@ default:
   learning_rate: 0.01
   loss_type: weighted  # nmse, weighted, log, normalized
   
-  # Data generation
-  snr_range: [0, 30]  # tuple (min, max) for random SNR
-  snr_per_sample: false  # Per-batch SNR (better for specific SNR learning)
-  tdl_config: A-30  # TDL-A with 30ns delay spread
-  pos_values: [0, 3, 6, 9]  # Port positions
+  # Data generation - SNR configuration
+  snr_config:
+    type: range              # 'range' for continuous sampling, 'discrete' for specific values
+    min: 0                   # For range type
+    max: 30                  # For range type
+    per_sample: false        # Per-batch SNR (better for specific SNR learning)
+    sampling: stratified     # uniform, stratified, round_robin (for range type)
+    num_bins: 10             # Number of bins for stratified sampling
   
-  # SNR sampling strategy
-  snr_sampling: stratified  # uniform, stratified, round_robin
-  snr_num_bins: 10
+  # Channel configuration
+  tdl_config: A-30           # TDL-A with 30ns delay spread
   
   # Early stopping
   early_stop_loss: null  # Stop if loss below this value
@@ -32,9 +34,12 @@ quick_test:
   num_batches: 100
   learning_rate: 0.01
   loss_type: nmse
-  snr_range: [10, 20]
+  snr_config:
+    type: range
+    min: 10
+    max: 20
+    per_sample: false
   tdl_config: A-30
-  pos_values: [0, 3, 6, 9]
   print_interval: 10
 
 # High SNR configuration
@@ -43,9 +48,11 @@ high_snr:
   num_batches: 10000
   learning_rate: 0.01
   loss_type: nmse
-  snr_range: [20, 40]
+  snr_config:
+    type: range
+    min: 20
+    max: 40
   tdl_config: A-30
-  pos_values: [0, 3, 6, 9]
 
 # Low SNR configuration (harder case)
 low_snr:
@@ -53,9 +60,23 @@ low_snr:
   num_batches: 20000
   learning_rate: 0.005  # Lower LR for stability
   loss_type: weighted  # Emphasize low SNR
-  snr_range: [-10, 10]
+  snr_config:
+    type: range
+    min: -10
+    max: 10
   tdl_config: A-30
-  pos_values: [0, 3, 6, 9]
+
+# Discrete SNR testing (for evaluation-style training)
+discrete_snr:
+  batch_size: 2048
+  num_batches: 10000
+  learning_rate: 0.01
+  loss_type: weighted
+  snr_config:
+    type: discrete
+    values: [0, 5, 10, 15, 20, 25, 30]  # Only these specific SNR values
+    per_sample: false
+  tdl_config: A-30
 
 # Multi-TDL configuration
 multi_tdl:
@@ -63,16 +84,62 @@ multi_tdl:
   num_batches: 15000
   learning_rate: 0.01
   loss_type: weighted
-  snr_range: [0, 30]
+  snr_config:
+    type: range
+    min: 0
+    max: 30
   tdl_config: [A-30, B-100, C-300]  # Random selection
-  pos_values: [0, 3, 6, 9]
 
-# 6-port configuration
-six_ports:
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Grid Search Training Configurations
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Quick grid search (for testing search space)
+grid_search_quick:
+  batch_size: 512
+  num_batches: 1000         # Short training for quick comparison
+  learning_rate: 0.01
+  loss_type: nmse
+  snr_config:
+    type: range
+    min: 10
+    max: 20
+  tdl_config: A-30
+  print_interval: 100
+  
+# Full grid search configuration
+grid_search_full:
   batch_size: 2048
-  num_batches: 15000
+  num_batches: 10000        # Full training for each config
   learning_rate: 0.01
   loss_type: weighted
-  snr_range: [0, 30]
+  snr_config:
+    type: range
+    min: 0
+    max: 30
+    sampling: stratified
   tdl_config: A-30
-  pos_values: [0, 2, 4, 6, 8, 10]  # 6 ports
+  print_interval: 200
+  
+  # Grid search specific settings
+  save_best_only: false     # Save all configs (for comparison)
+  early_stop_loss: null     # No early stopping in grid search
+  
+# Grid search with learning rate search
+grid_search_with_lr:
+  batch_size: 2048
+  num_batches: 5000
+  loss_type: weighted
+  snr_config:
+    type: range
+    min: 0
+    max: 30
+  tdl_config: A-30
+  
+  # Learning rate can also be searched
+  fixed_params:
+    # (no fixed training params)
+    pass
+  search_space:
+    learning_rate: [0.001, 0.01, 0.1]
+    # Generates 3 different learning rates for each model config

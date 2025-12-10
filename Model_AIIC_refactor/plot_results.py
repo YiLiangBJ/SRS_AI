@@ -1,485 +1,238 @@
 """
-性能曲线绘图脚本
+Plot evaluation results (Refactored)
 
-功能:
-1. 读取评估结果
-2. 绘制 NMSE vs SNR 曲线
-3. 支持选择特定模型、TDL 配置
-4. 支持多种绘图风格
-
-用法:
-    # 绘制所有模型和 TDL
-    python Model_AIIC/plot_results.py --input ./evaluation_results
-    
-    # 只绘制特定模型
-    python Model_AIIC/plot_results.py \
-        --input ./evaluation_results \
-        --models "stages=2_share=False,stages=3_share=False"
-    
-    # 只绘制特定 TDL
-    python Model_AIIC/plot_results.py \
-        --input ./evaluation_results \
-        --tdl "A-30,B-100"
-    
-    # 分图绘制（每个 TDL 一个子图）
-    python Model_AIIC/plot_results.py \
-        --input ./evaluation_results \
-        --layout subplots
+Usage:
+    python plot_results.py --input evaluation_results --models model1,model2
 """
 
-import os
-import sys
 import argparse
 import json
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from matplotlib import rcParams
-
-# 设置字体（支持中文）
-rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
-rcParams['axes.unicode_minus'] = False
 
 
-def load_results(result_dir):
+def load_results(results_dir: Path, model_names: list = None):
     """
-    加载评估结果
+    Load evaluation results
     
     Args:
-        result_dir: 结果目录
-        
+        results_dir: Directory containing results
+        model_names: List of model names (if None, load all)
+    
     Returns:
-        results: 评估结果字典
+        dict: {model_name: results_data}
     """
-    result_path = Path(result_dir) / 'evaluation_results.json'
+    results_dir = Path(results_dir)
+    all_results = {}
     
-    if not result_path.exists():
-        raise FileNotFoundError(f"结果文件不存在: {result_path}")
+    # Find all result files
+    result_files = list(results_dir.glob('*_results.json'))
     
-    with open(result_path, 'r') as f:
-        results = json.load(f)
+    if not result_files:
+        print(f"⚠️  No result files found in {results_dir}")
+        return all_results
     
-    return results
-
-
-def get_port_info_str(config):
-    """
-    从配置中提取端口信息字符串
-    
-    Args:
-        config: 模型配置字典
+    for result_file in result_files:
+        model_name = result_file.stem.replace('_results', '')
         
-    Returns:
-        str: 端口信息字符串，例如 "Ports: [0,3,6,9]" 或 "6 Ports: [0,2,4,6,8,10]"
-    """
-    pos_values = config.get('pos_values', None)
-    
-    if pos_values is None:
-        num_ports = config.get('num_ports', 4)
-        return f"{num_ports} Ports"
-    
-    # 如果 pos_values 是字符串，尝试解析
-    if isinstance(pos_values, str):
-        try:
-            pos_values = eval(pos_values)
-        except:
-            return f"{config.get('num_ports', 4)} Ports"
-    
-    # 格式化端口信息
-    num_ports = len(pos_values)
-    ports_str = ','.join(map(str, pos_values))
-    return f"{num_ports} Ports: [{ports_str}]"
-
-
-def format_num_params(num_params):
-    """
-    格式化参数量为可读字符串
-    
-    Args:
-        num_params: 参数数量
-        
-    Returns:
-        str: 格式化的字符串，例如 "104.6K" 或 "1.2M"
-    """
-    if num_params is None:
-        return "N/A"
-    
-    if num_params >= 1_000_000:
-        return f"{num_params / 1_000_000:.1f}M"
-    elif num_params >= 1_000:
-        return f"{num_params / 1_000:.1f}K"
-    else:
-        return str(num_params)
-
-
-def get_model_label(model_name, config):
-    """
-    生成包含参数量的模型标签
-    
-    Args:
-        model_name: 模型名称
-        config: 模型配置
-        
-    Returns:
-        str: 完整的模型标签，例如 "stages=2_share=False (104.6K params)"
-    """
-    num_params = config.get('num_params', None)
-    if num_params is not None:
-        params_str = format_num_params(num_params)
-        return f"{model_name} ({params_str})"
-    return model_name
-
-
-def plot_single_figure(results, model_filter=None, tdl_filter=None, output_dir=None):
-    """
-    在单个图中绘制所有曲线
-    
-    Args:
-        results: 评估结果
-        model_filter: 模型过滤列表
-        tdl_filter: TDL 过滤列表
-        output_dir: 输出目录
-    """
-    plt.figure(figsize=(12, 8))
-    
-    # 颜色和线型
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
-              '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
-    linestyles = ['-', '--', '-.', ':']
-    markers = ['o', 's', '^', 'v', 'D', 'p', '*', 'h']
-    
-    color_idx = 0
-    
-    # 遍历所有模型
-    for model_name, model_data in results['models'].items():
-        # 过滤模型
-        if model_filter and model_name not in model_filter:
+        # Filter by model names if specified
+        if model_names and model_name not in model_names:
             continue
         
-        # 遍历所有 TDL
-        for tdl_idx, (tdl_config, tdl_data) in enumerate(model_data['tdl_results'].items()):
-            # 过滤 TDL
-            if tdl_filter and tdl_config not in tdl_filter:
-                continue
-            
-            snr = tdl_data['snr']
-            nmse_db = tdl_data['nmse_db']
-            
-            # 绘制曲线
-            model_label = get_model_label(model_name, model_data['config'])
-            label = f"{model_label} - {tdl_config}"
-            linestyle = linestyles[tdl_idx % len(linestyles)]
-            marker = markers[color_idx % len(markers)]
-            
-            plt.plot(snr, nmse_db, 
-                    color=colors[color_idx % len(colors)],
-                    linestyle=linestyle,
-                    marker=marker,
-                    markersize=6,
-                    linewidth=2,
-                    label=label,
-                    markevery=2)  # 每隔2个点标记一次
-        
-        color_idx += 1
+        with open(result_file, 'r', encoding='utf-8') as f:
+            all_results[model_name] = json.load(f)
     
-    # 获取端口信息（从第一个模型）
-    port_info = ""
-    if results['models']:
-        first_model = list(results['models'].values())[0]
-        port_info = " - " + get_port_info_str(first_model['config'])
-    
-    plt.xlabel('SNR (dB)', fontsize=14, fontweight='bold')
-    plt.ylabel('NMSE (dB)', fontsize=14, fontweight='bold')
-    plt.title(f'Channel Estimation Performance{port_info}', fontsize=16, fontweight='bold')
-    plt.grid(True, alpha=0.3, linestyle='--')
-    plt.legend(loc='best', fontsize=10, ncol=2)
-    plt.tight_layout()
-    
-    # 保存图像
-    if output_dir:
-        output_path = Path(output_dir) / 'nmse_vs_snr_single.png'
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"✓ 保存图像: {output_path}")
-        
-        # 也保存 PDF
-        output_path_pdf = Path(output_dir) / 'nmse_vs_snr_single.pdf'
-        plt.savefig(output_path_pdf, bbox_inches='tight')
-        print(f"✓ 保存图像: {output_path_pdf}")
-    
-    plt.show()
+    return all_results
 
 
-def plot_subplots_by_tdl(results, model_filter=None, tdl_filter=None, output_dir=None):
+def plot_nmse_vs_snr(results_dict: dict, tdl_config: str = None, save_path: Path = None):
     """
-    为每个 TDL 配置创建一个子图
+    Plot NMSE vs SNR for multiple models
     
     Args:
-        results: 评估结果
-        model_filter: 模型过滤列表
-        tdl_filter: TDL 过滤列表
-        output_dir: 输出目录
+        results_dict: {model_name: results_data}
+        tdl_config: Specific TDL to plot (if None, use first available)
+        save_path: Path to save figure
     """
-    # 获取所有 TDL 配置
-    all_tdl = set()
-    for model_data in results['models'].values():
-        all_tdl.update(model_data['tdl_results'].keys())
+    plt.figure(figsize=(10, 6))
     
-    # 过滤 TDL
-    if tdl_filter:
-        all_tdl = [t for t in all_tdl if t in tdl_filter]
-    else:
-        all_tdl = sorted(all_tdl)
-    
-    num_tdl = len(all_tdl)
-    
-    # 创建子图
-    fig, axes = plt.subplots(1, num_tdl, figsize=(6*num_tdl, 5))
-    if num_tdl == 1:
-        axes = [axes]
-    
-    # 颜色和标记
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-    markers = ['o', 's', '^', 'v', 'D']
-    
-    # 为每个 TDL 绘制子图
-    for tdl_idx, tdl_config in enumerate(all_tdl):
-        ax = axes[tdl_idx]
-        color_idx = 0
+    for model_name, results in results_dict.items():
+        # Get TDL configs
+        tdl_configs = results['tdl_configs']
         
-        # 遍历所有模型
-        for model_name, model_data in results['models'].items():
-            # 过滤模型
-            if model_filter and model_name not in model_filter:
-                continue
-            
-            # 检查该模型是否有这个 TDL 的结果
-            if tdl_config not in model_data['tdl_results']:
-                continue
-            
-            tdl_data = model_data['tdl_results'][tdl_config]
-            snr = tdl_data['snr']
-            nmse_db = tdl_data['nmse_db']
-            
-            # 生成包含参数量的标签
-            model_label = get_model_label(model_name, model_data['config'])
-            
-            # 绘制曲线
-            ax.plot(snr, nmse_db,
-                   color=colors[color_idx % len(colors)],
-                   marker=markers[color_idx % len(markers)],
-                   markersize=6,
-                   linewidth=2,
-                   label=model_label,
-                   markevery=2)
-            
-            color_idx += 1
+        # Use specified or first TDL
+        tdl = tdl_config if tdl_config else tdl_configs[0]
         
-        # 获取端口信息（从第一个有数据的模型）
-        port_info = ""
-        for model_name, model_data in results['models'].items():
-            if model_filter and model_name not in model_filter:
-                continue
-            if tdl_config in model_data['tdl_results']:
-                port_info = " - " + get_port_info_str(model_data['config'])
-                break
+        # Filter results for this TDL
+        tdl_results = [r for r in results['results'] if r['tdl_config'] == tdl]
         
-        ax.set_xlabel('SNR (dB)', fontsize=12, fontweight='bold')
-        ax.set_ylabel('NMSE (dB)', fontsize=12, fontweight='bold')
-        ax.set_title(f'TDL-{tdl_config}{port_info}', fontsize=13, fontweight='bold')
-        ax.grid(True, alpha=0.3, linestyle='--')
-        ax.legend(loc='best', fontsize=9)
-    
-    plt.tight_layout()
-    
-    # 保存图像
-    if output_dir:
-        output_path = Path(output_dir) / 'nmse_vs_snr_subplots.png'
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"✓ 保存图像: {output_path}")
-        
-        output_path_pdf = Path(output_dir) / 'nmse_vs_snr_subplots.pdf'
-        plt.savefig(output_path_pdf, bbox_inches='tight')
-        print(f"✓ 保存图像: {output_path_pdf}")
-    
-    plt.show()
-
-
-def plot_subplots_by_model(results, model_filter=None, tdl_filter=None, output_dir=None):
-    """
-    为每个模型创建一个子图
-    
-    Args:
-        results: 评估结果
-        model_filter: 模型过滤列表
-        tdl_filter: TDL 过滤列表
-        output_dir: 输出目录
-    """
-    # 获取所有模型
-    all_models = list(results['models'].keys())
-    
-    # 过滤模型
-    if model_filter:
-        all_models = [m for m in all_models if m in model_filter]
-    
-    num_models = len(all_models)
-    
-    # 创建子图
-    ncols = min(3, num_models)
-    nrows = (num_models + ncols - 1) // ncols
-    
-    fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 5*nrows))
-    axes = axes.flatten() if num_models > 1 else [axes]
-    
-    # 颜色和标记
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-    markers = ['o', 's', '^', 'v', 'D']
-    
-    # 为每个模型绘制子图
-    for model_idx, model_name in enumerate(all_models):
-        ax = axes[model_idx]
-        model_data = results['models'][model_name]
-        
-        color_idx = 0
-        
-        # 遍历所有 TDL
-        for tdl_config, tdl_data in model_data['tdl_results'].items():
-            # 过滤 TDL
-            if tdl_filter and tdl_config not in tdl_filter:
-                continue
-            
-            snr = tdl_data['snr']
-            nmse_db = tdl_data['nmse_db']
-            
-            # 绘制曲线
-            ax.plot(snr, nmse_db,
-                   color=colors[color_idx % len(colors)],
-                   marker=markers[color_idx % len(markers)],
-                   markersize=6,
-                   linewidth=2,
-                   label=f'TDL-{tdl_config}',
-                   markevery=2)
-            
-            color_idx += 1
-        
-        # 获取端口信息和参数量
-        port_info = " - " + get_port_info_str(model_data['config'])
-        model_label = get_model_label(model_name, model_data['config'])
-        
-        ax.set_xlabel('SNR (dB)', fontsize=12, fontweight='bold')
-        ax.set_ylabel('NMSE (dB)', fontsize=12, fontweight='bold')
-        ax.set_title(f'{model_label}{port_info}', fontsize=13, fontweight='bold')
-        ax.grid(True, alpha=0.3, linestyle='--')
-        ax.legend(loc='best', fontsize=9)
-    
-    # 隐藏多余的子图
-    for idx in range(num_models, len(axes)):
-        axes[idx].set_visible(False)
-    
-    plt.tight_layout()
-    
-    # 保存图像
-    if output_dir:
-        output_path = Path(output_dir) / 'nmse_vs_snr_by_model.png'
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"✓ 保存图像: {output_path}")
-        
-        output_path_pdf = Path(output_dir) / 'nmse_vs_snr_by_model.pdf'
-        plt.savefig(output_path_pdf, bbox_inches='tight')
-        print(f"✓ 保存图像: {output_path_pdf}")
-    
-    plt.show()
-
-
-def print_summary(results, model_filter=None, tdl_filter=None):
-    """
-    打印结果摘要
-    
-    Args:
-        results: 评估结果
-        model_filter: 模型过滤列表
-        tdl_filter: TDL 过滤列表
-    """
-    print("\n" + "="*80)
-    print("评估结果摘要")
-    print("="*80)
-    
-    for model_name, model_data in results['models'].items():
-        # 过滤模型
-        if model_filter and model_name not in model_filter:
+        if not tdl_results:
+            print(f"⚠️  No results for {model_name} with TDL {tdl}")
             continue
         
-        print(f"\n模型: {model_name}")
-        print("-" * 80)
+        # Extract SNR and NMSE
+        snr_values = [r['snr_db'] for r in tdl_results]
+        nmse_db = [r['nmse_db'] for r in tdl_results]
         
-        for tdl_config, tdl_data in model_data['tdl_results'].items():
-            # 过滤 TDL
-            if tdl_filter and tdl_config not in tdl_filter:
-                continue
-            
-            snr = tdl_data['snr']
-            nmse_db = tdl_data['nmse_db']
-            
-            # 找到最佳和最差性能
-            best_idx = np.argmin(nmse_db)
-            worst_idx = np.argmax(nmse_db)
-            
-            print(f"  TDL-{tdl_config}:")
-            print(f"    SNR 范围: {snr[0]:.1f} ~ {snr[-1]:.1f} dB")
-            print(f"    最佳性能: {nmse_db[best_idx]:.2f} dB @ SNR={snr[best_idx]:.1f} dB")
-            print(f"    最差性能: {nmse_db[worst_idx]:.2f} dB @ SNR={snr[worst_idx]:.1f} dB")
-            print(f"    性能提升: {nmse_db[worst_idx] - nmse_db[best_idx]:.2f} dB")
+        # Sort by SNR
+        sorted_data = sorted(zip(snr_values, nmse_db))
+        snr_values, nmse_db = zip(*sorted_data)
+        
+        # Plot
+        plt.plot(snr_values, nmse_db, marker='o', label=model_name, linewidth=2)
+    
+    plt.xlabel('SNR (dB)', fontsize=12)
+    plt.ylabel('NMSE (dB)', fontsize=12)
+    plt.title(f'NMSE vs SNR - TDL-{tdl}', fontsize=14)
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"✓ Saved plot: {save_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+
+
+def plot_per_port_nmse(results_dict: dict, snr_db: float, tdl_config: str = None, save_path: Path = None):
+    """
+    Plot per-port NMSE for multiple models at specific SNR
+    
+    Args:
+        results_dict: {model_name: results_data}
+        snr_db: SNR to plot
+        tdl_config: Specific TDL to plot
+        save_path: Path to save figure
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    x_offset = 0
+    bar_width = 0.8 / len(results_dict)
+    
+    for i, (model_name, results) in enumerate(results_dict.items()):
+        # Get TDL
+        tdl_configs = results['tdl_configs']
+        tdl = tdl_config if tdl_config else tdl_configs[0]
+        
+        # Find result for this SNR and TDL
+        matching_results = [
+            r for r in results['results']
+            if r['tdl_config'] == tdl and abs(r['snr_db'] - snr_db) < 0.1
+        ]
+        
+        if not matching_results:
+            continue
+        
+        result = matching_results[0]
+        per_port_nmse_db = result['per_port_nmse_db']
+        num_ports = len(per_port_nmse_db)
+        
+        # Plot bars
+        x = np.arange(num_ports) + i * bar_width
+        ax.bar(x, per_port_nmse_db, bar_width, label=model_name, alpha=0.8)
+    
+    ax.set_xlabel('Port Index', fontsize=12)
+    ax.set_ylabel('NMSE (dB)', fontsize=12)
+    ax.set_title(f'Per-Port NMSE at SNR={snr_db}dB - TDL-{tdl}', fontsize=14)
+    ax.set_xticks(np.arange(num_ports) + bar_width * (len(results_dict) - 1) / 2)
+    ax.set_xticklabels([f'Port {i}' for i in range(num_ports)])
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"✓ Saved plot: {save_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+
+
+def plot_all_tdl_comparison(results_dict: dict, save_dir: Path = None):
+    """
+    Plot NMSE vs SNR for all TDL configurations
+    
+    Args:
+        results_dict: {model_name: results_data}
+        save_dir: Directory to save figures
+    """
+    # Get all TDL configs
+    all_tdls = set()
+    for results in results_dict.values():
+        all_tdls.update(results['tdl_configs'])
+    
+    all_tdls = sorted(all_tdls)
+    
+    # Plot for each TDL
+    for tdl in all_tdls:
+        save_path = save_dir / f'nmse_vs_snr_{tdl}.png' if save_dir else None
+        plot_nmse_vs_snr(results_dict, tdl_config=tdl, save_path=save_path)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='绘制模型性能曲线')
-    
+    parser = argparse.ArgumentParser(description='Plot evaluation results')
     parser.add_argument('--input', type=str, required=True,
-                       help='评估结果目录')
+                       help='Directory containing evaluation results')
     parser.add_argument('--models', type=str, default=None,
-                       help='要绘制的模型列表（逗号分隔）。不指定则绘制所有模型')
+                       help='Comma-separated list of model names (default: all)')
     parser.add_argument('--tdl', type=str, default=None,
-                       help='要绘制的 TDL 配置（逗号分隔）。不指定则绘制所有 TDL')
-    parser.add_argument('--layout', type=str, default='single',
-                       choices=['single', 'subplots_tdl', 'subplots_model'],
-                       help='绘图布局: single=单图, subplots_tdl=按TDL分子图, subplots_model=按模型分子图')
-    parser.add_argument('--no_show', action='store_true',
-                       help='不显示图像（只保存）')
+                       help='TDL configuration to plot (default: first available)')
+    parser.add_argument('--snr', type=float, default=None,
+                       help='SNR for per-port plot (default: skip per-port plot)')
+    parser.add_argument('--output', type=str, default=None,
+                       help='Output directory for figures (default: show plots)')
+    parser.add_argument('--all_tdls', action='store_true',
+                       help='Plot all TDL configurations separately')
     
     args = parser.parse_args()
     
-    # 加载结果
-    print("加载评估结果...")
-    results = load_results(args.input)
-    print(f"✓ 加载成功")
+    # Parse arguments
+    results_dir = Path(args.input)
+    model_names = args.models.split(',') if args.models else None
+    output_dir = Path(args.output) if args.output else None
     
-    # 解析过滤器
-    model_filter = args.models.split(',') if args.models else None
-    tdl_filter = args.tdl.split(',') if args.tdl else None
+    if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
     
-    # 打印摘要
-    print_summary(results, model_filter, tdl_filter)
-    
-    # 绘图
-    print("\n" + "="*80)
-    print("绘制性能曲线...")
     print("="*80)
-    
-    output_dir = Path(args.input)
-    
-    if args.layout == 'single':
-        plot_single_figure(results, model_filter, tdl_filter, output_dir)
-    elif args.layout == 'subplots_tdl':
-        plot_subplots_by_tdl(results, model_filter, tdl_filter, output_dir)
-    elif args.layout == 'subplots_model':
-        plot_subplots_by_model(results, model_filter, tdl_filter, output_dir)
-    
-    if args.no_show:
-        plt.close('all')
-    
-    print("\n" + "="*80)
-    print("✓ 完成")
+    print("Plot Evaluation Results")
     print("="*80)
+    print(f"Input: {results_dir}")
+    if model_names:
+        print(f"Models: {model_names}")
+    if output_dir:
+        print(f"Output: {output_dir}")
+    print()
+    
+    # Load results
+    results_dict = load_results(results_dir, model_names)
+    
+    if not results_dict:
+        print("❌ No results loaded!")
+        return
+    
+    print(f"✓ Loaded {len(results_dict)} model(s):")
+    for model_name in results_dict.keys():
+        print(f"  - {model_name}")
+    print()
+    
+    # Plot NMSE vs SNR
+    if args.all_tdls:
+        plot_all_tdl_comparison(results_dict, save_dir=output_dir)
+    else:
+        save_path = output_dir / 'nmse_vs_snr.png' if output_dir else None
+        plot_nmse_vs_snr(results_dict, tdl_config=args.tdl, save_path=save_path)
+    
+    # Plot per-port NMSE if SNR specified
+    if args.snr is not None:
+        save_path = output_dir / f'per_port_nmse_snr{args.snr}.png' if output_dir else None
+        plot_per_port_nmse(results_dict, snr_db=args.snr, tdl_config=args.tdl, save_path=save_path)
+    
+    print("\n✓ Plotting completed!")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
