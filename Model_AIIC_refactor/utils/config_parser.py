@@ -119,6 +119,24 @@ def expand_search_space(search_space: Dict[str, Any]) -> List[Dict[str, Any]]:
     return configs
 
 
+def _infer_num_ports(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Infer num_ports from pos_values if not explicitly set
+    
+    Args:
+        config: Configuration dictionary
+    
+    Returns:
+        Config with num_ports inferred
+    
+    Note:
+        num_ports should NOT be a user parameter - it's derived from len(pos_values)
+    """
+    if 'pos_values' in config and 'num_ports' not in config:
+        config['num_ports'] = len(config['pos_values'])
+    return config
+
+
 def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Parse model configuration, supporting both single config and search space
@@ -134,10 +152,11 @@ def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     1. Single configuration (backward compatible):
         {
             'model_type': 'separator1',
+            'pos_values': [0, 3, 6, 9],  # num_ports inferred as 4
             'hidden_dim': 64,
             'num_stages': 3
         }
-        -> Returns: [same config]
+        -> Returns: [same config with num_ports=4]
     
     2. Search space only:
         {
@@ -153,6 +172,7 @@ def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
         {
             'model_type': 'separator1',
             'fixed_params': {
+                'pos_values': [0, 3, 6, 9],  # num_ports inferred as 4
                 'mlp_depth': 3
             },
             'search_space': {
@@ -160,15 +180,15 @@ def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
                 'num_stages': [2, 3]
             }
         }
-        -> Returns: 6 configs with mlp_depth=3
+        -> Returns: 6 configs with mlp_depth=3 and num_ports=4
     """
     # Check if this is a search space configuration
     has_search_space = 'search_space' in config
     
     if not has_search_space:
         # Mode 1: Single configuration (backward compatible)
-        # Return as-is
-        return [config]
+        # Infer num_ports and return
+        return [_infer_num_ports(config.copy())]
     
     # Mode 2/3: Search space configuration
     model_type = config.get('model_type')
@@ -192,6 +212,8 @@ def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             **fixed_params,  # Fixed parameters (not searched)
             **search_config  # Search parameters (this combination)
         }
+        # Infer num_ports from pos_values
+        final_config = _infer_num_ports(final_config)
         final_configs.append(final_config)
     
     return final_configs
@@ -219,13 +241,13 @@ def generate_config_name(config: Dict[str, Any], base_name: str = None) -> str:
         name_parts = [config.get('model_type', 'model')]
     
     # Key parameters to include in name (only the important ones)
+    # Note: num_ports is excluded - it's derived from pos_values
     key_params = {
         'hidden_dim': 'hd',
         'num_stages': 'stages',
         'mlp_depth': 'depth',
         'share_weights_across_stages': 'share',
         'activation_type': 'act',
-        'num_ports': 'ports',
     }
     
     # Only add key parameters to name
