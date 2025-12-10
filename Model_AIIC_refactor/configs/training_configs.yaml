@@ -2,31 +2,93 @@
 
 # Default training configuration
 default:
-  batch_size: 4096
-  num_batches: 100000
-  learning_rate: 0.01
-  loss_type: nmse  # nmse, weighted, log, normalized
-  
-  # Data generation - SNR configuration
-  snr_config:
-    type: range              # 'range' for continuous sampling, 'discrete' for specific values
-    min: 0                   # For range type
-    max: 30                  # For range type
-    per_sample: false        # Per-batch SNR (better for specific SNR learning)
-    sampling: stratified     # uniform, stratified, round_robin (for range type)
-    num_bins: 10             # Number of bins for stratified sampling
-  
-  # Channel configuration
-  tdl_config: A-30           # TDL-A with 30ns delay spread
-  
-  # Early stopping
-  early_stop_loss: null  # Stop if loss below this value
-  validation_interval: 100  # Validate every N batches
-  patience: 3  # Number of validations meeting early stop
-  
-  # Logging
-  print_interval: 100
-  save_interval: 1000
+  fixed_params:
+    batch_size: 4096
+    num_batches: 100000
+    learning_rate: 0.01
+    # loss_type: nmse  # Single loss type: nmse, weighted, log, normalized
+    
+    # Data generation - SNR configuration
+    snr_config:
+      type: range              # 'range' for continuous sampling, 'discrete' for specific values
+      min: 0                   # For range type
+      max: 30                  # For range type
+      per_sample: true        # Per-batch SNR (better for specific SNR learning)
+      sampling: stratified     # uniform, stratified, round_robin (for range type)
+      num_bins: 10             # Number of bins for stratified sampling
+    
+    # Channel configuration
+    tdl_config: [A-30, B-100, C-300]          # TDL-A with 30ns delay spread
+    
+    # Early stopping
+    early_stop_loss: 0.001  # Stop if loss below this value
+    validation_interval: 100  # Validate every N batches
+    patience: 5  # Number of validations meeting early stop
+    
+    # Logging
+    print_interval: 100
+    save_interval: 1000
+  search_space:
+    loss_type: [nmse, weighted, log, normalized]
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Training Search Space (for hyperparameter search)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Search different loss types
+default_loss_search:
+  fixed_params:
+    batch_size: 4096
+    num_batches: 100000
+    learning_rate: 0.01
+    snr_config:
+      type: range
+      min: 0
+      max: 30
+      per_sample: true
+      sampling: stratified
+      num_bins: 10
+    tdl_config: [A-30, B-100, C-300]
+    early_stop_loss: 0.001
+    validation_interval: 100
+    patience: 5
+    print_interval: 100
+  search_space:
+    loss_type: [nmse, weighted, log, normalized]
+  # Generates: 4 training configurations (one for each loss type)
+
+# Search different learning rates
+default_lr_search:
+  fixed_params:
+    batch_size: 4096
+    num_batches: 100000
+    loss_type: nmse
+    snr_config:
+      type: range
+      min: 0
+      max: 30
+      per_sample: true
+    tdl_config: A-30
+    print_interval: 100
+  search_space:
+    learning_rate: [0.001, 0.01, 0.1]
+  # Generates: 3 training configurations
+
+# Search loss type + learning rate (combined)
+default_loss_lr_search:
+  fixed_params:
+    batch_size: 4096
+    num_batches: 50000
+    snr_config:
+      type: range
+      min: 0
+      max: 30
+      per_sample: true
+    tdl_config: A-30
+    print_interval: 100
+  search_space:
+    loss_type: [nmse, weighted]
+    learning_rate: [0.01, 0.001]
+  # Generates: 2 x 2 = 4 training configurations
 
 # Quick test configuration (for debugging)
 quick_test:

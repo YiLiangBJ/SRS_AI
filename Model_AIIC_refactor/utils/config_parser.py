@@ -191,9 +191,7 @@ def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
         return [_infer_num_ports(config.copy())]
     
     # Mode 2/3: Search space configuration
-    model_type = config.get('model_type')
-    if not model_type:
-        raise ValueError("model_type is required in configuration")
+    # Note: model_type is optional (for training configs that don't have it)
     
     # Get base config (all parameters except search_space and fixed_params)
     base_config = {k: v for k, v in config.items() 
@@ -216,8 +214,9 @@ def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             **fixed_params,  # Fixed parameters (not searched)
             **search_config  # Search parameters (this combination)
         }
-        # Infer num_ports from pos_values
-        final_config = _infer_num_ports(final_config)
+        # Infer num_ports from pos_values (only for model configs)
+        if 'pos_values' in final_config:
+            final_config = _infer_num_ports(final_config)
         final_configs.append(final_config)
     
     return final_configs

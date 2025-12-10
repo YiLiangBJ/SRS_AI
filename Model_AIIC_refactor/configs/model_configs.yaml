@@ -103,8 +103,8 @@ models:
       mlp_depth: 3
       share_weights_across_stages: false
     search_space:              # Search parameters (generate combinations)
-      hidden_dim: [32, 64, 128]
-      num_stages: [2, 3, 4]
+      hidden_dim: [64]
+      num_stages: [2]
     # Generates: 3 x 3 = 9 configurations
   
   # Example 2: Full grid search (all hyperparameters)

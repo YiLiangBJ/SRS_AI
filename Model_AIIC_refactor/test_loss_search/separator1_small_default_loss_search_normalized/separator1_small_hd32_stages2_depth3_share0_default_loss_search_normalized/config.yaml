@@ -12,14 +12,22 @@ model_config:
   seq_len: 12
   share_weights_across_stages: false
 training_config:
-  batch_size: 32
+  batch_size: 4096
+  early_stop_loss: 0.001
   learning_rate: 0.01
-  loss_type: nmse
+  loss_type: normalized
   num_batches: 50
-  print_interval: 10
+  patience: 5
+  print_interval: 100
   snr_config:
-    max: 20
-    min: 10
-    per_sample: false
+    max: 30
+    min: 0
+    num_bins: 10
+    per_sample: true
+    sampling: stratified
     type: range
-  tdl_config: A-30
+  tdl_config:
+  - A-30
+  - B-100
+  - C-300
+  validation_interval: 100
