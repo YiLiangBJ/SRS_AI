@@ -96,27 +96,28 @@ models:
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   
   # Example 1: Basic grid search (hidden_dim x num_stages)
-  separator1_grid_search_basic:
+  separator1_grid_search_4ports:
     model_type: separator1
     fixed_params:              # Fixed parameters (not searched)
       pos_values: [0, 3, 6, 9]  # ⭐ 4-port model (fixed)
       mlp_depth: 3
-      share_weights_across_stages: false
+      share_weights_across_stages: true
     search_space:              # Search parameters (generate combinations)
       hidden_dim: [64]
       num_stages: [2]
     # Generates: 3 x 3 = 9 configurations
   
   # Example 2: Full grid search (all hyperparameters)
-  separator1_grid_search_full:
+  separator1_grid_search_6ports:
     model_type: separator1
     fixed_params:
-      pos_values: [0, 3, 6, 9]  # ⭐ 4-port model (fixed)
+      pos_values: [0, 2, 4, 6, 8, 10]  # ⭐ 4-port model (fixed)
       mlp_depth: 3             # Keep depth fixed
+      share_weights_across_stages: true
     search_space:
-      hidden_dim: [32, 64, 128]
-      num_stages: [2, 3, 4]
-      share_weights_across_stages: [true, false]
+      hidden_dim: [64]
+      num_stages: [2]
+      
     # Generates: 3 x 3 x 2 = 18 configurations
   
   # Example 3: Small search space (for quick tests)
