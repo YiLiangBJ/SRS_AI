@@ -1,0 +1,83 @@
+# Model configurations for channel separator models
+
+# Common settings
+common:
+  seq_len: 12
+  num_ports: 4
+
+# Model configurations
+models:
+  # Separator1 (Dual-Path MLP) configurations
+  separator1_small:
+    model_type: separator1
+    hidden_dim: 32
+    num_stages: 2
+    mlp_depth: 3
+    share_weights_across_stages: false
+    
+  separator1_default:
+    model_type: separator1
+    hidden_dim: 64
+    num_stages: 3
+    mlp_depth: 3
+    share_weights_across_stages: false
+    
+  separator1_large:
+    model_type: separator1
+    hidden_dim: 128
+    num_stages: 4
+    mlp_depth: 4
+    share_weights_across_stages: false
+    
+  separator1_shared:
+    model_type: separator1
+    hidden_dim: 64
+    num_stages: 3
+    mlp_depth: 3
+    share_weights_across_stages: true
+  
+  # Separator2 (ComplexLinear) configurations  
+  separator2_small:
+    model_type: separator2
+    hidden_dim: 32
+    num_stages: 2
+    mlp_depth: 3
+    share_weights_across_stages: false
+    activation_type: relu
+    onnx_mode: false
+    
+  separator2_default:
+    model_type: separator2
+    hidden_dim: 64
+    num_stages: 3
+    mlp_depth: 3
+    share_weights_across_stages: false
+    activation_type: relu
+    onnx_mode: false
+    
+  separator2_large:
+    model_type: separator2
+    hidden_dim: 128
+    num_stages: 4
+    mlp_depth: 4
+    share_weights_across_stages: false
+    activation_type: split_relu
+    onnx_mode: false
+    
+  separator2_onnx:
+    model_type: separator2
+    hidden_dim: 64
+    num_stages: 3
+    mlp_depth: 3
+    share_weights_across_stages: false
+    activation_type: relu
+    onnx_mode: true  # MATLAB-compatible ONNX export
+    
+  separator2_modReLU:
+    model_type: separator2
+    hidden_dim: 64
+    num_stages: 3
+    mlp_depth: 3
+    share_weights_across_stages: false
+    activation_type: mod_relu  # Preserve phase
+    onnx_mode: false

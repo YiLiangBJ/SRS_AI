@@ -1,0 +1,78 @@
+# Training configurations
+
+# Default training configuration
+default:
+  batch_size: 2048
+  num_batches: 10000
+  learning_rate: 0.01
+  loss_type: weighted  # nmse, weighted, log, normalized
+  
+  # Data generation
+  snr_range: [0, 30]  # tuple (min, max) for random SNR
+  snr_per_sample: false  # Per-batch SNR (better for specific SNR learning)
+  tdl_config: A-30  # TDL-A with 30ns delay spread
+  pos_values: [0, 3, 6, 9]  # Port positions
+  
+  # SNR sampling strategy
+  snr_sampling: stratified  # uniform, stratified, round_robin
+  snr_num_bins: 10
+  
+  # Early stopping
+  early_stop_loss: null  # Stop if loss below this value
+  validation_interval: 100  # Validate every N batches
+  patience: 3  # Number of validations meeting early stop
+  
+  # Logging
+  print_interval: 100
+  save_interval: 1000
+
+# Quick test configuration (for debugging)
+quick_test:
+  batch_size: 32
+  num_batches: 100
+  learning_rate: 0.01
+  loss_type: nmse
+  snr_range: [10, 20]
+  tdl_config: A-30
+  pos_values: [0, 3, 6, 9]
+  print_interval: 10
+
+# High SNR configuration
+high_snr:
+  batch_size: 2048
+  num_batches: 10000
+  learning_rate: 0.01
+  loss_type: nmse
+  snr_range: [20, 40]
+  tdl_config: A-30
+  pos_values: [0, 3, 6, 9]
+
+# Low SNR configuration (harder case)
+low_snr:
+  batch_size: 2048
+  num_batches: 20000
+  learning_rate: 0.005  # Lower LR for stability
+  loss_type: weighted  # Emphasize low SNR
+  snr_range: [-10, 10]
+  tdl_config: A-30
+  pos_values: [0, 3, 6, 9]
+
+# Multi-TDL configuration
+multi_tdl:
+  batch_size: 2048
+  num_batches: 15000
+  learning_rate: 0.01
+  loss_type: weighted
+  snr_range: [0, 30]
+  tdl_config: [A-30, B-100, C-300]  # Random selection
+  pos_values: [0, 3, 6, 9]
+
+# 6-port configuration
+six_ports:
+  batch_size: 2048
+  num_batches: 15000
+  learning_rate: 0.01
+  loss_type: weighted
+  snr_range: [0, 30]
+  tdl_config: A-30
+  pos_values: [0, 2, 4, 6, 8, 10]  # 6 ports
