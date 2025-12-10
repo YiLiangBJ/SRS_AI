@@ -14,6 +14,7 @@ from .config_parser import (
     print_search_space_summary,
     load_and_parse_config
 )
+from .progress_tracker import TrainingProgressTracker
 
 __all__ = [
     'get_device',
@@ -27,5 +28,6 @@ __all__ = [
     'expand_search_space',
     'generate_config_name',
     'print_search_space_summary',
-    'load_and_parse_config'
+    'load_and_parse_config',
+    'TrainingProgressTracker'
 ]

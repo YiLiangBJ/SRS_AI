@@ -17,6 +17,7 @@ import yaml
 from pathlib import Path
 import time
 import numpy as np
+from datetime import datetime
 
 # Import refactored modules
 from models import create_model, list_models
@@ -24,7 +25,8 @@ from training import Trainer
 from utils import (
     get_device, print_device_info,
     parse_model_config, generate_config_name, print_search_space_summary,
-    SNRConfig, parse_snr_config
+    SNRConfig, parse_snr_config,
+    TrainingProgressTracker
 )
 
 
@@ -32,6 +34,73 @@ def load_config(config_path: str) -> dict:
     """Load YAML configuration file"""
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
+
+
+def generate_training_report(
+    report_path: Path,
+    results: list,
+    training_config_name: str,
+    start_time: datetime,
+    end_time: datetime,
+    total_duration: float,
+    device: str
+):
+    """Generate detailed training report in Markdown format"""
+    
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write("# Training Report\n\n")
+        
+        # Time Information
+        f.write("## Time Information\n\n")
+        f.write(f"- **Start Time**: {start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"- **End Time**: {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"- **Total Duration**: {total_duration/3600:.2f} hours ({total_duration:.1f} seconds)\n")
+        f.write(f"- **Device**: {device}\n\n")
+        
+        # Training Configuration
+        f.write("## Training Configuration\n\n")
+        f.write(f"- **Training Config**: {training_config_name}\n")
+        f.write(f"- **Total Configurations**: {len(results)}\n\n")
+        
+        # Results Summary
+        f.write("## Results Summary\n\n")
+        f.write("| Rank | Configuration | NMSE (dB) | Parameters | Duration (s) |\n")
+        f.write("|------|--------------|-----------|------------|-------------|\n")
+        
+        for i, result in enumerate(results, 1):
+            f.write(f"| {i} | `{result['config_instance_name']}` | "
+                   f"{result['eval_nmse_db']:.2f} | {result['num_params']:,} | "
+                   f"{result['training_duration']:.1f} |\n")
+        
+        f.write("\n")
+        
+        # Best Configuration
+        if results:
+            best = results[0]
+            f.write("## 🏆 Best Configuration\n\n")
+            f.write(f"**Configuration**: `{best['config_instance_name']}`\n\n")
+            f.write(f"- **Eval NMSE**: {best['eval_nmse_db']:.2f} dB\n")
+            f.write(f"- **Final Loss**: {best['final_loss']:.6f}\n")
+            f.write(f"- **Min Loss**: {best['min_loss']:.6f}\n")
+            f.write(f"- **Parameters**: {best['num_params']:,}\n")
+            f.write(f"- **Training Duration**: {best['training_duration']:.1f}s\n\n")
+        
+        # Detailed Results
+        f.write("## Detailed Results\n\n")
+        
+        for i, result in enumerate(results, 1):
+            f.write(f"### {i}. {result['config_instance_name']}\n\n")
+            f.write(f"- **Model Config**: {result['model_config_name']}\n")
+            f.write(f"- **Evaluation NMSE**: {result['eval_nmse_db']:.2f} dB\n")
+            f.write(f"- **Final Training Loss**: {result['final_loss']:.6f}\n")
+            f.write(f"- **Minimum Training Loss**: {result['min_loss']:.6f}\n")
+            f.write(f"- **Total Parameters**: {result['num_params']:,}\n")
+            f.write(f"- **Training Duration**: {result['training_duration']:.1f}s "
+                   f"({result['training_duration']/60:.1f} min)\n\n")
+        
+        # Footer
+        f.write("---\n\n")
+        f.write(f"*Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n")
 
 
 def main():
@@ -100,8 +169,25 @@ def main():
     snr_config = parse_snr_config(snr_config_dict)
     print(f"SNR Configuration: {snr_config}")
     
+    # Record start time
+    script_start_time = time.time()
+    script_start_datetime = datetime.now()
+    
+    # Count total configurations first
+    total_configs = 0
+    for model_config_name in model_config_names:
+        model_config = all_model_configs['models'].get(model_config_name)
+        if model_config:
+            full_model_config = {**common_config, **model_config}
+            parsed_configs = parse_model_config(full_model_config)
+            total_configs += len(parsed_configs)
+    
+    # Initialize progress tracker (report every 5 minutes)
+    progress_tracker = TrainingProgressTracker(total_configs, report_interval=300.0)
+    
     # Train each model
     results = []
+    task_index = 0
     
     for model_config_name in model_config_names:
         print(f"\n{'='*80}")
@@ -129,13 +215,18 @@ def main():
         # Train each configuration in the search space
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         for config_idx, config in enumerate(parsed_configs, 1):
+            task_index += 1
+            
             print(f"\n{'─'*80}")
             if len(parsed_configs) > 1:
-                print(f"Configuration {config_idx}/{len(parsed_configs)}")
+                print(f"Configuration {config_idx}/{len(parsed_configs)} of {model_config_name}")
             print(f"{'─'*80}\n")
             
             # Generate descriptive name for this configuration
             config_instance_name = generate_config_name(config, model_config_name)
+            
+            # Start tracking this task
+            progress_tracker.start_task(config_instance_name, task_index)
             print(f"Configuration: {config_instance_name}")
             
             # Create model
@@ -171,7 +262,8 @@ def main():
                 print_interval=training_config.get('print_interval', 100),
                 val_interval=training_config.get('validation_interval'),
                 early_stop_loss=training_config.get('early_stop_loss'),
-                patience=training_config.get('patience', 3)
+                patience=training_config.get('patience', 3),
+                progress_tracker=progress_tracker  # Pass progress tracker
             )
             
             training_duration = time.time() - start_time
@@ -227,7 +319,7 @@ def main():
             
             print(f"✓ Model saved to: {save_dir}")
             
-            results.append({
+            result = {
                 'model_config_name': model_config_name,
                 'config_instance_name': config_instance_name,
                 'final_loss': losses[-1],
@@ -235,7 +327,16 @@ def main():
                 'eval_nmse_db': eval_results['nmse_db'],
                 'training_duration': training_duration,
                 'num_params': num_params
-            })
+            }
+            results.append(result)
+            
+            # Complete this task in progress tracker
+            progress_tracker.complete_task(result)
+    
+    # Calculate total time
+    script_end_time = time.time()
+    script_end_datetime = datetime.now()
+    total_duration = script_end_time - script_start_time
     
     # Summary
     print(f"\n{'='*80}")
@@ -243,6 +344,9 @@ def main():
     print(f"{'='*80}\n")
     
     print(f"Total configurations trained: {len(results)}")
+    print(f"Start time: {script_start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"End time: {script_end_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Total duration: {total_duration/3600:.2f} hours ({total_duration:.1f}s)")
     print()
     
     # Sort by evaluation NMSE (best first)
@@ -264,7 +368,20 @@ def main():
         print(f"   NMSE: {best['eval_nmse_db']:.2f} dB")
         print()
     
-    print("✓ All training completed!")
+    # Generate report
+    report_path = Path(args.save_dir) / 'TRAINING_REPORT.md'
+    generate_training_report(
+        report_path=report_path,
+        results=results_sorted,
+        training_config_name=args.training_config,
+        start_time=script_start_datetime,
+        end_time=script_end_datetime,
+        total_duration=total_duration,
+        device=device
+    )
+    print(f"✓ Training report saved: {report_path}")
+    
+    print("\n✓ All training completed!")
 
 
 if __name__ == '__main__':

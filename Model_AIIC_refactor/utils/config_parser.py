@@ -195,6 +195,10 @@ def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not model_type:
         raise ValueError("model_type is required in configuration")
     
+    # Get base config (all parameters except search_space and fixed_params)
+    base_config = {k: v for k, v in config.items() 
+                   if k not in ['search_space', 'fixed_params']}
+    
     # Get fixed parameters (if any)
     fixed_params = config.get('fixed_params', {})
     
@@ -204,11 +208,11 @@ def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     # Expand search space
     search_configs = expand_search_space(search_space)
     
-    # Merge with fixed params and model_type
+    # Merge: base_config + fixed_params + search_config
     final_configs = []
     for search_config in search_configs:
         final_config = {
-            'model_type': model_type,
+            **base_config,   # Base config (includes model_type, seq_len, etc.)
             **fixed_params,  # Fixed parameters (not searched)
             **search_config  # Search parameters (this combination)
         }
@@ -277,13 +281,13 @@ def print_search_space_summary(configs: List[Dict[str, Any]], config_name: str =
         config_name: Name of the search space configuration
     """
     if len(configs) == 1:
-        print(f"📋 Single configuration")
+        print(f"[Single configuration]")
         if config_name:
             print(f"   Name: {config_name}")
         print(f"   Parameters: {configs[0]}")
         return
     
-    print(f"🔍 Search space: {len(configs)} configurations")
+    print(f"Search space: {len(configs)} configurations")
     if config_name:
         print(f"   Name: {config_name}")
     
@@ -297,7 +301,16 @@ def print_search_space_summary(configs: List[Dict[str, Any]], config_name: str =
             continue
         
         values = [cfg.get(key) for cfg in configs]
-        unique_values = list(set(values))
+        
+        # Handle unhashable types (like lists)
+        try:
+            unique_values = list(set(values))
+        except TypeError:
+            # For unhashable types, manually find unique values
+            unique_values = []
+            for v in values:
+                if v not in unique_values:
+                    unique_values.append(v)
         
         if len(unique_values) > 1:
             search_params[key] = unique_values

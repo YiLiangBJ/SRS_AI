@@ -82,6 +82,11 @@ class Trainer:
         self.val_losses = []
         self.training_start_time = None
         self.current_batch = 0
+        
+        # Timing breakdown
+        self.data_gen_time = 0
+        self.forward_time = 0
+        self.backward_time = 0
     
     def train(
         self,
@@ -94,7 +99,8 @@ class Trainer:
         print_interval: int = 100,
         val_interval: int = None,
         early_stop_loss: float = None,
-        patience: int = 3
+        patience: int = 3,
+        progress_tracker = None  # Optional progress tracker for multi-task training
     ) -> List[float]:
         """
         Train model
@@ -140,6 +146,11 @@ class Trainer:
         self.training_start_time = time.time()
         self.losses = []
         
+        # Reset timing counters
+        self.data_gen_time = 0
+        self.forward_time = 0
+        self.backward_time = 0
+        
         early_stop_counter = 0
         
         for batch_idx in range(num_batches):
@@ -149,6 +160,7 @@ class Trainer:
             snr_for_batch = snr_config.get_snr_for_data_generator()
             
             # Generate data
+            t0_data = time.time()
             y, h_targets, _, _, actual_snr = generate_training_batch(
                 batch_size=batch_size,
                 seq_len=seq_len,
@@ -158,33 +170,57 @@ class Trainer:
                 snr_per_sample=snr_config.per_sample if hasattr(snr_config, 'per_sample') else False,
                 return_complex=False  # Always use real stacked format
             )
+            self.data_gen_time += time.time() - t0_data
             
             # Move to device
             y = y.to(self.device, non_blocking=True)
             h_targets = h_targets.to(self.device, non_blocking=True)
             
-            # Forward + backward
+            # Forward
+            t0_fwd = time.time()
             self.optimizer.zero_grad()
             h_pred = self.model(y)
             loss = calculate_loss(h_pred, h_targets, actual_snr, self.loss_type)
+            self.forward_time += time.time() - t0_fwd
+            
+            # Backward
+            t0_bwd = time.time()
             loss.backward()
             self.optimizer.step()
+            self.backward_time += time.time() - t0_bwd
             
             loss_value = loss.item()
             self.losses.append(loss_value)
             
-            # Print progress
-            if (batch_idx + 1) % print_interval == 0:
+            # Check if progress tracker should report (every 5 minutes)
+            if progress_tracker:
+                progress_tracker.check_and_report()
+            
+            # Print simple progress every 20 batches
+            if (batch_idx + 1) % 20 == 0 or batch_idx == 0:
                 nmse = ((h_pred - h_targets).pow(2).mean() / 
                        h_targets.pow(2).mean()).item()
                 nmse_db = 10 * torch.log10(torch.tensor(nmse))
                 elapsed = time.time() - self.training_start_time
                 
+                # Calculate throughput
+                samples_per_sec = (batch_idx + 1) * batch_size / elapsed if elapsed > 0 else 0
+                
+                # Calculate timing breakdown
+                total_time = self.data_gen_time + self.forward_time + self.backward_time
+                if total_time > 0:
+                    data_pct = 100 * self.data_gen_time / total_time
+                    fwd_pct = 100 * self.forward_time / total_time
+                    bwd_pct = 100 * self.backward_time / total_time
+                    timing_info = f"[Data:{data_pct:.0f}% Fwd:{fwd_pct:.0f}% Bwd:{bwd_pct:.0f}%]"
+                else:
+                    timing_info = ""
+                
                 print(f"  Batch {batch_idx+1}/{num_batches}, "
                       f"SNR:{actual_snr:.1f}dB, "
                       f"Loss:{loss_value:.6f}, "
                       f"NMSE:{nmse_db:.2f}dB, "
-                      f"Time:{elapsed:.1f}s")
+                      f"Throughput:{samples_per_sec:,.0f} samples/s {timing_info}")
             
             # Validation
             if val_interval and (batch_idx + 1) % val_interval == 0:

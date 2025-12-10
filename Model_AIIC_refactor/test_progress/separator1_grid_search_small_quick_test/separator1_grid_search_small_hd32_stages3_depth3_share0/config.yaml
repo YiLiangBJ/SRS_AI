@@ -1,0 +1,25 @@
+model_config:
+  hidden_dim: 32
+  mlp_depth: 3
+  model_type: separator1
+  num_ports: 4
+  num_stages: 3
+  pos_values:
+  - 0
+  - 3
+  - 6
+  - 9
+  seq_len: 12
+  share_weights_across_stages: false
+training_config:
+  batch_size: 32
+  learning_rate: 0.01
+  loss_type: nmse
+  num_batches: 100
+  print_interval: 10
+  snr_config:
+    max: 20
+    min: 10
+    per_sample: false
+    type: range
+  tdl_config: A-30
