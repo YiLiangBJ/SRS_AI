@@ -30,3 +30,18 @@ cuda + compile + amp      [C:✓ A:✓]      32.84s        609238 samples/s    3
    ✅ For production training: use --device cuda (enables both optimizations)
    ✅ For maximum speed: use GPU with all optimizations enabled
    ✅ For debugging: use --no-compile --no-amp or --device cpu
+
+为什么 AMP 反而慢？
+模型太小（156k 参数）
+
+FP16 转换开销 > 计算收益
+小模型不适合混合精度
+Batch size 可能不够大
+
+AMP 适合大 batch（8192+）
+你的 batch_size=?（请检查）
+计算密度低
+
+如果 forward 主要是逐元素操作而非大矩阵乘法
+AMP 收益有限
+
