@@ -107,11 +107,12 @@ class Separator1(BaseSeparatorModel):
                 self.mlp_imag = nn.Sequential(*imag_layers)
             
             def forward(self, x):
-                # x: (B, L) complex
-                x_concat = torch.cat([x.real, x.imag], dim=-1)  # (B, L*2)
-                out_real = self.mlp_real(x_concat)
-                out_imag = self.mlp_imag(x_concat)
-                return torch.complex(out_real, out_imag)
+                # x: (B, L*2) real stacked [r0,i0,r1,i1,...] in interleaved format
+                # Process directly without converting to complex
+                out_real = self.mlp_real(x)  # (B, L)
+                out_imag = self.mlp_imag(x)  # (B, L)
+                # Return in stacked format [r0,i0,r1,i1,...]
+                return torch.cat([out_real, out_imag], dim=-1)  # (B, L*2)
         
         return DualPathMLP(seq_len, hidden_dim, mlp_depth)
     
@@ -120,27 +121,18 @@ class Separator1(BaseSeparatorModel):
         Forward pass with per-port processing and residual refinement
         
         Args:
-            y: (B, L*2) real stacked [y_R; y_I] or (B, L) complex tensor
+            y: (B, L*2) real stacked [y_R; y_I] in interleaved format
+               Expected format: [r0, i0, r1, i1, ..., r(L-1), i(L-1)]
         
         Returns:
-            h: (B, P, L*2) real stacked or (B, P, L) complex
+            h: (B, P, L*2) real stacked in interleaved format
         """
-        # Convert real stacked to complex if needed
-        if y.dtype in [torch.float32, torch.float16, torch.float64]:
-            # Real stacked format: (B, L*2) -> (B, L) complex
-            L = y.shape[-1] // 2
-            y_complex = torch.complex(y[:, :L], y[:, L:])
-            return_real_stacked = True
-        else:
-            # Already complex
-            y_complex = y
-            L = y.shape[-1]
-            return_real_stacked = False
-        
-        B = y_complex.shape[0]
+        B, feature_dim = y.shape
+        # y is already in the right format (B, seq_len*2)
+        # No need to convert to complex and back
         
         # Initialize: all ports start with input y
-        features = y_complex.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L)
+        features = y.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L*2)
         
         # Iterative refinement through stages
         for stage_idx in range(self.num_stages):
@@ -148,7 +140,7 @@ class Separator1(BaseSeparatorModel):
             
             # Process each port independently
             for port_idx in range(self.num_ports):
-                x = features[:, port_idx]  # (B, L)
+                x = features[:, port_idx]  # (B, L*2)
                 
                 # Select MLP based on sharing mode
                 if self.share_weights_across_stages:
@@ -159,19 +151,14 @@ class Separator1(BaseSeparatorModel):
                 output = mlp(x)
                 new_features.append(output)
             
-            features = torch.stack(new_features, dim=1)  # (B, P, L)
+            features = torch.stack(new_features, dim=1)  # (B, P, L*2)
             
             # Residual correction
-            y_recon = features.sum(dim=1)  # (B, L)
-            residual = y_complex - y_recon  # (B, L)
+            y_recon = features.sum(dim=1)  # (B, L*2)
+            residual = y - y_recon  # (B, L*2)
             features = features + residual.unsqueeze(1)  # Broadcast residual
         
-        # Convert back to real stacked if input was real stacked
-        if return_real_stacked:
-            features_real = torch.cat([features.real, features.imag], dim=-1)
-            return features_real
-        else:
-            return features
+        return features  # (B, P, L*2)
     
     @classmethod
     def from_config(cls, config):
