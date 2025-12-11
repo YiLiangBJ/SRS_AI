@@ -91,9 +91,25 @@ class Trainer:
             try:
                 if hasattr(torch, 'compile') and torch.__version__ >= '2.0.0':
                     print("🚀 Compiling model with torch.compile...")
-                    self.model = torch.compile(self.model)
+                    
+                    # ✅ Enable TF32 for better performance (Ampere+ GPUs)
+                    if torch.cuda.is_available():
+                        torch.set_float32_matmul_precision('high')  # Enable TF32
+                        torch.backends.cuda.matmul.allow_tf32 = True
+                        torch.backends.cudnn.allow_tf32 = True
+                        print("   ⚡ TensorFloat32 (TF32) enabled for faster matrix operations")
+                    
+                    # ✅ Compile with optimizations
+                    # mode='reduce-overhead': faster compilation, good performance
+                    # mode='max-autotune': slower compilation, best performance
+                    self.model = torch.compile(
+                        self.model,
+                        mode='reduce-overhead',  # Faster compilation
+                        fullgraph=False  # Allow graph breaks for flexibility
+                    )
                     self.compiled = True
                     print("   ✓ Model compiled successfully")
+                    print("   ℹ️  First few batches will be slower (JIT compilation)")
                 else:
                     print("⚠️  torch.compile not available (requires PyTorch 2.0+)")
             except Exception as e:

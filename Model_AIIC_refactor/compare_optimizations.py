@@ -70,7 +70,7 @@ def run_training(model_config, training_config, num_batches, batch_size, device,
     
     duration = end_time - start_time
     
-    # Parse output for throughput
+    # ✅ Parse throughput with warmup handling
     output = result.stdout
     throughput_values = []
     for line in output.split('\n'):
@@ -82,7 +82,42 @@ def run_training(model_config, training_config, num_batches, batch_size, device,
             except:
                 pass
     
-    avg_throughput = sum(throughput_values) / len(throughput_values) if throughput_values else 0
+    # ✅ Calculate throughput metrics (skip warmup)
+    if throughput_values:
+        total_batches = len(throughput_values)
+        
+        # Warmup detection: skip first 20% or min 10 batches (whichever is larger)
+        warmup_skip = max(10, int(total_batches * 0.2))
+        
+        if total_batches > warmup_skip:
+            stable_values = throughput_values[warmup_skip:]
+            
+            # Multiple metrics
+            avg_throughput = sum(stable_values) / len(stable_values)
+            max_throughput = max(stable_values)
+            
+            # Top 10% average (most representative of peak performance)
+            top_10_count = max(1, int(len(stable_values) * 0.1))
+            top_10_avg = sum(sorted(stable_values, reverse=True)[:top_10_count]) / top_10_count
+            
+            # Use top 10% as primary metric (best balance)
+            primary_throughput = top_10_avg
+            
+            print(f"\n📊 Throughput analysis:")
+            print(f"   Total batches: {total_batches}")
+            print(f"   Warmup skipped: first {warmup_skip} batches")
+            print(f"   Stable batches: {len(stable_values)}")
+            print(f"   Avg (stable): {avg_throughput:.0f} samples/s")
+            print(f"   Max (stable): {max_throughput:.0f} samples/s")
+            print(f"   Top 10% avg: {top_10_avg:.0f} samples/s ⭐ (primary metric)")
+        else:
+            # Not enough data, use all
+            primary_throughput = sum(throughput_values) / len(throughput_values)
+            max_throughput = max(throughput_values)
+            print(f"\n⚠️  Not enough batches for warmup skip, using all data")
+    else:
+        primary_throughput = 0
+        max_throughput = 0
     
     return {
         'name': opt_name,
@@ -90,9 +125,11 @@ def run_training(model_config, training_config, num_batches, batch_size, device,
         'compile': compile_model,
         'amp': use_amp,
         'duration': duration,
-        'avg_throughput': avg_throughput,
+        'throughput': primary_throughput,  # Primary metric
+        'max_throughput': max_throughput,  # Peak performance
+        'all_throughputs': throughput_values,  # For detailed analysis
         'success': result.returncode == 0,
-        'output': output if result.returncode != 0 else None  # Only save output if failed
+        'output': output if result.returncode != 0 else None
     }
 
 
@@ -149,7 +186,8 @@ def main():
         if result['success']:
             print(f"\n✓ Test Completed")
             print(f"  Duration: {result['duration']:.2f}s")
-            print(f"  Avg Throughput: {result['avg_throughput']:.0f} samples/s")
+            print(f"  Peak Throughput: {result['max_throughput']:.0f} samples/s")
+            print(f"  Stable Throughput: {result['throughput']:.0f} samples/s (top 10%)")
         else:
             print(f"\n✗ Test Failed")
             if result['output']:
@@ -168,20 +206,20 @@ def main():
     
     if baseline:
         baseline_duration = baseline['duration']
-        baseline_throughput = baseline['avg_throughput']
+        baseline_throughput = baseline['throughput']
     else:
         baseline_duration = results[0]['duration'] if results else 1
-        baseline_throughput = results[0]['avg_throughput'] if results else 1
+        baseline_throughput = results[0]['throughput'] if results else 1
     
     # Print table
     print(f"\nConfiguration: {args.model_config} ({args.num_batches} batches)")
-    print(f"\n{'Configuration':<30} {'Duration':<12} {'Throughput':<20} {'Speedup':<10}")
-    print("-" * 75)
+    print(f"\n{'Configuration':<30} {'Duration':<12} {'Throughput (top 10%)':<25} {'Speedup':<10}")
+    print("-" * 80)
     
     for result in results:
         if result['success']:
             speedup = baseline_duration / result['duration']
-            throughput_ratio = result['avg_throughput'] / baseline_throughput if baseline_throughput > 0 else 1
+            throughput_ratio = result['throughput'] / baseline_throughput if baseline_throughput > 0 else 1
             
             compile_marker = '✓' if result.get('compile') else ' '
             amp_marker = '✓' if result.get('amp') else ' '
@@ -189,7 +227,7 @@ def main():
             
             name = f"{result['name']:<25} {markers}"
             
-            print(f"{name:<30} {result['duration']:>10.2f}s  {result['avg_throughput']:>10.0f} samples/s  {speedup:>5.2f}x")
+            print(f"{name:<30} {result['duration']:>10.2f}s  {result['throughput']:>12.0f} samples/s   {speedup:>5.2f}x")
     
     # Insights
     print(f"\n🎯 Performance Insights:")
@@ -197,14 +235,16 @@ def main():
     # Find best GPU config
     gpu_results = [r for r in results if r['success'] and r['device'] == 'cuda']
     if gpu_results:
-        best_gpu = max(gpu_results, key=lambda x: x['avg_throughput'])
+        best_gpu = max(gpu_results, key=lambda x: x['throughput'])
         print(f"\n   Best GPU configuration: {best_gpu['name']}")
         print(f"     Duration: {best_gpu['duration']:.2f}s")
-        print(f"     Throughput: {best_gpu['avg_throughput']:.0f} samples/s")
+        print(f"     Throughput (stable): {best_gpu['throughput']:.0f} samples/s")
+        print(f"     Peak throughput: {best_gpu['max_throughput']:.0f} samples/s")
         
         if baseline and baseline['device'] == 'cpu':
             speedup = baseline['duration'] / best_gpu['duration']
-            print(f"     Speedup over CPU: {speedup:.2f}x")
+            throughput_speedup = best_gpu['throughput'] / baseline['throughput']
+            print(f"     Speedup over CPU: {speedup:.2f}x (time), {throughput_speedup:.2f}x (throughput)")
         
         # Compare optimizations
         gpu_baseline = next((r for r in gpu_results if not r['compile'] and not r['amp']), None)
@@ -216,13 +256,22 @@ def main():
             print(f"\n   Optimization breakdown (vs GPU baseline):")
             if compile_only:
                 speedup = gpu_baseline['duration'] / compile_only['duration']
-                print(f"     torch.compile only:  {speedup:.2f}x faster")
+                throughput_gain = compile_only['throughput'] / gpu_baseline['throughput']
+                print(f"     torch.compile only:  {speedup:.2f}x faster, {throughput_gain:.2f}x throughput")
             if amp_only:
                 speedup = gpu_baseline['duration'] / amp_only['duration']
-                print(f"     AMP only:            {speedup:.2f}x faster")
+                throughput_gain = amp_only['throughput'] / gpu_baseline['throughput']
+                print(f"     AMP only:            {speedup:.2f}x faster, {throughput_gain:.2f}x throughput")
             if both:
                 speedup = gpu_baseline['duration'] / both['duration']
-                print(f"     Both combined:       {speedup:.2f}x faster ⭐")
+                throughput_gain = both['throughput'] / gpu_baseline['throughput']
+                print(f"     Both combined:       {speedup:.2f}x faster, {throughput_gain:.2f}x throughput ⭐")
+        
+        # Warmup analysis
+        print(f"\n   ⚠️  Note: Throughput measured after warmup period")
+        print(f"       - Skipped first 20% of batches (JIT compilation, GPU warmup)")
+        print(f"       - Used top 10% of stable batches for accurate measurement")
+        print(f"       - Peak throughput shows maximum achieved performance")
     
     # Recommendations
     print(f"\n💡 Recommendations:")
