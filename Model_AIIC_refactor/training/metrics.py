@@ -40,7 +40,7 @@ def calculate_nmse_db(pred: torch.Tensor, target: torch.Tensor) -> float:
 
 def calculate_per_port_nmse(pred: torch.Tensor, target: torch.Tensor) -> List[float]:
     """
-    Calculate NMSE for each port separately
+    Calculate NMSE for each port separately (✅ Vectorized)
     
     Args:
         pred: (B, P, L*2) predicted channels
@@ -49,16 +49,12 @@ def calculate_per_port_nmse(pred: torch.Tensor, target: torch.Tensor) -> List[fl
     Returns:
         nmse_list: List of NMSE values for each port
     """
-    num_ports = pred.shape[1]
-    nmse_list = []
+    # ✅ Vectorized: compute all ports at once
+    mse = (pred - target).pow(2).mean(dim=(0, 2))  # (P,)
+    target_power = target.pow(2).mean(dim=(0, 2))  # (P,)
+    nmse = mse / (target_power + 1e-10)  # (P,)
     
-    for p in range(num_ports):
-        mse = (pred[:, p] - target[:, p]).pow(2).mean()
-        target_power = target[:, p].pow(2).mean()
-        nmse = mse / (target_power + 1e-10)
-        nmse_list.append(nmse.item())
-    
-    return nmse_list
+    return nmse.tolist()  # Convert to Python list
 
 
 def calculate_per_port_nmse_db(pred: torch.Tensor, target: torch.Tensor) -> List[float]:

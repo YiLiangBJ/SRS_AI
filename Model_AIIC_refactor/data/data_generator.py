@@ -21,7 +21,8 @@ def generate_training_batch(
     tdl_config: Union[str, List[str]] = 'A-30',
     snr_sampler = None,
     snr_per_sample: bool = False,
-    return_complex: bool = False
+    return_complex: bool = False,
+    device: str = 'cpu'  # ✅ NEW: GPU support
 ) -> Tuple[torch.Tensor, torch.Tensor, List[int], torch.Tensor, float]:
     """
     Generate a batch of training data with TDL channel and SNR control
@@ -41,6 +42,7 @@ def generate_training_batch(
         snr_sampler: Optional SNRSampler for smart sampling (stratified/round-robin)
         snr_per_sample: If True, each sample gets different SNR (for SNR-invariant learning)
         return_complex: If True, return complex tensors; else real stacked [real; imag]
+        device: Device to generate data on ('cpu', 'cuda', 'cuda:0', etc.) ✅ NEW
     
     Returns:
         y: Mixed signal
@@ -80,8 +82,8 @@ def generate_training_batch(
     Tc = 1.0 / (480e3 * 4096)  # 3GPP basic time unit (~0.509 ns)
     Ts = 1.0 / (scs * Ktc * seq_len)  # Sampling interval
     
-    # Random timing offsets: ±256*Tc for each port and sample
-    timing_offset_Tc = np.random.uniform(-256, 256, (batch_size, num_ports))
+    # ✅ Generate timing offsets directly on device (uniform distribution)
+    timing_offset_Tc = (torch.rand(batch_size, num_ports, device=device) * 512 - 256)
     timing_offset_samples = timing_offset_Tc * Tc / Ts
     
     # Parse TDL configuration
@@ -95,13 +97,16 @@ def generate_training_batch(
     
     # Generate TDL channel
     try:
-        from Model_AIIC.tdl_channel import TDLChannel
+        from data.tdl_channel import TDLChannel  # ✅ Use local version
     except ImportError:
         # Fallback: try parent directory
-        import sys
-        import os
-        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from Model_AIIC.tdl_channel import TDLChannel
+        try:
+            from Model_AIIC.tdl_channel import TDLChannel
+        except ImportError:
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from Model_AIIC.tdl_channel import TDLChannel
     
     tdl = TDLChannel(
         model=tdl_model,
@@ -116,39 +121,42 @@ def generate_training_batch(
         num_ports=num_ports,
         seq_len=seq_len,
         sampling_rate=sampling_rate,
-        return_torch=True
+        return_torch=True,
+        device=device  # ✅ Generate directly on GPU
     )
+    # ✅ No need to move - already on device!
     
     # Apply timing offset via frequency domain phase rotation
     H_fft = torch.fft.fft(h_base, dim=-1)
-    k = torch.arange(seq_len, dtype=torch.float32)
-    timing_offset_tensor = torch.from_numpy(timing_offset_samples).float()
+    k = torch.arange(seq_len, dtype=torch.float32, device=device)  # ✅ On device
+    # ✅ timing_offset_samples already on device, no conversion needed
     phase_shift = torch.exp(
-        1j * 2 * np.pi * k[None, None, :] * timing_offset_tensor[:, :, None] / seq_len
+        1j * 2 * np.pi * k[None, None, :] * timing_offset_samples[:, :, None] / seq_len
     )
     H_shifted = H_fft * phase_shift.to(torch.complex64)
     h_base = torch.fft.ifft(H_shifted, dim=-1)
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Generate noise (unit power)
+    # Generate noise (unit power) ✅ Directly on device
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
-    noise = (torch.randn(batch_size, seq_len) + 1j * torch.randn(batch_size, seq_len))
+    noise = (torch.randn(batch_size, seq_len, device=device) + 
+             1j * torch.randn(batch_size, seq_len, device=device))
     noise = noise / noise.abs().pow(2).mean().sqrt()
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Adjust signal power based on SNR
+    # Adjust signal power based on SNR ✅ Vectorized on device
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     if isinstance(snr_db, tuple) and len(snr_db) == 2:
         snr_min, snr_max = snr_db
         
         if snr_per_sample:
-            # Per-sample SNR: each sample gets different SNR
-            sample_snrs = np.random.uniform(snr_min, snr_max, batch_size)
-            signal_powers = torch.tensor([10 ** (snr / 10) for snr in sample_snrs])
+            # Per-sample SNR: each sample gets different SNR ✅ Vectorized
+            sample_snrs_np = np.random.uniform(snr_min, snr_max, batch_size)
+            signal_powers = torch.tensor(10 ** (sample_snrs_np / 10), device=device)
             h_true = h_base * signal_powers.sqrt().view(batch_size, 1, 1)
-            actual_snr = float(np.mean(sample_snrs))
+            actual_snr = float(sample_snrs_np.mean())
         else:
             # Per-batch SNR: all samples get same SNR
             if snr_sampler is not None:
@@ -156,34 +164,34 @@ def generate_training_batch(
             else:
                 batch_snr = np.random.uniform(snr_min, snr_max)
             
-            signal_power = torch.tensor(10 ** (batch_snr / 10))
+            signal_power = torch.tensor(10 ** (batch_snr / 10), device=device)
             h_true = h_base * signal_power.sqrt()
             actual_snr = batch_snr
     
     elif isinstance(snr_db, list):
         if len(snr_db) == num_ports:
-            # Per-port SNR
-            signal_powers = torch.tensor([10 ** (snr / 10) for snr in snr_db])
+            # Per-port SNR ✅ Vectorized
+            signal_powers = torch.tensor([10 ** (snr / 10) for snr in snr_db], device=device)
             h_true = h_base * signal_powers.sqrt().view(1, num_ports, 1)
             actual_snr = sum(snr_db) / len(snr_db)
         else:
             # Random selection from list
             batch_snr = np.random.choice(snr_db)
-            signal_power = torch.tensor(10 ** (batch_snr / 10))
+            signal_power = torch.tensor(10 ** (batch_snr / 10), device=device)
             h_true = h_base * signal_power.sqrt()
             actual_snr = batch_snr
     
     else:
         # Scalar SNR
-        signal_power = torch.tensor(10 ** (snr_db / 10))
+        signal_power = torch.tensor(10 ** (snr_db / 10), device=device)
         h_true = h_base * signal_power.sqrt()
         actual_snr = float(snr_db)
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # Create mixed signal with circular shifts
+    # Create mixed signal with circular shifts ✅ Vectorized, on device
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
-    y_clean = torch.zeros(batch_size, seq_len, dtype=torch.complex64)
+    y_clean = torch.zeros(batch_size, seq_len, dtype=torch.complex64, device=device)
     h_targets = []
     
     for i, pos in enumerate(pos_values):

@@ -15,7 +15,7 @@ training_config:
   batch_size: 32
   learning_rate: 0.01
   loss_type: nmse
-  num_batches: 50
+  num_batches: 20
   print_interval: 10
   snr_config:
     max: 20

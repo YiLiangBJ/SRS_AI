@@ -1,0 +1,320 @@
+"""
+Custom TDL (Tapped Delay Line) Channel Model
+Based on 3GPP TR 38.901
+
+Pure NumPy implementation with independent fading per sample.
+No Doppler correlation - each time sample has independent random phase.
+"""
+
+import numpy as np
+import torch
+from typing import Optional, Union
+
+
+class TDLChannel:
+    """
+    TDL Channel Model from 3GPP TR 38.901
+    
+    Generates time-domain channel impulse responses with independent fading.
+    Each sample has independent random phases (no time correlation).
+    
+    Supports TDL-A, TDL-B, and TDL-C models with accurate normalized delays.
+    
+    Args:
+        model: TDL model type ('A', 'B', or 'C')
+        delay_spread: RMS delay spread in seconds (e.g., 30e-9 for 30ns)
+                     Actual delays = normalized_delay × delay_spread
+                     Max delay = max_normalized_delay × delay_spread
+                     (e.g., TDL-C: max_delay = 8.6523 × 30ns = 259.569ns)
+        carrier_frequency: Carrier frequency in Hz (e.g., 3.5e9 for 3.5 GHz)
+        normalize: Normalize channel to unit power
+    """
+    
+    # TDL-A model parameters from 3GPP TR 38.901 Table 7.7.2-1
+    # Normalized delays (when RMS delay spread = 1ns)
+    TDL_A_NORMALIZED_DELAYS = np.array([
+        0.0000, 0.3819, 0.4025, 0.5868, 0.4610, 0.5375, 0.6708, 0.5750,
+        0.7618, 1.5375, 1.8978, 2.2242, 2.1718, 2.4942, 2.5119, 3.0582,
+        4.0810, 4.4579, 4.5695, 4.7966, 5.0066, 5.3043, 9.6586
+    ])
+    
+    TDL_A_POWERS_DB = np.array([
+        -13.4, 0, -2.2, -4.0, -6.0, -8.2, -9.9, -10.5, -7.5, -15.9,
+        -6.6, -16.7, -12.4, -15.2, -10.8, -11.3, -12.7, -16.2, -18.3,
+        -18.9, -16.6, -19.9, -29.7
+    ])
+    
+    # TDL-B model parameters from 3GPP TR 38.901 Table 7.7.2-2
+    # Normalized delays (when RMS delay spread = 1ns)
+    TDL_B_NORMALIZED_DELAYS = np.array([
+        0.0000, 0.1072, 0.2155, 0.2095, 0.2870, 0.2986, 0.3752, 0.5055,
+        0.3681, 0.3697, 0.5700, 0.5283, 1.1021, 1.2756, 1.5474, 1.7842,
+        2.0169, 2.8294, 3.0219, 3.6187, 4.1067, 4.2790, 4.7834
+    ])
+    
+    TDL_B_POWERS_DB = np.array([
+        0.0, -2.2, -4.0, -3.2, -9.8, -1.2, -3.4, -5.2, -7.6, -3.0,
+        -8.9, -9.0, -4.8, -5.7, -7.5, -1.9, -7.6, -12.2, -9.8, -11.4,
+        -14.9, -9.2, -11.3
+    ])
+    
+    # TDL-C model parameters from 3GPP TR 38.901 Table 7.7.2-3
+    # Normalized delays (when RMS delay spread = 1ns)
+    TDL_C_NORMALIZED_DELAYS = np.array([
+        0.0000, 0.2099, 0.2219, 0.2329, 0.2176, 0.6366, 0.6448, 0.6560,
+        0.6584, 0.7935, 0.8213, 0.9336, 1.2285, 1.3083, 2.1704, 2.7105,
+        4.2589, 4.6003, 5.4902, 5.6077, 6.3065, 6.6374, 7.0427, 8.6523
+    ])
+    
+    TDL_C_POWERS_DB = np.array([
+        -4.4, -1.2, -3.5, -5.2, -2.5, 0.0, -2.2, -3.9, -7.4, -7.1,
+        -10.7, -11.1, -5.1, -6.8, -8.7, -13.2, -13.9, -13.9, -15.8,
+        -17.1, -16.0, -15.7, -21.6, -22.8
+    ])
+    
+    MODELS = {
+        'A': (TDL_A_NORMALIZED_DELAYS, TDL_A_POWERS_DB),
+        'B': (TDL_B_NORMALIZED_DELAYS, TDL_B_POWERS_DB),
+        'C': (TDL_C_NORMALIZED_DELAYS, TDL_C_POWERS_DB),
+    }
+    
+    def __init__(
+        self,
+        model: str = 'A',
+        delay_spread: float = 30e-9,
+        carrier_frequency: float = 3.5e9,
+        normalize: bool = True
+    ):
+        """
+        Initialize TDL channel
+        
+        Args:
+            model: 'A', 'B', or 'C' (from 3GPP TR 38.901 Table 7.7.2-{1,2,3})
+            delay_spread: RMS delay spread in seconds (e.g., 30e-9 for 30ns)
+                         This is the RMS value, not the maximum delay
+            carrier_frequency: Carrier frequency in Hz (e.g., 3.5e9 for 3.5 GHz)
+            normalize: Normalize channel to unit power
+        """
+        if model not in self.MODELS:
+            raise ValueError(f"Model must be one of {list(self.MODELS.keys())}, got {model}")
+        
+        self.model = model
+        self.delay_spread = delay_spread
+        self.carrier_frequency = carrier_frequency
+        self.normalize = normalize
+        
+        # Get model parameters
+        normalized_delays, powers_db = self.MODELS[model]
+        
+        # Calculate actual delays
+        # normalized_delays are for RMS delay spread = 1ns
+        # Actual delays = normalized_delays × delay_spread
+        # Example: if delay_spread = 30ns, max delay for TDL-C = 8.6523 × 30ns = 259.569ns
+        self.delays = normalized_delays * delay_spread
+        
+        # Convert power from dB to linear
+        self.powers = 10 ** (powers_db / 10)
+        
+        # Normalize power to sum to 1
+        if self.normalize:
+            self.powers = self.powers / self.powers.sum()
+        
+        self.num_paths = len(self.delays)
+    
+    def generate(
+        self,
+        batch_size: int,
+        num_ports: int,
+        seq_len: int,
+        sampling_rate: float,
+        return_torch: bool = True
+    ) -> Union[torch.Tensor, np.ndarray]:
+        """
+        Generate independent TDL channel realizations with Rayleigh fading
+        
+        Each path has:
+        - Power from the model specification
+        - Rayleigh fading: h_n = sqrt(P_n) * (1/sqrt(2)) * (X_n + j*Y_n)
+          where X_n, Y_n ~ N(0,1) are independent Gaussian
+        
+        Multiple paths may fall on the same delay tap (when delay < sampling period),
+        in which case they are summed (coherent addition).
+        
+        Args:
+            batch_size: Number of independent realizations
+            num_ports: Number of antenna ports
+            seq_len: Number of time samples
+            sampling_rate: Sampling rate in Hz
+            return_torch: If True, return torch.Tensor, else np.ndarray
+        
+        Returns:
+            h: Channel impulse response
+               Shape: (batch_size, num_ports, seq_len)
+               Type: complex64
+        """
+        dt = 1.0 / sampling_rate
+        
+        # Initialize output
+        h = np.zeros((batch_size, num_ports, seq_len), dtype=np.complex64)
+        
+        # Delay indices for each path
+        delay_indices = np.round(self.delays / dt).astype(int)
+        
+        # Filter valid delays (within seq_len)
+        valid_mask = delay_indices < seq_len
+        valid_delays = delay_indices[valid_mask]
+        valid_powers = self.powers[valid_mask]
+        
+        # For each batch and port, generate independent Rayleigh fading
+        for b in range(batch_size):
+            for p in range(num_ports):
+                # Rayleigh fading: complex Gaussian with variance = power
+                # h_n = sqrt(P_n) * (1/sqrt(2)) * (X + jY), where X,Y ~ N(0,1)
+                real_part = np.random.randn(len(valid_delays))
+                imag_part = np.random.randn(len(valid_delays))
+                
+                # Complex gains with correct power scaling
+                gains = np.sqrt(valid_powers / 2) * (real_part + 1j * imag_part)
+                
+                # Accumulate gains at delay taps (multiple paths may map to same tap)
+                for delay_idx, gain in zip(valid_delays, gains):
+                    h[b, p, delay_idx] += gain
+        
+        # Convert to torch if requested
+        if return_torch:
+            h = torch.from_numpy(h)
+        
+        return h
+    
+    def generate_batch_parallel(
+        self,
+        batch_size: int,
+        num_ports: int,
+        seq_len: int,
+        sampling_rate: float,
+        return_torch: bool = True,
+        device: str = 'cpu'  # ✅ NEW: GPU support
+    ) -> Union[torch.Tensor, np.ndarray]:
+        """
+        Parallel vectorized generation with Rayleigh fading (faster for large batches)
+        ✅ GPU-accelerated when device='cuda'
+        
+        Each path undergoes Rayleigh fading:
+        h_n = sqrt(P_n/2) * (X_n + j*Y_n), where X_n, Y_n ~ N(0,1)
+        
+        Multiple paths falling on the same delay tap are accumulated.
+        
+        Args:
+            device: Device to generate on ('cpu', 'cuda', 'cuda:0', etc.) ✅ NEW
+        """
+        dt = 1.0 / sampling_rate
+        
+        # Delay indices (CPU computation for control logic)
+        delay_indices = np.round(self.delays / dt).astype(int)
+        valid_mask = delay_indices < seq_len
+        valid_delays = delay_indices[valid_mask]
+        valid_powers = self.powers[valid_mask]
+        
+        # ✅ Generate directly on device
+        # Initialize output on device
+        h = torch.zeros(batch_size, num_ports, seq_len, dtype=torch.complex64, device=device)
+        
+        # Generate Rayleigh fading coefficients on device
+        # Shape: (batch_size, num_ports, num_valid_paths)
+        real_part = torch.randn(batch_size, num_ports, len(valid_delays), device=device)
+        imag_part = torch.randn(batch_size, num_ports, len(valid_delays), device=device)
+        
+        # Convert powers to tensor on device
+        valid_powers_tensor = torch.from_numpy(valid_powers).to(device)
+        
+        # Complex gains with correct power scaling
+        # h_n = sqrt(P_n/2) * (X + jY)
+        gains = torch.sqrt(valid_powers_tensor[None, None, :] / 2) * (real_part + 1j * imag_part)
+        
+        # Accumulate gains at delay taps (use += for paths on same tap)
+        for path_idx, delay_idx in enumerate(valid_delays):
+            h[:, :, delay_idx] += gains[:, :, path_idx]
+        
+        # Convert to numpy if requested (otherwise return torch tensor on device)
+        if not return_torch:
+            h = h.cpu().numpy()
+        
+        return h
+
+
+def test_tdl_channel():
+    """Test TDL channel generation with Rayleigh fading"""
+    print("Testing TDL Channel Models (with Rayleigh Fading)")
+    print("=" * 80)
+    
+    # Test parameters
+    batch_size = 2048
+    num_ports = 4
+    seq_len = 12
+    scs = 30e3
+    Ktc = 4
+    sampling_rate = scs * Ktc * seq_len
+    dt = 1.0 / sampling_rate
+    
+    for model in ['A', 'B', 'C']:
+        print(f"\nTDL-{model}:")
+        
+        # Create channel
+        tdl = TDLChannel(
+            model=model,
+            delay_spread=30e-9,
+            carrier_frequency=3.5e9,
+            normalize=True
+        )
+        
+        # Calculate delay statistics
+        delay_indices = np.round(tdl.delays / dt).astype(int)
+        valid_mask = delay_indices < seq_len
+        valid_delays = delay_indices[valid_mask]
+        unique_delays = np.unique(valid_delays)
+        
+        print(f"  Number of paths: {tdl.num_paths}")
+        print(f"  RMS delay spread: {tdl.delay_spread*1e9:.1f} ns")
+        print(f"  Max delay: {tdl.delays.max()*1e9:.1f} ns ({tdl.delays.max()/tdl.delay_spread:.2f} × RMS)")
+        print(f"  Sampling period: {dt*1e9:.2f} ns")
+        print(f"  Paths within seq_len: {valid_mask.sum()}/{tdl.num_paths}")
+        print(f"  Unique delay taps used: {len(unique_delays)} (some paths may overlap)")
+        print(f"  Total power: {tdl.powers.sum():.4f}")
+        
+        # Generate channels
+        import time
+        start = time.time()
+        h = tdl.generate_batch_parallel(
+            batch_size=batch_size,
+            num_ports=num_ports,
+            seq_len=seq_len,
+            sampling_rate=sampling_rate,
+            return_torch=True
+        )
+        elapsed = time.time() - start
+        
+        print(f"  Generation time: {elapsed*1000:.2f} ms")
+        print(f"  Throughput: {batch_size*num_ports/elapsed:.0f} channels/s")
+        print(f"  Output shape: {h.shape}")
+        print(f"  Mean power: {h.abs().pow(2).mean():.4f} (should be ~1.0)")
+        print(f"  Power std: {h.abs().pow(2).std():.4f}")
+        
+        # Verify Rayleigh statistics (check first non-zero tap)
+        h_np = h.numpy()
+        first_tap = h_np[:, :, unique_delays[0]].flatten()
+        # For Rayleigh: E[|h|^2] should equal the power
+        first_tap_power = np.abs(first_tap)**2
+        print(f"  First tap |h|^2 mean: {first_tap_power.mean():.4f}")
+        print(f"  First tap |h|^2 std: {first_tap_power.std():.4f}")
+        
+        # Verify independence (check different samples)
+        if batch_size >= 2:
+            # Correlation between different batch samples (should be ~0)
+            sample1 = h_np[0, 0, :].flatten()
+            sample2 = h_np[1, 0, :].flatten()
+            corr = np.corrcoef(sample1.real, sample2.real)[0, 1]
+            print(f"  Batch independence: corr={corr:.4f} (should be ~0)")
+
+
+if __name__ == "__main__":
+    test_tdl_channel()

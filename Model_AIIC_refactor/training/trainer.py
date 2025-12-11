@@ -159,7 +159,7 @@ class Trainer:
             # Get SNR for this batch
             snr_for_batch = snr_config.get_snr_for_data_generator()
             
-            # Generate data
+            # Generate data ✅ Directly on device
             t0_data = time.time()
             y, h_targets, _, _, actual_snr = generate_training_batch(
                 batch_size=batch_size,
@@ -168,13 +168,13 @@ class Trainer:
                 snr_db=snr_for_batch,
                 tdl_config=tdl_config,
                 snr_per_sample=snr_config.per_sample if hasattr(snr_config, 'per_sample') else False,
-                return_complex=False  # Always use real stacked format
+                return_complex=False,  # Always use real stacked format
+                device=self.device  # ✅ Generate directly on device (GPU/CPU)
             )
             self.data_gen_time += time.time() - t0_data
             
-            # Move to device
-            y = y.to(self.device, non_blocking=True)
-            h_targets = h_targets.to(self.device, non_blocking=True)
+            # ✅ No need to move to device - already there!
+            # y and h_targets are already on self.device
             
             # Forward
             t0_fwd = time.time()
@@ -272,11 +272,11 @@ class Trainer:
                 pos_values=pos_values,
                 snr_db=snr_db,
                 tdl_config=tdl_config,
-                return_complex=False
+                return_complex=False,
+                device=self.device  # ✅ Generate on device
             )
             
-            y = y.to(self.device)
-            h_targets = h_targets.to(self.device)
+            # ✅ No need to move - already on device
             
             h_pred = self.model(y)
             loss = calculate_loss(h_pred, h_targets, actual_snr, self.loss_type)
@@ -313,11 +313,11 @@ class Trainer:
                 pos_values=pos_values,
                 snr_db=snr_db,
                 tdl_config=tdl_config,
-                return_complex=False
+                return_complex=False,
+                device=self.device  # ✅ Generate on device
             )
             
-            y = y.to(self.device)
-            h_targets = h_targets.to(self.device)
+            # ✅ No need to move - already on device
             
             h_pred = self.model(y)
             
