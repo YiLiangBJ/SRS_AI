@@ -124,6 +124,13 @@ def main():
     parser.add_argument('--save_dir', type=str, default='./experiments_refactored',
                        help='Directory to save models')
     
+    # ✅ NEW: Performance optimization options
+    parser.add_argument('--no-amp', dest='use_amp', action='store_false',
+                       help='Disable mixed precision training (FP16)')
+    parser.add_argument('--no-compile', dest='compile_model', action='store_false',
+                       help='Disable model compilation (torch.compile)')
+    parser.set_defaults(use_amp=True, compile_model=True)
+    
     args = parser.parse_args()
     
     # Load configurations
@@ -282,7 +289,9 @@ def main():
                     model=model,
                     learning_rate=training_config.get('learning_rate', 0.01),
                     loss_type=training_config.get('loss_type', 'nmse'),
-                    device=device
+                    device=device,
+                    use_amp=args.use_amp,  # ✅ Mixed precision
+                    compile_model=args.compile_model  # ✅ Model compilation
                 )
                 
                 # Train

@@ -21,6 +21,13 @@ except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from data import generate_training_batch
 
+# ✅ Mixed Precision Training support
+try:
+    from torch.cuda.amp import autocast, GradScaler
+    AMP_AVAILABLE = True
+except ImportError:
+    AMP_AVAILABLE = False
+
 
 class Trainer:
     """
@@ -50,7 +57,9 @@ class Trainer:
         model: nn.Module,
         learning_rate: float = 0.01,
         loss_type: str = 'nmse',
-        device: Union[str, torch.device] = 'auto'
+        device: Union[str, torch.device] = 'auto',
+        use_amp: bool = True,  # ✅ NEW: Mixed precision
+        compile_model: bool = True  # ✅ NEW: Model compilation
     ):
         """
         Initialize trainer
@@ -60,6 +69,8 @@ class Trainer:
             learning_rate: Learning rate for optimizer
             loss_type: Loss function type ('nmse', 'weighted', 'log', 'normalized')
             device: Device ('auto', 'cpu', 'cuda', or torch.device)
+            use_amp: Use automatic mixed precision (GPU only) ✅ NEW
+            compile_model: Compile model with torch.compile (GPU only, PyTorch 2.0+) ✅ NEW
         """
         self.model = model
         self.loss_type = loss_type
@@ -73,6 +84,32 @@ class Trainer:
             self.device = device
         
         self.model = self.model.to(self.device)
+        
+        # ✅ Model compilation (GPU only, PyTorch 2.0+)
+        self.compiled = False
+        if compile_model and self.device.type == 'cuda':
+            try:
+                if hasattr(torch, 'compile') and torch.__version__ >= '2.0.0':
+                    print("🚀 Compiling model with torch.compile...")
+                    self.model = torch.compile(self.model)
+                    self.compiled = True
+                    print("   ✓ Model compiled successfully")
+                else:
+                    print("⚠️  torch.compile not available (requires PyTorch 2.0+)")
+            except Exception as e:
+                print(f"⚠️  Model compilation failed: {e}")
+        elif compile_model and self.device.type == 'cpu':
+            print("ℹ️  Model compilation skipped (CPU mode, limited benefit)")
+        
+        # ✅ Mixed precision training (GPU only)
+        self.use_amp = use_amp and self.device.type == 'cuda' and AMP_AVAILABLE
+        if self.use_amp:
+            self.scaler = GradScaler()
+            print("⚡ Mixed precision training enabled (FP16)")
+        elif use_amp and self.device.type == 'cpu':
+            print("ℹ️  Mixed precision skipped (CPU mode not supported)")
+        elif use_amp and not AMP_AVAILABLE:
+            print("⚠️  Mixed precision not available (update PyTorch)")
         
         # Setup optimizer
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -176,18 +213,34 @@ class Trainer:
             # ✅ No need to move to device - already there!
             # y and h_targets are already on self.device
             
-            # Forward
+            # Forward + Backward with optional mixed precision
             t0_fwd = time.time()
             self.optimizer.zero_grad()
-            h_pred = self.model(y)
-            loss = calculate_loss(h_pred, h_targets, actual_snr, self.loss_type)
-            self.forward_time += time.time() - t0_fwd
             
-            # Backward
-            t0_bwd = time.time()
-            loss.backward()
-            self.optimizer.step()
-            self.backward_time += time.time() - t0_bwd
+            if self.use_amp:
+                # ✅ Mixed precision training (FP16)
+                with autocast():
+                    h_pred = self.model(y)
+                    loss = calculate_loss(h_pred, h_targets, actual_snr, self.loss_type)
+                self.forward_time += time.time() - t0_fwd
+                
+                # Backward with gradient scaling
+                t0_bwd = time.time()
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+                self.backward_time += time.time() - t0_bwd
+            else:
+                # ✅ Standard FP32 training
+                h_pred = self.model(y)
+                loss = calculate_loss(h_pred, h_targets, actual_snr, self.loss_type)
+                self.forward_time += time.time() - t0_fwd
+                
+                # Backward
+                t0_bwd = time.time()
+                loss.backward()
+                self.optimizer.step()
+                self.backward_time += time.time() - t0_bwd
             
             loss_value = loss.item()
             self.losses.append(loss_value)
