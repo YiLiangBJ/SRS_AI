@@ -439,9 +439,18 @@ class Trainer:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         
+        # ✅ Get original model (handle torch.compile() wrapper)
+        if hasattr(self.model, '_orig_mod'):
+            # Model is compiled with torch.compile(), use the original
+            original_model = self.model._orig_mod
+        else:
+            # Model is not compiled
+            original_model = self.model
+        
+        # ✅ Save original model's state_dict (without _orig_mod prefix)
         checkpoint = {
-            'model_state_dict': self.model.state_dict(),
-            'model_info': self.model.get_model_info(),
+            'model_state_dict': original_model.state_dict(),
+            'model_info': original_model.get_model_info() if hasattr(original_model, 'get_model_info') else {},
             'optimizer_state_dict': self.optimizer.state_dict(),
             'losses': self.losses,
             'val_losses': self.val_losses,

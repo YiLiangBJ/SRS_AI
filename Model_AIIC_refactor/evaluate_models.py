@@ -92,8 +92,15 @@ def load_model(model_dir, device='cpu'):
         config=config
     )
     
-    # 加载权重
-    model.load_state_dict(checkpoint['model_state_dict'])
+    # ✅ 加载权重（处理 torch.compile 的 _orig_mod 前缀）
+    state_dict = checkpoint['model_state_dict']
+    
+    # Remove _orig_mod. prefix if present (from torch.compile)
+    if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
+        state_dict = {key.replace('_orig_mod.', ''): value 
+                     for key, value in state_dict.items()}
+    
+    model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
     
