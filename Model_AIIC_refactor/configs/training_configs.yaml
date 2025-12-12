@@ -40,6 +40,7 @@ snr_discrete_5_25_perbatch:
     
     # Data generation - SNR configuration
     snr_config:
+      type: discrete
       values: [5, 25]  # Only these specific SNR values
       per_sample: false
     
