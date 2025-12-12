@@ -1,7 +1,7 @@
 # Training configurations
 
 # Default training configuration
-default:
+snr_range_0_30_perSample:
   fixed_params:
     batch_size: 4096
     num_batches: 100000
@@ -16,6 +16,32 @@ default:
       per_sample: true        # Per-batch SNR (better for specific SNR learning)
       sampling: stratified     # uniform, stratified, round_robin (for range type)
       num_bins: 10             # Number of bins for stratified sampling
+    
+    # Channel configuration
+    tdl_config: [A-30, B-100, C-300]          # TDL-A with 30ns delay spread
+    
+    # Early stopping
+    early_stop_loss: 0.001  # Stop if loss below this value
+    validation_interval: 100  # Validate every N batches
+    patience: 5  # Number of validations meeting early stop
+    
+    # Logging
+    print_interval: 100
+    save_interval: 1000
+  search_space:
+    loss_type: [nmse, weighted, log, normalized]
+
+snr_discrete_5_25_perbatch:
+  fixed_params:
+    batch_size: 4096
+    num_batches: 100000
+    learning_rate: 0.01
+    # loss_type: nmse  # Single loss type: nmse, weighted, log, normalized
+    
+    # Data generation - SNR configuration
+    snr_config:
+      values: [5, 25]  # Only these specific SNR values
+      per_sample: false
     
     # Channel configuration
     tdl_config: [A-30, B-100, C-300]          # TDL-A with 30ns delay spread
