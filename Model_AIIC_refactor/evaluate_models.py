@@ -6,14 +6,24 @@
 2. 加载训练好的模型
 3. 评估不同 SNR、TDL 信道下的 NMSE 性能
 4. 保存结果为 JSON 和 NPY 格式
+5. ✅ 支持完整GPU加速
 
 用法:
-    python Model_AIIC/evaluate_models.py \
+    # GPU加速评估（推荐）
+    python evaluate_models.py \
         --exp_dir "./experiments" \
         --models "stages=2_share=False,stages=3_share=False" \
         --tdl "A-30,B-100,C-300" \
         --snr_range "30:-3:0" \
-        --num_samples 1000 \
+        --num_batches 100 \
+        --batch_size 2048 \
+        --device cuda \
+        --output "./evaluation_results"
+    
+    # CPU评估
+    python evaluate_models.py \
+        --exp_dir "./experiments" \
+        --device cpu \
         --output "./evaluation_results"
 """
 
@@ -30,23 +40,23 @@ from datetime import datetime
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-try:
-    from Model_AIIC_onnx.channel_separator import ResidualRefinementSeparator, ResidualRefinementSeparatorReal
-    from Model_AIIC_onnx.test_separator import generate_training_data
-except ImportError:
-    from channel_separator import ResidualRefinementSeparator, ResidualRefinementSeparatorReal
-    from test_separator import generate_training_data
+# ✅ Use optimized data generator (GPU-capable)
+from data.data_generator import generate_training_batch
+
+# ✅ Use refactored models (optimized)
+from models import create_model
 
 
-def load_model(model_dir):
+def load_model(model_dir, device='cpu'):
     """
-    加载训练好的模型
+    加载训练好的模型 ✅ 支持GPU
     
     Args:
         model_dir: 模型目录路径
+        device: 设备 ('cpu', 'cuda', 'cuda:0' etc.)
         
     Returns:
-        model: 加载的模型
+        model: 加载的模型（已在指定device上）
         config: 模型配置
     """
     model_path = Path(model_dir) / 'model.pth'
@@ -55,77 +65,26 @@ def load_model(model_dir):
         raise FileNotFoundError(f"Model not found: {model_path}")
     
     # 加载 checkpoint
-    checkpoint = torch.load(model_path, map_location='cpu')
+    checkpoint = torch.load(model_path, map_location=device)  # ✅ 直接加载到device
     config = checkpoint['config']
     
-    # 从 hyperparameters 中获取 pos_values 和 num_params（如果存在）
-    hyperparams = checkpoint.get('hyperparameters', {})
-    pos_values = hyperparams.get('pos_values', None)
-    num_params = hyperparams.get('num_params', None)
-    
-    # 如果没有 pos_values，根据 num_ports 生成默认值
-    if pos_values is None:
-        num_ports = config.get('num_ports', 4)
-        if num_ports == 4:
-            pos_values = [0, 3, 6, 9]
-        elif num_ports == 6:
-            pos_values = [0, 2, 4, 6, 8, 10]
-        else:
-            # 均匀分布
-            pos_values = list(range(0, 12, 12 // num_ports))[:num_ports]
-    
-    # 创建模型（num_ports 从 pos_values 推导）
-    # 获取配置参数
-    activation_type = config.get('activation_type', 'relu')
-    onnx_mode = config.get('onnx_mode', False)
-    hidden_dim = config.get('hidden_dim', 64)  # ⭐ Get from config with default
-    mlp_depth = config.get('mlp_depth', config.get('num_sub_stages', 3))  # ⭐ Support both old and new names
-    model_type = config.get('model_type', 2)  # ⭐ Default to Type 2 for backward compatibility
-    
-    # 根据 model_type 创建对应的模型
-    if model_type == 1:
-        # Type 1: Dual-Path Real MLP
-        model = ResidualRefinementSeparator(
-            seq_len=config['seq_len'],
-            num_ports=len(pos_values),
-            hidden_dim=hidden_dim,
-            num_stages=config['num_stages'],
-            mlp_depth=mlp_depth,
-            share_weights_across_stages=config['share_weights']
-        )
-    elif model_type == 2:
-        # Type 2: ComplexLinear
-        model = ResidualRefinementSeparatorReal(
-            seq_len=config['seq_len'],
-            num_ports=len(pos_values),
-            hidden_dim=hidden_dim,
-            num_stages=config['num_stages'],
-            mlp_depth=mlp_depth,
-            share_weights_across_stages=config['share_weights'],
-            activation_type=activation_type,
-            onnx_mode=onnx_mode
-        )
-    else:
-        raise ValueError(f"Unknown model_type: {model_type}. Expected 1 or 2.")
+    # ✅ 使用 create_model 创建模型（自动处理所有模型类型）
+    model = create_model(
+        model_type=config.get('model_type', 'separator1'),  # 默认 separator1
+        config=config
+    )
     
     # 加载权重
     model.load_state_dict(checkpoint['model_state_dict'])
+    model.to(device)
     model.eval()
-    
-    # 如果没有保存 num_params，现在计算它
-    if num_params is None:
-        num_params = sum(p.numel() for p in model.parameters())
-    
-    # 将 pos_values 和 num_params 添加到 config 中返回
-    config['pos_values'] = pos_values
-    config['num_params'] = num_params
     
     return model, config
 
 
-def evaluate_model_at_snr(model, snr_db, tdl_config, pos_values, num_batches=10, batch_size=100):
+def evaluate_model_at_snr(model, snr_db, tdl_config, pos_values, num_batches=10, batch_size=100, device='cpu', use_amp=False):
     """
-    评估模型在特定 SNR 和 TDL 配置下的性能
+    评估模型在特定 SNR 和 TDL 配置下的性能 ✅ GPU加速
     
     Args:
         model: 模型
@@ -134,6 +93,8 @@ def evaluate_model_at_snr(model, snr_db, tdl_config, pos_values, num_batches=10,
         pos_values: 端口位置列表 (e.g., [0, 3, 6, 9])
         num_batches: 评估批次数
         batch_size: 批大小
+        device: 设备 ('cpu', 'cuda', etc.) ✅ NEW
+        use_amp: 是否使用混合精度 (默认False，评估时精度更重要) ✅ NEW
         
     Returns:
         nmse: NMSE (线性)
@@ -147,43 +108,57 @@ def evaluate_model_at_snr(model, snr_db, tdl_config, pos_values, num_batches=10,
     seq_len = 12
     num_ports = len(pos_values)
     
-    total_mse = 0.0
-    total_power = 0.0
-    port_mse = np.zeros(num_ports)
-    port_power = np.zeros(num_ports)
+    # ✅ 使用tensor累加（GPU友好）
+    total_mse = torch.tensor(0.0, device=device)
+    total_power = torch.tensor(0.0, device=device)
+    port_mse = torch.zeros(num_ports, device=device)
+    port_power = torch.zeros(num_ports, device=device)
+    
+    # ✅ Mixed precision support
+    if use_amp and device.type == 'cuda':
+        from torch.cuda.amp import autocast
+        use_autocast = True
+    else:
+        use_autocast = False
     
     with torch.no_grad():
         for _ in range(num_batches):
-            # 生成测试数据（返回 5 个值：y, h_targets, pos_values, h_true, batch_snr）
-            y, h_targets, _, _, _ = generate_training_data(
+            # ✅ 使用优化的数据生成器（GPU加速）
+            y, h_targets, _, _, _ = generate_training_batch(
                 batch_size=batch_size,
-                snr_db=snr_db,
                 seq_len=seq_len,
                 pos_values=pos_values,
-                tdl_config=tdl_config
+                snr_db=snr_db,
+                tdl_config=tdl_config,
+                return_complex=False,  # Real stacked format
+                device=device  # ✅ 直接在GPU生成
             )
             
-            # 预测
-            h_pred = model(y)
+            # ✅ 预测（可选混合精度）
+            if use_autocast:
+                with autocast():
+                    h_pred = model(y)
+            else:
+                h_pred = model(y)
             
-            # 计算 MSE
-            mse = (h_pred - h_targets).abs().pow(2).sum().item()
-            power = h_targets.abs().pow(2).sum().item()
+            # ✅ 计算 MSE（向量化，GPU并行）
+            diff = h_pred - h_targets
+            mse = diff.pow(2).sum()
+            power = h_targets.pow(2).sum()
             
             total_mse += mse
             total_power += power
             
-            # 每个端口的 MSE
-            for p in range(num_ports):
-                port_mse[p] += (h_pred[:, p] - h_targets[:, p]).abs().pow(2).sum().item()
-                port_power[p] += h_targets[:, p].abs().pow(2).sum().item()
+            # ✅ 每个端口的 MSE（向量化）
+            port_mse += diff.pow(2).sum(dim=(0, 2))  # (P,)
+            port_power += h_targets.pow(2).sum(dim=(0, 2))  # (P,)
     
-    # 计算 NMSE
-    nmse = total_mse / (total_power + 1e-10)
+    # ✅ 计算 NMSE（转回CPU/numpy用于输出）
+    nmse = (total_mse / (total_power + 1e-10)).cpu().item()
     nmse_db = 10 * np.log10(nmse) if nmse > 0 else -np.inf
     
-    # 每个端口的 NMSE
-    port_nmse = port_mse / (port_power + 1e-10)
+    # ✅ 每个端口的 NMSE（转回CPU/numpy）
+    port_nmse = (port_mse / (port_power + 1e-10)).cpu().numpy()
     port_nmse_db = 10 * np.log10(port_nmse)
     port_nmse_db[np.isinf(port_nmse_db)] = -100  # 处理 inf
     
@@ -216,6 +191,154 @@ def parse_snr_range(snr_str):
     return snr_list.tolist()
 
 
+def evaluate_models_programmatic(
+    exp_dir,
+    output_dir,
+    snr_range='30:-3:0',
+    tdl_list=None,
+    num_batches=100,
+    batch_size=2048,
+    device='auto',
+    use_amp=False,
+    compile=False,
+    models=None
+):
+    """
+    程序化调用评估（供 train.py 等脚本调用）
+    
+    Args:
+        exp_dir: 实验目录路径
+        output_dir: 结果保存目录
+        snr_range: SNR范围字符串
+        tdl_list: TDL配置列表
+        num_batches: 评估批次数
+        batch_size: 批大小
+        device: 设备
+        use_amp: 是否使用混合精度
+        compile: 是否编译模型
+        models: 要评估的模型列表（None表示全部）
+        
+    Returns:
+        results: 评估结果字典
+    """
+    # Setup device
+    if device == 'auto':
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(device)
+    
+    # Parse parameters
+    exp_dir = Path(exp_dir)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    snr_list = parse_snr_range(snr_range)
+    if tdl_list is None:
+        tdl_list = ['A-30', 'B-100', 'C-300']
+    
+    # Discover models
+    if models:
+        model_names = models if isinstance(models, list) else models.split(',')
+    else:
+        if not exp_dir.exists():
+            raise FileNotFoundError(f"实验目录不存在: {exp_dir}")
+        model_names = [d.name for d in exp_dir.iterdir() if d.is_dir() and (d / 'model.pth').exists()]
+    
+    if not model_names:
+        raise ValueError(f"在 {exp_dir} 中没有找到任何训练好的模型")
+    
+    # Evaluation results
+    results = {
+        'timestamp': datetime.now().isoformat(),
+        'config': {
+            'snr_list': snr_list,
+            'tdl_list': tdl_list,
+            'num_batches': num_batches,
+            'batch_size': batch_size,
+            'total_samples_per_point': num_batches * batch_size
+        },
+        'models': {}
+    }
+    
+    # Evaluate all models
+    for model_name in model_names:
+        model_dir = exp_dir / model_name
+        
+        if not (model_dir / 'model.pth').exists():
+            continue
+        
+        try:
+            # Load model
+            model, config = load_model(model_dir, device=device)
+            model = model.to(device)
+            
+            # Optional: compile
+            if compile and device.type == 'cuda' and hasattr(torch, 'compile'):
+                model = torch.compile(model, mode='reduce-overhead')
+            
+            model.eval()
+            
+            # Store results
+            results['models'][model_name] = {
+                'config': config,
+                'tdl_results': {}
+            }
+            
+            # Evaluate across TDL and SNR
+            for tdl_config in tdl_list:
+                tdl_results = {
+                    'snr': [],
+                    'nmse': [],
+                    'nmse_db': [],
+                    'port_nmse': [],
+                    'port_nmse_db': []
+                }
+                
+                for snr_db in tqdm(snr_list, desc=f"  {model_name} - {tdl_config}", leave=False):
+                    nmse, nmse_db, port_nmse, port_nmse_db = evaluate_model_at_snr(
+                        model, snr_db, tdl_config, config['pos_values'],
+                        num_batches=num_batches,
+                        batch_size=batch_size,
+                        device=device,
+                        use_amp=use_amp
+                    )
+                    
+                    tdl_results['snr'].append(snr_db)
+                    tdl_results['nmse'].append(nmse)
+                    tdl_results['nmse_db'].append(nmse_db)
+                    tdl_results['port_nmse'].append(port_nmse)
+                    tdl_results['port_nmse_db'].append(port_nmse_db)
+                
+                results['models'][model_name]['tdl_results'][tdl_config] = tdl_results
+        
+        except Exception as e:
+            print(f"✗ 模型 {model_name} 评估失败: {e}")
+            continue
+    
+    # Save results
+    json_path = output_dir / 'evaluation_results.json'
+    with open(json_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    
+    # Save NumPy format
+    numpy_data = {}
+    for model_name, model_data in results['models'].items():
+        numpy_data[model_name] = {}
+        for tdl_config, tdl_data in model_data['tdl_results'].items():
+            numpy_data[model_name][tdl_config] = {
+                'snr': np.array(tdl_data['snr']),
+                'nmse': np.array(tdl_data['nmse']),
+                'nmse_db': np.array(tdl_data['nmse_db']),
+                'port_nmse': np.array(tdl_data['port_nmse']),
+                'port_nmse_db': np.array(tdl_data['port_nmse_db'])
+            }
+    
+    npy_path = output_dir / 'evaluation_results.npy'
+    np.save(npy_path, numpy_data, allow_pickle=True)
+    
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description='评估训练好的模型在不同 SNR 和 TDL 配置下的性能')
     
@@ -235,8 +358,36 @@ def main():
                        help='评估批大小（总样本数 = num_batches × batch_size）')
     parser.add_argument('--output', type=str, default='./evaluation_results',
                        help='结果保存目录')
+    parser.add_argument('--device', type=str, default='auto',
+                       choices=['auto', 'cpu', 'cuda'],
+                       help='计算设备 (auto: 自动选择GPU, cpu: 强制CPU, cuda: 强制GPU) ✅ NEW')
+    parser.add_argument('--use_amp', action='store_true',
+                       help='启用混合精度（默认禁用，因为评估时精度更重要）')
+    parser.add_argument('--no-compile', dest='compile', action='store_false',
+                       help='禁用模型编译（默认GPU启用，CPU禁用）')
+    parser.set_defaults(compile=True)  # ✅ 默认启用，但会根据device调整
     
     args = parser.parse_args()
+    
+    # ✅ Setup device
+    if args.device == 'auto':
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(args.device)
+    
+    # ✅ Auto-adjust compile based on device
+    if device.type == 'cpu':
+        args.compile = False  # CPU: disable compile
+    # GPU: keep user's choice (default True)
+    
+    print(f"Using device: {device}")
+    if device.type == 'cuda':
+        print(f"  GPU: {torch.cuda.get_device_name(0)}")
+        print(f"  CUDA version: {torch.version.cuda}")
+        if args.use_amp:
+            print(f"  Mixed Precision: Enabled (FP16)")
+        if args.compile:
+            print(f"  Model Compilation: Enabled (torch.compile)")
     
     # 解析参数
     exp_dir = Path(args.exp_dir)
@@ -297,11 +448,21 @@ def main():
         print(f"{'='*80}")
         
         try:
-            # 加载模型
-            model, config = load_model(model_dir)
-            print(f"✓ 模型加载成功")
-            print(f"  配置: stages={config['num_stages']}, share_weights={config['share_weights']}")
-            print(f"  激活函数: {config.get('activation_type', 'N/A')}")
+            # ✅ 加载模型到指定device
+            model, config = load_model(model_dir, device=device)
+            model = model.to(device)
+            
+            # ✅ 可选：编译模型（需要显式启用）
+            if args.compile and device.type == 'cuda':
+                if hasattr(torch, 'compile'):
+                    print(f"  🚀 Compiling model...")
+                    model = torch.compile(model, mode='reduce-overhead')
+                    print(f"  ✓ Model compiled")
+            
+            model.eval()
+            print(f"✓ 模型加载成功 (device: {device})")
+            print(f"  配置: {config.get('model_type', 'N/A')}, stages={config.get('num_stages')}, share_weights={config.get('share_weights')}")
+            print(f"  参数数量: {sum(p.numel() for p in model.parameters()):,}")
             print(f"  端口位置: {config.get('pos_values', 'N/A')}")
             
             # 为该模型创建结果存储
@@ -325,11 +486,13 @@ def main():
                 
                 # 遍历所有 SNR
                 for snr_db in tqdm(snr_list, desc=f"    {tdl_config}"):
-                    # 评估
+                    # ✅ 评估（GPU加速）
                     nmse, nmse_db, port_nmse, port_nmse_db = evaluate_model_at_snr(
                         model, snr_db, tdl_config, config['pos_values'],
                         num_batches=args.num_batches,
-                        batch_size=args.batch_size
+                        batch_size=args.batch_size,
+                        device=device,  # ✅ 传递device
+                        use_amp=args.use_amp  # ✅ 传递AMP设置
                     )
                     
                     # 保存结果

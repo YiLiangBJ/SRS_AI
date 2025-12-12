@@ -129,9 +129,47 @@ def main():
                        help='Disable mixed precision training (FP16)')
     parser.add_argument('--no-compile', dest='compile_model', action='store_false',
                        help='Disable model compilation (torch.compile)')
+    # ✅ GPU默认启用compile，CPU默认禁用（将在后面根据device调整）
     parser.set_defaults(use_amp=True, compile_model=True)
     
+    # ✅ NEW: Post-training workflow options
+    parser.add_argument('--eval_after_train', action='store_true',
+                       help='自动评估训练后的模型')
+    parser.add_argument('--eval_snr_range', type=str, default='30:-3:0',
+                       help='评估SNR范围 (格式: "start:step:end")')
+    parser.add_argument('--eval_tdl', type=str, default='A-30,B-100,C-300',
+                       help='评估TDL配置 (逗号分隔)')
+    parser.add_argument('--eval_num_batches', type=int, default=100,
+                       help='评估批次数')
+    parser.add_argument('--eval_batch_size', type=int, default=2048,
+                       help='评估批大小')
+    parser.add_argument('--plot_after_eval', action='store_true',
+                       help='评估后自动绘图')
+    
     args = parser.parse_args()
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ✅ Create timestamped experiment directory (avoid conflicts)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    from datetime import datetime
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    # Generate experiment name with timestamp
+    base_save_dir = Path(args.save_dir)
+    
+    # Extract meaningful name from model_config
+    model_config_short = args.model_config.split(',')[0]  # Use first if multiple
+    experiment_name = f"{timestamp}_{model_config_short}_{args.training_config}"
+    
+    # Update save_dir to include timestamp
+    args.save_dir = str(base_save_dir / experiment_name)
+    
+    print(f"\n{'='*80}")
+    print(f"🚀 Experiment: {experiment_name}")
+    print(f"{'='*80}")
+    print(f"   Save directory: {args.save_dir}")
+    print(f"   Timestamp: {timestamp}")
+    print(f"{'='*80}\n")
     
     # Load configurations
     model_configs_file = Path(__file__).parent / 'configs' / 'model_configs.yaml'
@@ -160,6 +198,18 @@ def main():
     
     # Print device info
     device = get_device(args.device)
+    
+    # ✅ Auto-adjust compile based on device (if not explicitly disabled)
+    if 'compile_model' in vars(args):
+        # User explicitly set --no-compile
+        pass
+    else:
+        # Auto: GPU enables compile, CPU disables
+        if device.type == 'cuda':
+            args.compile_model = True
+        else:
+            args.compile_model = False
+    
     print("="*80)
     print("Channel Separator Training (Refactored)")
     print("="*80)
@@ -334,10 +384,10 @@ def main():
                 print(f"  NMSE: {eval_results['nmse']:.6f} ({eval_results['nmse_db']:.2f} dB)")
                 print(f"  Per-port NMSE (dB): {eval_results['per_port_nmse_db']}")
                 
-                # Save model with hierarchical naming
-                # Structure: {save_dir}/{experiment_name}/{model_config}/{training_config}/
-                experiment_name = f"{model_config_name}_{training_variant_name}"
-                save_dir = Path(args.save_dir) / experiment_name / config_instance_name
+                # ✅ Save model with clean hierarchical structure
+                # Structure: {timestamped_experiment_dir}/{config_instance_name}/
+                # Example: ./experiments/20251212_103045_separator1_default/separator1_hd64_stages2_depth3/
+                save_dir = Path(args.save_dir) / config_instance_name
                 save_dir.mkdir(parents=True, exist_ok=True)
                 
                 save_path = save_dir / 'model.pth'
@@ -428,6 +478,64 @@ def main():
     print(f"✓ Training report saved: {report_path}")
     
     print("\n✓ All training completed!")
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ✅ Post-training workflow: Evaluation + Plotting
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    if args.eval_after_train:
+        print(f"\n{'='*80}")
+        print("📊 Post-Training Evaluation")
+        print(f"{'='*80}")
+        
+        # Import evaluation function
+        from evaluate_models import evaluate_models_programmatic
+        
+        # Run evaluation
+        eval_output_dir = Path(args.save_dir) / 'evaluation_results'
+        eval_results = evaluate_models_programmatic(
+            exp_dir=args.save_dir,
+            output_dir=eval_output_dir,
+            snr_range=args.eval_snr_range,
+            tdl_list=args.eval_tdl.split(','),
+            num_batches=args.eval_num_batches,
+            batch_size=args.eval_batch_size,
+            device=device,
+            use_amp=False,  # Evaluation: precision > speed
+            compile=True if device.type == 'cuda' else False  # ✅ GPU默认启用
+        )
+        
+        print(f"\n✓ Evaluation completed!")
+        print(f"  Results saved to: {eval_output_dir}")
+        
+        # ✅ Optional: Plotting
+        if args.plot_after_eval:
+            print(f"\n{'='*80}")
+            print("📈 Generating Plots")
+            print(f"{'='*80}")
+            
+            # Import plotting function
+            from plot import generate_plots_programmatic
+            
+            # Generate plots
+            plot_output_dir = Path(args.save_dir) / 'plots'
+            generate_plots_programmatic(
+                eval_results_path=eval_output_dir / 'evaluation_results.json',
+                output_dir=plot_output_dir
+            )
+            
+            print(f"\n✓ Plots generated!")
+            print(f"  Saved to: {plot_output_dir}")
+    
+    print(f"\n{'='*80}")
+    print("🎉 Complete Pipeline Finished!")
+    print(f"{'='*80}")
+    print(f"  Training:   {args.save_dir}")
+    if args.eval_after_train:
+        print(f"  Evaluation: {args.save_dir}/evaluation_results")
+        if args.plot_after_eval:
+            print(f"  Plots:      {args.save_dir}/plots")
+    print(f"{'='*80}\n")
 
 
 if __name__ == '__main__':

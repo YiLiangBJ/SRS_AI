@@ -204,6 +204,19 @@ class Trainer:
         self.forward_time = 0
         self.backward_time = 0
         
+        # ✅ Adaptive print interval
+        if print_interval is None:
+            if num_batches <= 100:
+                print_interval = 10   # Small task: every 10 batches
+            elif num_batches <= 1000:
+                print_interval = 100  # Medium task: every 100 batches
+            else:
+                print_interval = 200  # Large task: every 200 batches
+        
+        # ✅ For accurate throughput calculation (only between prints)
+        last_print_batch = -1
+        last_print_time = time.time()
+        
         early_stop_counter = 0
         
         for batch_idx in range(num_batches):
@@ -265,17 +278,33 @@ class Trainer:
             if progress_tracker:
                 progress_tracker.check_and_report()
             
-            # Print simple progress every 20 batches
-            if (batch_idx + 1) % 20 == 0 or batch_idx == 0:
+            # ✅ Print progress at adaptive intervals
+            should_print = (
+                (batch_idx + 1) % print_interval == 0 or  # Regular interval
+                batch_idx == 0 or                          # First batch
+                batch_idx == num_batches - 1              # Last batch
+            )
+            
+            if should_print:
                 nmse = ((h_pred - h_targets).pow(2).mean() / 
                        h_targets.pow(2).mean()).item()
                 nmse_db = 10 * torch.log10(torch.tensor(nmse))
-                elapsed = time.time() - self.training_start_time
                 
-                # Calculate throughput
-                samples_per_sec = (batch_idx + 1) * batch_size / elapsed if elapsed > 0 else 0
+                # ✅ Calculate throughput: only samples since last print
+                current_time = time.time()
+                batches_since_print = (batch_idx - last_print_batch)
+                time_since_print = current_time - last_print_time
                 
-                # Calculate timing breakdown
+                if time_since_print > 0 and batches_since_print > 0:
+                    samples_per_sec = batches_since_print * batch_size / time_since_print
+                else:
+                    samples_per_sec = 0
+                
+                # Update for next print
+                last_print_batch = batch_idx
+                last_print_time = current_time
+                
+                # Calculate timing breakdown (cumulative, for reference)
                 total_time = self.data_gen_time + self.forward_time + self.backward_time
                 if total_time > 0:
                     data_pct = 100 * self.data_gen_time / total_time
