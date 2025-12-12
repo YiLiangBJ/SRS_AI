@@ -384,32 +384,64 @@ def main():
                 print(f"  NMSE: {eval_results['nmse']:.6f} ({eval_results['nmse_db']:.2f} dB)")
                 print(f"  Per-port NMSE (dB): {eval_results['per_port_nmse_db']}")
                 
-                # ✅ Save model with clean hierarchical structure
-                # Structure: {timestamped_experiment_dir}/{config_instance_name}/
-                # Example: ./experiments/20251212_103045_separator1_default/separator1_hd64_stages2_depth3/
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                # ✅ Save checkpoint with unified format
+                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 save_dir = Path(args.save_dir) / config_instance_name
                 save_dir.mkdir(parents=True, exist_ok=True)
                 
                 save_path = save_dir / 'model.pth'
+                
+                # ✅ Prepare config (all model architecture parameters)
+                model_config_dict = {
+                    'model_type': config.get('model_type', 'separator1'),
+                    'hidden_dim': config.get('hidden_dim', 64),
+                    'num_stages': config.get('num_stages', 2),
+                    'mlp_depth': config.get('mlp_depth', 3),
+                    'share_weights_across_stages': config.get('share_weights_across_stages', False),
+                    'activation_type': config.get('activation_type', 'relu'),
+                    'seq_len': config.get('seq_len', 12),
+                    'num_ports': len(config.get('pos_values', [0, 3, 6, 9])),
+                    'pos_values': config.get('pos_values', [0, 3, 6, 9]),
+                    'num_params': sum(p.numel() for p in trainer.model.parameters()),
+                }
+                
+                # ✅ Prepare training_config (all training parameters)
+                training_config_dict = {
+                    'loss_type': training_config.get('loss_type', 'nmse'),
+                    'learning_rate': training_config.get('learning_rate', 0.01),
+                    'num_batches': training_config.get('num_batches', 10000),
+                    'batch_size': training_config.get('batch_size', 4096),
+                    'snr_config': training_config.get('snr_config', {'type': 'range', 'min': 0, 'max': 30}),
+                    'tdl_config': training_config.get('tdl_config', 'A-30'),
+                }
+                
+                # ✅ Prepare metadata
+                metadata_dict = {
+                    'model_config_name': model_config_name,
+                    'config_instance_name': config_instance_name,
+                    'training_config_name': training_variant_name,
+                    'training_duration': training_duration,
+                    'timestamp': datetime.now().isoformat(),
+                }
+                
                 trainer.save_checkpoint(
                     save_path,
                     additional_info={
-                        'model_config_name': model_config_name,
-                        'config_instance_name': config_instance_name,
-                        'training_config_name': training_variant_name,
-                        'model_config': config,
-                        'training_config': training_config,
-                        'training_duration': training_duration,
-                        'eval_results': eval_results
+                        'config': model_config_dict,           # ✅ Standard key for model config
+                        'training_config': training_config_dict,  # ✅ Standard key for training config
+                        'metadata': metadata_dict,                # ✅ Metadata
+                        'eval_results': eval_results,             # ✅ Quick evaluation results
                     }
                 )
                 
-                # Save config for reproducibility
+                # Save human-readable config
                 config_save_path = save_dir / 'config.yaml'
                 with open(config_save_path, 'w', encoding='utf-8') as f:
                     yaml.dump({
-                        'model_config': config,
-                        'training_config': training_config
+                        'model_config': model_config_dict,
+                        'training_config': training_config_dict,
+                        'metadata': metadata_dict,
                     }, f, default_flow_style=False, allow_unicode=True)
                 
                 print(f"✓ Model saved to: {save_dir}")
@@ -508,24 +540,39 @@ def main():
         print(f"\n✓ Evaluation completed!")
         print(f"  Results saved to: {eval_output_dir}")
         
-        # ✅ Optional: Plotting
+        # ✅ Optional: Plotting (only if evaluation succeeded)
         if args.plot_after_eval:
-            print(f"\n{'='*80}")
-            print("📈 Generating Plots")
-            print(f"{'='*80}")
-            
-            # Import plotting function
-            from plot import generate_plots_programmatic
-            
-            # Generate plots
-            plot_output_dir = Path(args.save_dir) / 'plots'
-            generate_plots_programmatic(
-                eval_results_path=eval_output_dir / 'evaluation_results.json',
-                output_dir=plot_output_dir
-            )
-            
-            print(f"\n✓ Plots generated!")
-            print(f"  Saved to: {plot_output_dir}")
+            # Check if evaluation produced any results
+            eval_json_path = eval_output_dir / 'evaluation_results.json'
+            if not eval_json_path.exists():
+                print(f"\n⚠️  Skipping plot generation: evaluation results not found")
+            else:
+                # Check if there are any models in results
+                import json
+                with open(eval_json_path, 'r') as f:
+                    eval_data = json.load(f)
+                
+                if not eval_data.get('models') or len(eval_data['models']) == 0:
+                    print(f"\n⚠️  Skipping plot generation: no models evaluated successfully")
+                else:
+                    print(f"\n{'='*80}")
+                    print("📈 Generating Plots")
+                    print(f"{'='*80}")
+                    
+                    # Import plotting function
+                    from plot import generate_plots_programmatic
+                    
+                    # Generate plots
+                    plot_output_dir = Path(args.save_dir) / 'plots'
+                    try:
+                        generate_plots_programmatic(
+                            eval_results_path=eval_json_path,
+                            output_dir=plot_output_dir
+                        )
+                        print(f"\n✓ Plots generated!")
+                        print(f"  Saved to: {plot_output_dir}")
+                    except Exception as e:
+                        print(f"\n✗ Plot generation failed: {e}")
     
     print(f"\n{'='*80}")
     print("🎉 Complete Pipeline Finished!")

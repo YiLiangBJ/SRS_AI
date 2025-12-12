@@ -31,6 +31,11 @@ def generate_plots_programmatic(eval_results_path, output_dir):
     with open(eval_results_path, 'r') as f:
         results = json.load(f)
     
+    # ✅ 检查是否有模型数据
+    if not results.get('models') or len(results['models']) == 0:
+        print("⚠️  No models found in evaluation results. Skipping plot generation.")
+        return []
+    
     generated_files = []
     
     # Get TDL configurations

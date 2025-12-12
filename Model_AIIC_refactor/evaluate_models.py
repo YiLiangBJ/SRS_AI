@@ -65,12 +65,30 @@ def load_model(model_dir, device='cpu'):
         raise FileNotFoundError(f"Model not found: {model_path}")
     
     # 加载 checkpoint
-    checkpoint = torch.load(model_path, map_location=device)  # ✅ 直接加载到device
+    checkpoint = torch.load(model_path, map_location=device)
+    
+    # ✅ 读取标准格式的 config
+    if 'config' not in checkpoint:
+        raise KeyError(
+            f"Checkpoint missing 'config' key in {model_path}.\n"
+            f"This model was saved with an old format. Please retrain the model."
+        )
+    
     config = checkpoint['config']
     
-    # ✅ 使用 create_model 创建模型（自动处理所有模型类型）
+    # ✅ 验证必需字段
+    required_fields = ['model_type', 'pos_values', 'num_ports', 'seq_len']
+    missing_fields = [f for f in required_fields if f not in config]
+    if missing_fields:
+        raise KeyError(
+            f"Config missing required fields: {missing_fields} in {model_path}.\n"
+            f"Please retrain the model with the updated training script."
+        )
+    
+    # ✅ 使用 create_model 创建模型
+    # Note: create_model expects 'model_name' not 'model_type'
     model = create_model(
-        model_type=config.get('model_type', 'separator1'),  # 默认 separator1
+        model_name=config['model_type'],  # ✅ 参数名是 model_name
         config=config
     )
     
