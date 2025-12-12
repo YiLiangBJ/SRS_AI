@@ -334,6 +334,10 @@ def main():
                 print(f"  Total parameters: {num_params:,}")
                 print()
                 
+                # ✅ Setup TensorBoard logging directory
+                save_dir = Path(args.save_dir) / config_instance_name
+                tensorboard_dir = save_dir / 'tensorboard'
+                
                 # Create trainer
                 trainer = Trainer(
                     model=model,
@@ -341,7 +345,8 @@ def main():
                     loss_type=training_config.get('loss_type', 'nmse'),
                     device=device,
                     use_amp=args.use_amp,  # ✅ Mixed precision
-                    compile_model=args.compile_model  # ✅ Model compilation
+                    compile_model=args.compile_model,  # ✅ Model compilation
+                    tensorboard_dir=tensorboard_dir  # ✅ TensorBoard logging
                 )
                 
                 # Train

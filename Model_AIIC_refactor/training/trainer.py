@@ -28,6 +28,13 @@ try:
 except ImportError:
     AMP_AVAILABLE = False
 
+# ✅ TensorBoard support
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    TENSORBOARD_AVAILABLE = True
+except ImportError:
+    TENSORBOARD_AVAILABLE = False
+
 
 class Trainer:
     """
@@ -59,7 +66,8 @@ class Trainer:
         loss_type: str = 'nmse',
         device: Union[str, torch.device] = 'auto',
         use_amp: bool = True,  # ✅ NEW: Mixed precision
-        compile_model: bool = True  # ✅ NEW: Model compilation
+        compile_model: bool = True,  # ✅ NEW: Model compilation
+        tensorboard_dir: Optional[Union[str, Path]] = None  # ✅ NEW: TensorBoard logging
     ):
         """
         Initialize trainer
@@ -71,6 +79,7 @@ class Trainer:
             device: Device ('auto', 'cpu', 'cuda', or torch.device)
             use_amp: Use automatic mixed precision (GPU only) ✅ NEW
             compile_model: Compile model with torch.compile (GPU only, PyTorch 2.0+) ✅ NEW
+            tensorboard_dir: Directory for TensorBoard logs (None to disable) ✅ NEW
         """
         self.model = model
         self.loss_type = loss_type
@@ -84,6 +93,17 @@ class Trainer:
             self.device = device
         
         self.model = self.model.to(self.device)
+        
+        # ✅ TensorBoard setup
+        self.writer = None
+        if tensorboard_dir is not None and TENSORBOARD_AVAILABLE:
+            tensorboard_dir = Path(tensorboard_dir)
+            tensorboard_dir.mkdir(parents=True, exist_ok=True)
+            self.writer = SummaryWriter(log_dir=str(tensorboard_dir))
+            print(f"📊 TensorBoard logging enabled: {tensorboard_dir}")
+            print(f"   Run: tensorboard --logdir {tensorboard_dir}")
+        elif tensorboard_dir is not None and not TENSORBOARD_AVAILABLE:
+            print("⚠️  TensorBoard not available. Install: pip install tensorboard")
         
         # ✅ Model compilation (GPU only, PyTorch 2.0+)
         self.compiled = False
@@ -274,6 +294,12 @@ class Trainer:
             loss_value = loss.item()
             self.losses.append(loss_value)
             
+            # ✅ Log to TensorBoard
+            if self.writer is not None:
+                self.writer.add_scalar('Loss/train', loss_value, batch_idx)
+                self.writer.add_scalar('SNR/train', actual_snr, batch_idx)
+                self.writer.add_scalar('Learning_Rate', self.optimizer.param_groups[0]['lr'], batch_idx)
+            
             # Check if progress tracker should report (every 5 minutes)
             if progress_tracker:
                 progress_tracker.check_and_report()
@@ -290,6 +316,11 @@ class Trainer:
                        h_targets.pow(2).mean()).item()
                 nmse_db = 10 * torch.log10(torch.tensor(nmse))
                 
+                # ✅ Log NMSE to TensorBoard
+                if self.writer is not None:
+                    self.writer.add_scalar('NMSE/train', nmse, batch_idx)
+                    self.writer.add_scalar('NMSE_dB/train', nmse_db, batch_idx)
+                
                 # ✅ Calculate throughput: only samples since last print
                 current_time = time.time()
                 batches_since_print = (batch_idx - last_print_batch)
@@ -299,6 +330,10 @@ class Trainer:
                     samples_per_sec = batches_since_print * batch_size / time_since_print
                 else:
                     samples_per_sec = 0
+                
+                # ✅ Log throughput to TensorBoard
+                if self.writer is not None and samples_per_sec > 0:
+                    self.writer.add_scalar('Throughput/samples_per_sec', samples_per_sec, batch_idx)
                 
                 # Update for next print
                 last_print_batch = batch_idx
@@ -331,6 +366,10 @@ class Trainer:
                 )
                 self.val_losses.append(val_loss)
                 
+                # ✅ Log validation loss to TensorBoard
+                if self.writer is not None:
+                    self.writer.add_scalar('Loss/validation', val_loss, batch_idx)
+                
                 # Early stopping
                 if early_stop_loss and val_loss < early_stop_loss:
                     early_stop_counter += 1
@@ -344,6 +383,11 @@ class Trainer:
         print(f"\n✓ Training completed in {training_duration:.1f}s")
         print(f"  Final loss: {self.losses[-1]:.6f}")
         print(f"  Min loss: {min(self.losses):.6f}")
+        
+        # ✅ Close TensorBoard writer
+        if self.writer is not None:
+            self.writer.close()
+            print(f"  📊 TensorBoard logs saved")
         
         return self.losses
     
