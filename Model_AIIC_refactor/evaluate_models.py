@@ -49,7 +49,7 @@ from models import create_model
 
 def load_model(model_dir, device='cpu'):
     """
-    加载训练好的模型 ✅ 支持GPU
+    加载训练好的模型 ✅ 支持GPU，自动查找最新 checkpoint
     
     Args:
         model_dir: 模型目录路径
@@ -59,10 +59,22 @@ def load_model(model_dir, device='cpu'):
         model: 加载的模型（已在指定device上）
         config: 模型配置
     """
-    model_path = Path(model_dir) / 'model.pth'
+    model_dir = Path(model_dir)
+    
+    # ✅ 查找 checkpoint：优先 model.pth，否则找最新的 checkpoint_batch_*.pth
+    model_path = model_dir / 'model.pth'
     
     if not model_path.exists():
-        raise FileNotFoundError(f"Model not found: {model_path}")
+        # 查找周期保存的 checkpoint
+        checkpoints = sorted(model_dir.glob('checkpoint_batch_*.pth'))
+        if checkpoints:
+            model_path = checkpoints[-1]  # 最新的
+            print(f"  ℹ️  Using latest checkpoint: {model_path.name}")
+        else:
+            raise FileNotFoundError(
+                f"No checkpoint found in {model_dir}\n"
+                f"Expected: model.pth or checkpoint_batch_*.pth"
+            )
     
     # 加载 checkpoint
     checkpoint = torch.load(model_path, map_location=device)

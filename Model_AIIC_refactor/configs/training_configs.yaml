@@ -52,9 +52,10 @@ snr_discrete_5_25_perbatch:
     validation_interval: 100  # Validate every N batches
     patience: 5  # Number of validations meeting early stop
     
-    # Logging
+    # Logging & Checkpointing
     print_interval: 100
-    save_interval: 1000
+    # save_interval: auto-calculated (num_batches // 20, min 1000)
+    keep_last_n_checkpoints: 2      # ✅ Keep only last 2 checkpoints
   search_space:
     loss_type: [nmse, weighted, log, normalized]
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -130,6 +131,7 @@ quick_test:
     per_sample: false
   tdl_config: A-30
   print_interval: 10
+  # 不设置 save_interval - 短训练不需要周期性保存
 
 # High SNR configuration
 high_snr:

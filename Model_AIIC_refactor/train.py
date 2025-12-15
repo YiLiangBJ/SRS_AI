@@ -352,8 +352,28 @@ def main():
                 # Train
                 start_time = time.time()
                 
+                # ✅ Setup save directory for periodic checkpoints
+                save_dir_path = Path(args.save_dir) / config_instance_name
+                
+                # ✅ Adaptive save_interval calculation
+                num_batches = training_config.get('num_batches', 10000)
+                save_interval = training_config.get('save_interval')
+                
+                # If not explicitly set, calculate adaptive interval
+                if save_interval is None and num_batches >= 1000:
+                    # Formula: max(1000, num_batches // 20)
+                    # Examples:
+                    #   1,000 batches → 1,000 (save at end)
+                    #   10,000 batches → 1,000 (save 10 times)
+                    #   100,000 batches → 5,000 (save 20 times)
+                    #   1,000,000 batches → 50,000 (save 20 times)
+                    save_interval = max(1000, num_batches // 20)
+                    print(f"  💾 Auto checkpoint: every {save_interval} batches (~{num_batches // save_interval} saves)")
+                elif save_interval:
+                    print(f"  💾 Manual checkpoint: every {save_interval} batches (~{num_batches // save_interval} saves)")
+                
                 losses = trainer.train(
-                    num_batches=training_config.get('num_batches', 10000),
+                    num_batches=num_batches,
                     batch_size=training_config.get('batch_size', 2048),
                     snr_config=snr_config,
                     pos_values=config.get('pos_values', [0, 3, 6, 9]),  # From model_config
@@ -363,7 +383,10 @@ def main():
                     val_interval=training_config.get('validation_interval'),
                     early_stop_loss=training_config.get('early_stop_loss'),
                     patience=training_config.get('patience', 3),
-                    progress_tracker=progress_tracker  # Pass progress tracker
+                    progress_tracker=progress_tracker,  # Pass progress tracker
+                    save_interval=save_interval,  # ✅ Adaptive or manual
+                    save_dir=save_dir_path if training_config.get('save_interval') else None,  # ✅ Save directory
+                    keep_last_n=training_config.get('keep_last_n_checkpoints', 2)  # ✅ Keep last N checkpoints
                 )
                 
                 training_duration = time.time() - start_time

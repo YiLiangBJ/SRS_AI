@@ -92,6 +92,19 @@ class Trainer:
         else:
             self.device = device
         
+        # ✅ CRITICAL: Set CUDA device explicitly before any CUDA operations
+        # This ensures all subsequent CUDA operations use the correct GPU
+        if self.device.type == 'cuda':
+            if self.device.index is not None:
+                torch.cuda.set_device(self.device)
+                print(f"🎯 Using GPU: {self.device} ({torch.cuda.get_device_name(self.device)})")
+            else:
+                torch.cuda.set_device(0)
+                self.device = torch.device('cuda:0')  # Make explicit
+                print(f"🎯 Using GPU: cuda:0 ({torch.cuda.get_device_name(0)})")
+        else:
+            print(f"🎯 Using device: {self.device}")
+        
         self.model = self.model.to(self.device)
         
         # ✅ TensorBoard setup
@@ -150,6 +163,25 @@ class Trainer:
         # Setup optimizer
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         
+        # ✅ Setup learning rate scheduler (adaptive)
+        # ReduceLROnPlateau: reduces LR when loss stops improving
+        from torch.optim.lr_scheduler import ReduceLROnPlateau
+        self.scheduler = ReduceLROnPlateau(
+            self.optimizer,
+            mode='min',           # Minimize loss
+            factor=0.5,           # Reduce LR by half when triggered
+            patience=10,          # Wait 10 validations without improvement
+            threshold=1e-4,       # Minimum change to qualify as improvement
+            threshold_mode='rel', # Relative threshold
+            cooldown=0,           # No cooldown period
+            min_lr=1e-6,          # Minimum learning rate
+            verbose=True          # Print LR changes
+        )
+        print(f"📉 Adaptive learning rate scheduler enabled")
+        print(f"   Initial LR: {learning_rate}")
+        print(f"   Will reduce LR by 0.5× if loss doesn't improve for 10 steps")
+        print(f"   Minimum LR: 1e-6")
+        
         # Training state
         self.losses = []
         self.val_losses = []
@@ -173,7 +205,10 @@ class Trainer:
         val_interval: int = None,
         early_stop_loss: float = None,
         patience: int = 3,
-        progress_tracker = None  # Optional progress tracker for multi-task training
+        progress_tracker = None,  # Optional progress tracker for multi-task training
+        save_interval: int = None,  # ✅ NEW: Save checkpoint every N batches
+        save_dir: Union[str, Path] = None,  # ✅ NEW: Directory for periodic checkpoints
+        keep_last_n: int = 2  # ✅ NEW: Keep only last N checkpoints
     ) -> List[float]:
         """
         Train model
@@ -189,6 +224,10 @@ class Trainer:
             val_interval: Validate every N batches (optional)
             early_stop_loss: Stop if loss below this value
             patience: Number of validations that must meet early stop
+            progress_tracker: Optional progress tracker for multi-task training
+            save_interval: Save checkpoint every N batches (optional) ✅ NEW
+            save_dir: Directory for periodic checkpoints (optional) ✅ NEW
+            keep_last_n: Keep only last N checkpoints (default: 2) ✅ NEW
         
         Returns:
             losses: List of training losses
@@ -223,6 +262,9 @@ class Trainer:
         self.data_gen_time = 0
         self.forward_time = 0
         self.backward_time = 0
+        
+        # ✅ Track saved checkpoints for cleanup
+        saved_checkpoints = []
         
         # ✅ Adaptive print interval
         if print_interval is None:
@@ -355,6 +397,30 @@ class Trainer:
                       f"NMSE:{nmse_db:.2f}dB, "
                       f"Throughput:{samples_per_sec:,.0f} samples/s {timing_info}")
             
+            # ✅ Periodic checkpoint saving (keep only last N)
+            if save_interval and save_dir and (batch_idx + 1) % save_interval == 0:
+                checkpoint_path = Path(save_dir) / f'checkpoint_batch_{batch_idx+1}.pth'
+                checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Save new checkpoint
+                self.save_checkpoint(
+                    checkpoint_path,
+                    additional_info={
+                        'batch_idx': batch_idx + 1,
+                        'num_batches': num_batches,
+                        'training_time': time.time() - self.training_start_time
+                    }
+                )
+                saved_checkpoints.append(checkpoint_path)
+                print(f"  💾 Checkpoint saved: {checkpoint_path.name}")
+                
+                # Remove old checkpoints (keep only last N)
+                while len(saved_checkpoints) > keep_last_n:
+                    old_checkpoint = saved_checkpoints.pop(0)
+                    if old_checkpoint.exists():
+                        old_checkpoint.unlink()
+                        print(f"  🗑️  Removed old checkpoint: {old_checkpoint.name}")
+            
             # Validation
             if val_interval and (batch_idx + 1) % val_interval == 0:
                 val_loss = self.validate(
@@ -365,6 +431,15 @@ class Trainer:
                     seq_len=seq_len
                 )
                 self.val_losses.append(val_loss)
+                
+                # ✅ Update learning rate scheduler based on validation loss
+                old_lr = self.optimizer.param_groups[0]['lr']
+                self.scheduler.step(val_loss)
+                new_lr = self.optimizer.param_groups[0]['lr']
+                
+                # Log LR change
+                if new_lr != old_lr:
+                    print(f"  📉 Learning rate reduced: {old_lr:.6f} → {new_lr:.6f}")
                 
                 # ✅ Log validation loss to TensorBoard
                 if self.writer is not None:
