@@ -396,8 +396,7 @@ def main():
     parser.add_argument('--output', type=str, default='./evaluation_results',
                        help='结果保存目录')
     parser.add_argument('--device', type=str, default='auto',
-                       choices=['auto', 'cpu', 'cuda'],
-                       help='计算设备 (auto: 自动选择GPU, cpu: 强制CPU, cuda: 强制GPU) ✅ NEW')
+                       help='计算设备 (auto, cpu, cuda, cuda:0, cuda:1, etc.)')
     parser.add_argument('--use_amp', action='store_true',
                        help='启用混合精度（默认禁用，因为评估时精度更重要）')
     parser.add_argument('--no-compile', dest='compile', action='store_false',
@@ -412,6 +411,13 @@ def main():
     else:
         device = torch.device(args.device)
     
+    # ✅ Set CUDA device explicitly if using specific GPU
+    if device.type == 'cuda':
+        if device.index is not None:
+            torch.cuda.set_device(device)
+        else:
+            torch.cuda.set_device(0)
+    
     # ✅ Auto-adjust compile based on device
     if device.type == 'cpu':
         args.compile = False  # CPU: disable compile
@@ -419,7 +425,8 @@ def main():
     
     print(f"Using device: {device}")
     if device.type == 'cuda':
-        print(f"  GPU: {torch.cuda.get_device_name(0)}")
+        gpu_idx = device.index if device.index is not None else 0
+        print(f"  GPU: {torch.cuda.get_device_name(gpu_idx)}")
         print(f"  CUDA version: {torch.version.cuda}")
         if args.use_amp:
             print(f"  Mixed Precision: Enabled (FP16)")

@@ -119,8 +119,7 @@ def main():
     parser.add_argument('--num_batches', type=int, default=None,
                        help='Override number of batches')
     parser.add_argument('--device', type=str, default='auto',
-                       choices=['auto', 'cpu', 'cuda'],
-                       help='Device to use')
+                       help='Device to use (auto, cpu, cuda, cuda:0, cuda:1, etc.)')
     parser.add_argument('--save_dir', type=str, default='./experiments_refactored',
                        help='Directory to save models')
     
