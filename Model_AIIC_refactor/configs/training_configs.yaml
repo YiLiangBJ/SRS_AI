@@ -21,7 +21,7 @@ snr_range_0_30_perSample:
     tdl_config: [A-30, B-100, C-300]          # TDL-A with 30ns delay spread
     
     # Early stopping
-    early_stop_loss: 0.001  # Stop if loss below this value
+    # early_stop_loss: 0.001  # Stop if loss below this value
     validation_interval: 100  # Validate every N batches
     patience: 5  # Number of validations meeting early stop
     
