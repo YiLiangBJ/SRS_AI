@@ -28,8 +28,9 @@ snr_range_0_30_perSample:
     # Logging
     print_interval: 100
     save_interval: 1000
-  search_space:
-    loss_type: [nmse, weighted, log, normalized]
+    loss_type: log
+  # search_space:
+  #   loss_type: [nmse, weighted, log, normalized]
 
 snr_discrete_5_25_perbatch:
   fixed_params:
