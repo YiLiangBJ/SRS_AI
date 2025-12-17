@@ -103,7 +103,7 @@ models:
       mlp_depth: 3
       share_weights_across_stages: true
     search_space:              # Search parameters (generate combinations)
-      hidden_dim: [64]
+      hidden_dim: [16,32,64,128]
       num_stages: [2]
     # Generates: 3 x 3 = 9 configurations
   
@@ -115,7 +115,7 @@ models:
       mlp_depth: 3             # Keep depth fixed
       share_weights_across_stages: true
     search_space:
-      hidden_dim: [64]
+      hidden_dim: [16,32,64,128]
       num_stages: [2]
 
   # Example 1: Basic grid search (hidden_dim x num_stages)
