@@ -24,7 +24,7 @@ from models import create_model, list_models
 from training import Trainer
 from utils import (
     get_device, print_device_info,
-    parse_model_config, generate_config_name, print_search_space_summary,
+    parse_config_variants, generate_config_name, print_search_space_summary,
     SNRConfig, parse_snr_config,
     TrainingProgressTracker
 )
@@ -186,7 +186,7 @@ def main():
         raise ValueError(f"Training config '{args.training_config}' not found")
     
     # Parse training config (supports search_space like model configs)
-    training_configs = parse_model_config(training_config_raw)  # Reuse same parser
+    training_configs = parse_config_variants(training_config_raw)  # Reuse same parser
     
     # Override with command line arguments
     for tc in training_configs:
@@ -240,7 +240,7 @@ def main():
         model_config = all_model_configs['models'].get(model_config_name)
         if model_config:
             full_model_config = {**common_config, **model_config}
-            parsed_model_configs = parse_model_config(full_model_config)
+            parsed_model_configs = parse_config_variants(full_model_config)
             total_configs += len(parsed_model_configs) * len(training_configs)
     
     # Initialize progress tracker (report every 5 minutes)
@@ -294,7 +294,7 @@ def main():
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # Parse configuration (supports search space)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            parsed_model_configs = parse_model_config(full_model_config)
+            parsed_model_configs = parse_config_variants(full_model_config)
             
             print_search_space_summary(parsed_model_configs, model_config_name)
             print()

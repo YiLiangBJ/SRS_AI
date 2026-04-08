@@ -7,7 +7,7 @@ from .logging_utils import setup_logger
 from .snr_sampler import SNRSampler
 from .snr_config import SNRConfig, parse_snr_config
 from .config_parser import (
-    parse_model_config,
+    parse_config_variants,
     parse_search_space_value,
     expand_search_space,
     generate_config_name,
@@ -23,7 +23,7 @@ __all__ = [
     'SNRSampler',
     'SNRConfig',
     'parse_snr_config',
-    'parse_model_config',
+    'parse_config_variants',
     'parse_search_space_value',
     'expand_search_space',
     'generate_config_name',

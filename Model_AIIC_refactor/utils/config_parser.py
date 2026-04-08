@@ -137,7 +137,7 @@ def _infer_num_ports(config: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
-def parse_model_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+def parse_config_variants(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Parse model configuration, supporting both single config and search space
     
@@ -339,7 +339,7 @@ def load_and_parse_config(config_dict: Dict[str, Any], verbose: bool = True) -> 
     Returns:
         List of parsed configurations
     """
-    configs = parse_model_config(config_dict)
+    configs = parse_config_variants(config_dict)
     
     if verbose:
         print_search_space_summary(configs)
@@ -348,7 +348,7 @@ def load_and_parse_config(config_dict: Dict[str, Any], verbose: bool = True) -> 
 
 
 __all__ = [
-    'parse_model_config',
+    'parse_config_variants',
     'parse_search_space_value',
     'expand_search_space',
     'generate_config_name',

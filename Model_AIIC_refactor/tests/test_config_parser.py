@@ -6,7 +6,7 @@ import unittest
 from utils.config_parser import (
     parse_search_space_value,
     expand_search_space,
-    parse_model_config,
+    parse_config_variants,
     generate_config_name
 )
 
@@ -73,7 +73,7 @@ class TestConfigParser(unittest.TestCase):
             'hidden_dim': 64,
             'num_stages': 3
         }
-        result = parse_model_config(config)
+        result = parse_config_variants(config)
         
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], config)
@@ -87,7 +87,7 @@ class TestConfigParser(unittest.TestCase):
                 'num_stages': [2, 3]
             }
         }
-        result = parse_model_config(config)
+        result = parse_config_variants(config)
         
         self.assertEqual(len(result), 4)  # 2 x 2
         
@@ -108,7 +108,7 @@ class TestConfigParser(unittest.TestCase):
                 'num_stages': [2, 3]
             }
         }
-        result = parse_model_config(config)
+        result = parse_config_variants(config)
         
         self.assertEqual(len(result), 4)  # 2 x 2
         
