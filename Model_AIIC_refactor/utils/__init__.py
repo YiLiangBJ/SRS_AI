@@ -14,6 +14,16 @@ from .config_parser import (
     print_search_space_summary,
     load_and_parse_config
 )
+from .experiment_plan import (
+    DEFAULT_TRAINING_CONFIG,
+    ModelVariant,
+    TrainingVariant,
+    ExperimentPlanItem,
+    prepare_model_config_variants,
+    prepare_training_config_variants,
+    build_experiment_plan,
+    print_experiment_plan_summary,
+)
 from .progress_tracker import TrainingProgressTracker
 
 __all__ = [
@@ -29,5 +39,13 @@ __all__ = [
     'generate_config_name',
     'print_search_space_summary',
     'load_and_parse_config',
+    'DEFAULT_TRAINING_CONFIG',
+    'ModelVariant',
+    'TrainingVariant',
+    'ExperimentPlanItem',
+    'prepare_model_config_variants',
+    'prepare_training_config_variants',
+    'build_experiment_plan',
+    'print_experiment_plan_summary',
     'TrainingProgressTracker'
 ]

@@ -24,8 +24,12 @@ from models import create_model, list_models
 from training import Trainer
 from utils import (
     get_device, print_device_info,
-    parse_config_variants, generate_config_name, print_search_space_summary,
-    SNRConfig, parse_snr_config,
+    build_experiment_plan,
+    parse_snr_config,
+    prepare_model_config_variants,
+    prepare_training_config_variants,
+    print_experiment_plan_summary,
+    print_search_space_summary,
     TrainingProgressTracker
 )
 
@@ -129,7 +133,7 @@ def main():
     parser.add_argument('--no-compile', dest='compile_model', action='store_false',
                        help='Disable model compilation (torch.compile)')
     # ✅ GPU默认启用compile，CPU默认禁用（将在后面根据device调整）
-    parser.set_defaults(use_amp=False, compile_model=False)
+    parser.set_defaults(use_amp=False, compile_model=None)
     
     # ✅ NEW: Post-training workflow options
     parser.add_argument('--eval_after_train', action='store_true',
@@ -144,13 +148,14 @@ def main():
                        help='评估批大小')
     parser.add_argument('--plot_after_eval', action='store_true',
                        help='评估后自动绘图')
+    parser.add_argument('--plan_only', action='store_true',
+                       help='仅解析并打印实验计划，不执行训练')
     
     args = parser.parse_args()
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # ✅ Create timestamped experiment directory (avoid conflicts)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    from datetime import datetime
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
     # Generate experiment name with timestamp
@@ -177,37 +182,19 @@ def main():
     all_model_configs = load_config(model_configs_file)
     all_training_configs = load_config(training_configs_file)
     
-    # Get common settings
-    common_config = all_model_configs.get('common', {})
-    
-    # Get training config
-    training_config_raw = all_training_configs.get(args.training_config, {})
-    if not training_config_raw:
-        raise ValueError(f"Training config '{args.training_config}' not found")
-    
-    # Parse training config (supports search_space like model configs)
-    training_configs = parse_config_variants(training_config_raw)  # Reuse same parser
-    
-    # Override with command line arguments
-    for tc in training_configs:
-        if args.batch_size:
-            tc['batch_size'] = args.batch_size
-        if args.num_batches:
-            tc['num_batches'] = args.num_batches
+    training_variants = prepare_training_config_variants(
+        all_training_configs,
+        args.training_config,
+        batch_size_override=args.batch_size,
+        num_batches_override=args.num_batches,
+    )
     
     # Print device info
     device = get_device(args.device)
     
-    # ✅ Auto-adjust compile based on device (if not explicitly disabled)
-    if 'compile_model' in vars(args):
-        # User explicitly set --no-compile
-        pass
-    else:
-        # Auto: GPU enables compile, CPU disables
-        if device.type == 'cuda':
-            args.compile_model = True
-        else:
-            args.compile_model = False
+    # ✅ Auto-adjust compile based on device (unless explicitly disabled)
+    if args.compile_model is None:
+        args.compile_model = device.type == 'cuda'
     
     print("="*80)
     print("Channel Separator Training (Refactored)")
@@ -217,276 +204,257 @@ def main():
     
     # Parse model configs (support multiple models)
     model_config_names = [name.strip() for name in args.model_config.split(',')]
+    model_variants_by_name, missing_model_configs = prepare_model_config_variants(
+        all_model_configs,
+        model_config_names
+    )
+    experiment_plan = build_experiment_plan(
+        model_config_names,
+        model_variants_by_name,
+        training_variants,
+    )
+    if missing_model_configs:
+        missing_configs_str = ', '.join(missing_model_configs)
+        print(f"✗ Model config(s) not found: {missing_configs_str}")
+
+    if not model_variants_by_name:
+        raise ValueError(f"No valid model configs found in: {args.model_config}")
     
     print(f"Training configurations:")
-    print(f"  Training config: {args.training_config} ({len(training_configs)} variants)")
+    print(f"  Training config: {args.training_config} ({len(training_variants)} variants)")
     print(f"  Model config(s): {model_config_names}")
     print(f"  Available models: {list_models()}")
+    print(f"  Planned runs: {len(experiment_plan)}")
     print()
     
     # Show training config search space (if any)
-    if len(training_configs) > 1:
-        print(f"Training search space: {len(training_configs)} configurations")
-        print_search_space_summary(training_configs, args.training_config)
+    if len(training_variants) > 1:
+        print(f"Training search space: {len(training_variants)} configurations")
+        print_search_space_summary([variant.config for variant in training_variants], args.training_config)
         print()
+
+    for model_config_name in model_config_names:
+        model_variants = model_variants_by_name.get(model_config_name)
+        if model_variants is None:
+            continue
+        print_search_space_summary([variant.config for variant in model_variants], model_config_name)
+        print()
+
+    print_experiment_plan_summary(experiment_plan)
+    print()
+
+    if args.plan_only:
+        print("✓ Plan generated. Exiting without training.")
+        return
     
     # Record start time
     script_start_time = time.time()
     script_start_datetime = datetime.now()
     
     # Count total configurations first (model configs × training configs)
-    total_configs = 0
-    for model_config_name in model_config_names:
-        model_config = all_model_configs['models'].get(model_config_name)
-        if model_config:
-            full_model_config = {**common_config, **model_config}
-            parsed_model_configs = parse_config_variants(full_model_config)
-            total_configs += len(parsed_model_configs) * len(training_configs)
+    total_configs = len(experiment_plan)
     
     # Initialize progress tracker (report every 5 minutes)
     progress_tracker = TrainingProgressTracker(total_configs, report_interval=300.0)
     
     # Train each combination of (training_config × model_config)
     results = []
-    task_index = 0
+    previous_training_variant_name = None
+    previous_model_source_name = None
     
-    for training_config_idx, training_config in enumerate(training_configs, 1):
-        # Parse SNR configuration for this training config
-        snr_config_dict = training_config.get('snr_config', {'type': 'range', 'min': 0, 'max': 30})
+    for experiment in experiment_plan:
+        training_variant = experiment.training_variant
+        model_variant = experiment.model_variant
+        training_config = training_variant.config
+        config = model_variant.config
+        training_variant_name = training_variant.variant_name
+        model_config_name = model_variant.source_name
+
+        batch_size = training_config['batch_size']
+        num_batches = training_config['num_batches']
+        learning_rate = training_config['learning_rate']
+        loss_type = training_config['loss_type']
+        snr_config_dict = training_config['snr_config']
+        tdl_config = training_config['tdl_config']
+        print_interval = training_config['print_interval']
+        val_interval = training_config.get('validation_interval')
+        early_stop_loss = training_config.get('early_stop_loss')
+        patience = training_config['patience']
+        keep_last_n = training_config['keep_last_n_checkpoints']
         snr_config = parse_snr_config(snr_config_dict)
-        
-        # Generate training config name
-        if len(training_configs) > 1:
-            training_variant_name = f"{args.training_config}_v{training_config_idx}"
-            # Add loss_type or learning_rate to name if they vary
-            if 'loss_type' in training_config:
-                training_variant_name = f"{args.training_config}_{training_config['loss_type']}"
-            elif 'learning_rate' in training_config:
-                training_variant_name = f"{args.training_config}_lr{training_config['learning_rate']}"
-        else:
-            training_variant_name = args.training_config
-        
-        if len(training_configs) > 1:
+
+        if len(training_variants) > 1 and training_variant_name != previous_training_variant_name:
             print(f"\n{'='*80}")
-            print(f"Training Config Variant {training_config_idx}/{len(training_configs)}: {training_variant_name}")
+            print(
+                f"Training Config Variant {training_variant.variant_index}/{training_variant.total_variants}: "
+                f"{training_variant_name}"
+            )
             print(f"{'='*80}")
-            print(f"  Loss type: {training_config.get('loss_type', 'nmse')}")
-            print(f"  Learning rate: {training_config.get('learning_rate', 0.01)}")
+            print(f"  Loss type: {loss_type}")
+            print(f"  Learning rate: {learning_rate}")
             print(f"  SNR: {snr_config}")
             print()
-        
-        for model_config_name in model_config_names:
+
+        if model_config_name != previous_model_source_name or training_variant_name != previous_training_variant_name:
             print(f"\n{'='*80}")
             print(f"Model: {model_config_name}")
-            if len(training_configs) > 1:
+            if len(training_variants) > 1:
                 print(f"Training: {training_variant_name}")
             print(f"{'='*80}\n")
-            
-            # Get model config
-            model_config = all_model_configs['models'].get(model_config_name)
-            if not model_config:
-                print(f"✗ Model config '{model_config_name}' not found. Skipping.")
-                continue
-            
-            # Merge common config
-            full_model_config = {**common_config, **model_config}
-            
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # Parse configuration (supports search space)
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            parsed_model_configs = parse_config_variants(full_model_config)
-            
-            print_search_space_summary(parsed_model_configs, model_config_name)
-            print()
-            
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # Train each model configuration
-            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            for config_idx, config in enumerate(parsed_model_configs, 1):
-                task_index += 1
-                
-                print(f"\n{'─'*80}")
-                if len(parsed_model_configs) > 1:
-                    print(f"Model Config {config_idx}/{len(parsed_model_configs)} of {model_config_name}")
-                if len(training_configs) > 1:
-                    print(f"Training Config: {training_variant_name}")
-                print(f"{'─'*80}\n")
-                
-                # Generate descriptive name for this configuration
-                config_instance_name = generate_config_name(config, model_config_name)
-                if len(training_configs) > 1:
-                    config_instance_name = f"{config_instance_name}_{training_variant_name}"
-                
-                # Start tracking this task
-                progress_tracker.start_task(config_instance_name, task_index)
-                print(f"Configuration: {config_instance_name}")
-                
-                # Create model
-                model_type = config['model_type']
-                model_params = {k: v for k, v in config.items() if k != 'model_type'}
-                
-                print(f"  Model type: {model_type}")
-                print(f"  Parameters: {model_params}")
-                
-                model = create_model(model_type, config)
-                num_params = sum(p.numel() for p in model.parameters())
-                print(f"  Total parameters: {num_params:,}")
-                print()
-                
-                # ✅ Setup TensorBoard logging directory
-                save_dir = Path(args.save_dir) / config_instance_name
-                tensorboard_dir = save_dir / 'tensorboard'
-                
-                # Create trainer
-                trainer = Trainer(
-                    model=model,
-                    learning_rate=training_config.get('learning_rate', 0.01),
-                    loss_type=training_config.get('loss_type', 'nmse'),
-                    device=device,
-                    use_amp=args.use_amp,  # ✅ Mixed precision
-                    compile_model=args.compile_model,  # ✅ Model compilation
-                    tensorboard_dir=tensorboard_dir  # ✅ TensorBoard logging
-                )
-                
-                # Train
-                start_time = time.time()
-                
-                # ✅ Setup save directory for periodic checkpoints
-                save_dir_path = Path(args.save_dir) / config_instance_name
-                
-                # ✅ Adaptive save_interval calculation
-                num_batches = training_config.get('num_batches', 10000)
-                save_interval = training_config.get('save_interval')
-                
-                # If not explicitly set, calculate adaptive interval
-                if save_interval is None and num_batches >= 1000:
-                    # Formula: max(1000, num_batches // 20)
-                    # Examples:
-                    #   1,000 batches → 1,000 (save at end)
-                    #   10,000 batches → 1,000 (save 10 times)
-                    #   100,000 batches → 5,000 (save 20 times)
-                    #   1,000,000 batches → 50,000 (save 20 times)
-                    save_interval = max(1000, num_batches // 20)
-                    print(f"  💾 Auto checkpoint: every {save_interval} batches (~{num_batches // save_interval} saves)")
-                elif save_interval:
-                    print(f"  💾 Manual checkpoint: every {save_interval} batches (~{num_batches // save_interval} saves)")
-                
-                losses = trainer.train(
-                    num_batches=num_batches,
-                    batch_size=training_config.get('batch_size', 2048),
-                    snr_config=snr_config,
-                    pos_values=config.get('pos_values', [0, 3, 6, 9]),  # From model_config
-                    tdl_config=training_config.get('tdl_config', 'A-30'),
-                    seq_len=config.get('seq_len', 12),
-                    print_interval=training_config.get('print_interval', 100),
-                    val_interval=training_config.get('validation_interval'),
-                    early_stop_loss=training_config.get('early_stop_loss'),
-                    patience=training_config.get('patience', 3),
-                    progress_tracker=progress_tracker,  # Pass progress tracker
-                    save_interval=save_interval,  # ✅ Adaptive or manual
-                    save_dir=save_dir_path if training_config.get('save_interval') else None,  # ✅ Save directory
-                    keep_last_n=training_config.get('keep_last_n_checkpoints', 2)  # ✅ Keep last N checkpoints
-                )
-                
-                training_duration = time.time() - start_time
-                
-                # Evaluate
-                print("\n" + "─"*80)
-                print("Final Evaluation")
-                print("─"*80)
-                
-                # Evaluate at mid-point SNR
-                if snr_config.config_type == 'range':
-                    eval_snr = (snr_config.min_snr + snr_config.max_snr) / 2
-                else:
-                    eval_snr = float(np.mean(snr_config.snr_values))
-                
-                eval_results = trainer.evaluate(
-                    batch_size=200,
-                    snr_db=eval_snr,
-                    pos_values=config.get('pos_values', [0, 3, 6, 9]),
-                    tdl_config=training_config.get('tdl_config', 'A-30')
-                )
-                
-                print(f"  NMSE: {eval_results['nmse']:.6f} ({eval_results['nmse_db']:.2f} dB)")
-                print(f"  Per-port NMSE (dB): {eval_results['per_port_nmse_db']}")
-                
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                # ✅ Save checkpoint with unified format
-                # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                save_dir = Path(args.save_dir) / config_instance_name
-                save_dir.mkdir(parents=True, exist_ok=True)
-                
-                save_path = save_dir / 'model.pth'
-                
-                # ✅ Prepare config (all model architecture parameters)
-                model_config_dict = {
-                    'model_type': config.get('model_type', 'separator1'),
-                    'hidden_dim': config.get('hidden_dim', 64),
-                    'num_stages': config.get('num_stages', 2),
-                    'mlp_depth': config.get('mlp_depth', 3),
-                    'share_weights_across_stages': config.get('share_weights_across_stages', False),
-                    'activation_type': config.get('activation_type', 'relu'),
-                    'seq_len': config.get('seq_len', 12),
-                    'num_ports': len(config.get('pos_values', [0, 3, 6, 9])),
-                    'pos_values': config.get('pos_values', [0, 3, 6, 9]),
-                    'num_params': sum(p.numel() for p in trainer.model.parameters()),
-                }
-                
-                # ✅ Prepare training_config (all training parameters)
-                training_config_dict = {
-                    'loss_type': training_config.get('loss_type', 'nmse'),
-                    'learning_rate': training_config.get('learning_rate', 0.01),
-                    'num_batches': training_config.get('num_batches', 10000),
-                    'batch_size': training_config.get('batch_size', 4096),
-                    'snr_config': training_config.get('snr_config', {'type': 'range', 'min': 0, 'max': 30}),
-                    'tdl_config': training_config.get('tdl_config', 'A-30'),
-                }
-                
-                # ✅ Prepare metadata
-                metadata_dict = {
-                    'model_config_name': model_config_name,
-                    'config_instance_name': config_instance_name,
-                    'training_config_name': training_variant_name,
-                    'training_duration': training_duration,
-                    'timestamp': datetime.now().isoformat(),
-                }
-                
-                trainer.save_checkpoint(
-                    save_path,
-                    additional_info={
-                        'config': model_config_dict,           # ✅ Standard key for model config
-                        'training_config': training_config_dict,  # ✅ Standard key for training config
-                        'metadata': metadata_dict,                # ✅ Metadata
-                        'eval_results': eval_results,             # ✅ Quick evaluation results
-                    }
-                )
-                
-                # Save human-readable config
-                config_save_path = save_dir / 'config.yaml'
-                with open(config_save_path, 'w', encoding='utf-8') as f:
-                    yaml.dump({
-                        'model_config': model_config_dict,
-                        'training_config': training_config_dict,
-                        'metadata': metadata_dict,
-                    }, f, default_flow_style=False, allow_unicode=True)
-                
-                print(f"✓ Model saved to: {save_dir}")
-                
-                result = {
-                    'model_config_name': model_config_name,
-                    'config_instance_name': config_instance_name,
-                    'training_config_name': training_variant_name,
-                    'final_loss': losses[-1],
-                    'min_loss': min(losses),
-                    'eval_nmse_db': eval_results['nmse_db'],
-                    'training_duration': training_duration,
-                    'num_params': num_params
-                }
-                results.append(result)
-                
-                # Complete this task in progress tracker
-                progress_tracker.complete_task(result)
+
+        print(f"\n{'─'*80}")
+        if model_variant.total_variants > 1:
+            print(
+                f"Model Config {model_variant.variant_index}/{model_variant.total_variants} "
+                f"of {model_config_name}"
+            )
+        if len(training_variants) > 1:
+            print(f"Training Config: {training_variant_name}")
+        print(f"{'─'*80}\n")
+
+        config_instance_name = experiment.run_name
+
+        progress_tracker.start_task(config_instance_name, experiment.task_index)
+        print(f"Configuration: {config_instance_name}")
+
+        model_type = config['model_type']
+        model_params = {key: value for key, value in config.items() if key != 'model_type'}
+
+        print(f"  Model type: {model_type}")
+        print(f"  Parameters: {model_params}")
+
+        model = create_model(model_type, config)
+        num_params = sum(p.numel() for p in model.parameters())
+        print(f"  Total parameters: {num_params:,}")
+        print()
+
+        experiment_dir = Path(args.save_dir) / config_instance_name
+        tensorboard_dir = experiment_dir / 'tensorboard'
+
+        trainer = Trainer(
+            model=model,
+            learning_rate=learning_rate,
+            loss_type=loss_type,
+            device=device,
+            use_amp=args.use_amp,
+            compile_model=args.compile_model,
+            tensorboard_dir=tensorboard_dir
+        )
+
+        start_time = time.time()
+        save_interval = training_config.get('save_interval')
+
+        if save_interval is None and num_batches >= 1000:
+            save_interval = max(1000, num_batches // 20)
+            print(f"  💾 Auto checkpoint: every {save_interval} batches (~{num_batches // save_interval} saves)")
+        elif save_interval:
+            print(f"  💾 Manual checkpoint: every {save_interval} batches (~{num_batches // save_interval} saves)")
+
+        losses = trainer.train(
+            num_batches=num_batches,
+            batch_size=batch_size,
+            snr_config=snr_config,
+            pos_values=config['pos_values'],
+            tdl_config=tdl_config,
+            seq_len=config['seq_len'],
+            print_interval=print_interval,
+            val_interval=val_interval,
+            early_stop_loss=early_stop_loss,
+            patience=patience,
+            progress_tracker=progress_tracker,
+            save_interval=save_interval,
+            save_dir=experiment_dir if save_interval is not None else None,
+            keep_last_n=keep_last_n,
+        )
+
+        training_duration = time.time() - start_time
+
+        print("\n" + "─"*80)
+        print("Final Evaluation")
+        print("─"*80)
+
+        if snr_config.config_type == 'range':
+            eval_snr = (snr_config.min_snr + snr_config.max_snr) / 2
+        else:
+            eval_snr = float(np.mean(snr_config.snr_values))
+
+        eval_results = trainer.evaluate(
+            batch_size=200,
+            snr_db=eval_snr,
+            pos_values=config['pos_values'],
+            tdl_config=tdl_config
+        )
+
+        print(f"  NMSE: {eval_results['nmse']:.6f} ({eval_results['nmse_db']:.2f} dB)")
+        print(f"  Per-port NMSE (dB): {eval_results['per_port_nmse_db']}")
+
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        save_path = experiment_dir / 'model.pth'
+        model_config_dict = {
+            'model_type': config['model_type'],
+            'hidden_dim': config.get('hidden_dim', 64),
+            'num_stages': config.get('num_stages', 2),
+            'mlp_depth': config.get('mlp_depth', 3),
+            'share_weights_across_stages': config.get('share_weights_across_stages', False),
+            'activation_type': config.get('activation_type', 'relu'),
+            'seq_len': config['seq_len'],
+            'num_ports': len(config['pos_values']),
+            'pos_values': config['pos_values'],
+            'num_params': num_params,
+        }
+
+        training_config_dict = {
+            'loss_type': loss_type,
+            'learning_rate': learning_rate,
+            'num_batches': num_batches,
+            'batch_size': batch_size,
+            'snr_config': snr_config_dict,
+            'tdl_config': tdl_config,
+        }
+
+        metadata_dict = {
+            'model_config_name': model_config_name,
+            'config_instance_name': config_instance_name,
+            'training_config_name': training_variant_name,
+            'training_duration': training_duration,
+            'timestamp': datetime.now().isoformat(),
+        }
+
+        trainer.save_checkpoint(
+            save_path,
+            additional_info={
+                'config': model_config_dict,
+                'training_config': training_config_dict,
+                'metadata': metadata_dict,
+                'eval_results': eval_results,
+            }
+        )
+
+        config_save_path = experiment_dir / 'config.yaml'
+        with open(config_save_path, 'w', encoding='utf-8') as f:
+            yaml.dump({
+                'model_config': model_config_dict,
+                'training_config': training_config_dict,
+                'metadata': metadata_dict,
+            }, f, default_flow_style=False, allow_unicode=True)
+
+        print(f"✓ Model saved to: {experiment_dir}")
+
+        result = {
+            'model_config_name': model_config_name,
+            'config_instance_name': config_instance_name,
+            'training_config_name': training_variant_name,
+            'final_loss': losses[-1],
+            'min_loss': min(losses),
+            'eval_nmse_db': eval_results['nmse_db'],
+            'training_duration': training_duration,
+            'num_params': num_params
+        }
+        results.append(result)
+        progress_tracker.complete_task(result)
+        previous_training_variant_name = training_variant_name
+        previous_model_source_name = model_config_name
     
     # Calculate total time
     script_end_time = time.time()

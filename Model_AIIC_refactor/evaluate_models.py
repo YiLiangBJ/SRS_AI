@@ -263,6 +263,12 @@ def evaluate_models_programmatic(
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     else:
         device = torch.device(device)
+
+    if device.type == 'cuda':
+        if device.index is not None:
+            torch.cuda.set_device(device)
+        else:
+            torch.cuda.set_device(0)
     
     # Parse parameters
     exp_dir = Path(exp_dir)
@@ -433,24 +439,15 @@ def main():
         if args.compile:
             print(f"  Model Compilation: Enabled (torch.compile)")
     
-    # 解析参数
     exp_dir = Path(args.exp_dir)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # 解析 SNR 范围
     snr_list = parse_snr_range(args.snr_range)
-    print(f"SNR 范围: {snr_list}")
-    
-    # 解析 TDL 配置
     tdl_list = args.tdl.split(',')
-    print(f"TDL 配置: {tdl_list}")
-    
-    # 解析模型列表
+
     if args.models:
         model_names = args.models.split(',')
     else:
-        # 自动发现所有模型
         if not exp_dir.exists():
             raise FileNotFoundError(f"实验目录不存在: {exp_dir}")
         model_names = [d.name for d in exp_dir.iterdir() if d.is_dir() and (d / 'model.pth').exists()]
@@ -465,130 +462,22 @@ def main():
     print(f"总共: {len(model_names)} 个模型 × {len(tdl_list)} 个 TDL × {len(snr_list)} 个 SNR")
     print(f"每个点: {args.num_batches} batches × {args.batch_size} samples = {total_samples_per_point} 总样本")
     print("="*80)
-    
-    # 评估结果存储
-    results = {
-        'timestamp': datetime.now().isoformat(),
-        'config': {
-            'snr_list': snr_list,
-            'tdl_list': tdl_list,
-            'num_batches': args.num_batches,
-            'batch_size': args.batch_size,
-            'total_samples_per_point': args.num_batches * args.batch_size
-        },
-        'models': {}
-    }
-    
-    # 遍历所有模型
-    for model_name in model_names:
-        model_dir = exp_dir / model_name
-        
-        if not (model_dir / 'model.pth').exists():
-            print(f"⚠️  跳过 {model_name}: 找不到 model.pth")
-            continue
-        
-        print(f"\n{'='*80}")
-        print(f"评估模型: {model_name}")
-        print(f"{'='*80}")
-        
-        try:
-            # ✅ 加载模型到指定device
-            model, config = load_model(model_dir, device=device)
-            model = model.to(device)
-            
-            # ✅ 可选：编译模型（需要显式启用）
-            if args.compile and device.type == 'cuda':
-                if hasattr(torch, 'compile'):
-                    print(f"  🚀 Compiling model...")
-                    model = torch.compile(model, mode='reduce-overhead')
-                    print(f"  ✓ Model compiled")
-            
-            model.eval()
-            print(f"✓ 模型加载成功 (device: {device})")
-            print(f"  配置: {config.get('model_type', 'N/A')}, stages={config.get('num_stages')}, share_weights={config.get('share_weights')}")
-            print(f"  参数数量: {sum(p.numel() for p in model.parameters()):,}")
-            print(f"  端口位置: {config.get('pos_values', 'N/A')}")
-            
-            # 为该模型创建结果存储
-            results['models'][model_name] = {
-                'config': config,
-                'tdl_results': {}
-            }
-            
-            # 遍历所有 TDL 配置
-            for tdl_config in tdl_list:
-                print(f"\n  TDL: {tdl_config}")
-                
-                # 为该 TDL 创建结果存储
-                tdl_results = {
-                    'snr': [],
-                    'nmse': [],
-                    'nmse_db': [],
-                    'port_nmse': [],
-                    'port_nmse_db': []
-                }
-                
-                # 遍历所有 SNR
-                for snr_db in tqdm(snr_list, desc=f"    {tdl_config}"):
-                    # ✅ 评估（GPU加速）
-                    nmse, nmse_db, port_nmse, port_nmse_db = evaluate_model_at_snr(
-                        model, snr_db, tdl_config, config['pos_values'],
-                        num_batches=args.num_batches,
-                        batch_size=args.batch_size,
-                        device=device,  # ✅ 传递device
-                        use_amp=args.use_amp  # ✅ 传递AMP设置
-                    )
-                    
-                    # 保存结果
-                    tdl_results['snr'].append(snr_db)
-                    tdl_results['nmse'].append(nmse)
-                    tdl_results['nmse_db'].append(nmse_db)
-                    tdl_results['port_nmse'].append(port_nmse)
-                    tdl_results['port_nmse_db'].append(port_nmse_db)
-                
-                # 保存该 TDL 的结果
-                results['models'][model_name]['tdl_results'][tdl_config] = tdl_results
-                
-                print(f"    ✓ 完成 {tdl_config}")
-            
-            print(f"\n✓ 模型 {model_name} 评估完成")
-            
-        except Exception as e:
-            print(f"✗ 模型 {model_name} 评估失败: {e}")
-            import traceback
-            print(f"详细错误信息:")
-            traceback.print_exc()
-            continue
-    
-    # 保存结果
-    print(f"\n{'='*80}")
-    print("保存结果...")
-    print(f"{'='*80}")
-    
-    # 保存 JSON
+    results = evaluate_models_programmatic(
+        exp_dir=exp_dir,
+        output_dir=output_dir,
+        snr_range=args.snr_range,
+        tdl_list=tdl_list,
+        num_batches=args.num_batches,
+        batch_size=args.batch_size,
+        device=device,
+        use_amp=args.use_amp,
+        compile=args.compile,
+        models=model_names,
+    )
+
     json_path = output_dir / 'evaluation_results.json'
-    with open(json_path, 'w') as f:
-        json.dump(results, f, indent=2)
-    print(f"✓ 保存 JSON: {json_path}")
-    
-    # 保存 NumPy 格式（便于绘图）
-    numpy_data = {}
-    for model_name, model_data in results['models'].items():
-        numpy_data[model_name] = {}
-        for tdl_config, tdl_data in model_data['tdl_results'].items():
-            numpy_data[model_name][tdl_config] = {
-                'snr': np.array(tdl_data['snr']),
-                'nmse': np.array(tdl_data['nmse']),
-                'nmse_db': np.array(tdl_data['nmse_db']),
-                'port_nmse': np.array(tdl_data['port_nmse']),
-                'port_nmse_db': np.array(tdl_data['port_nmse_db'])
-            }
-    
     npy_path = output_dir / 'evaluation_results.npy'
-    np.save(npy_path, numpy_data, allow_pickle=True)
-    print(f"✓ 保存 NumPy: {npy_path}")
-    
-    # 打印摘要
+
     print(f"\n{'='*80}")
     print("评估摘要")
     print(f"{'='*80}")

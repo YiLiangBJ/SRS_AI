@@ -231,8 +231,7 @@ grid_search_with_lr:
   
   # Learning rate can also be searched
   fixed_params:
-    # (no fixed training params)
-    pass
+    {}
   search_space:
     learning_rate: [0.001, 0.01, 0.1]
     # Generates 3 different learning rates for each model config
