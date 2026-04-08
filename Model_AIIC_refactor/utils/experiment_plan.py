@@ -1,7 +1,10 @@
-"""Helpers for preparing model/training variants and experiment plans."""
+"""Helpers for loading configs and building experiment plans."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+import yaml
 
 from .config_parser import generate_config_name, parse_config_variants
 
@@ -58,6 +61,86 @@ class ExperimentPlanItem:
     run_name: str
     model_variant: ModelVariant
     training_variant: TrainingVariant
+
+    @property
+    def model_config(self) -> Dict[str, Any]:
+        return self.model_variant.config
+
+    @property
+    def training_config(self) -> Dict[str, Any]:
+        return self.training_variant.config
+
+    @property
+    def model_config_name(self) -> str:
+        return self.model_variant.source_name
+
+    @property
+    def model_recipe_name(self) -> str:
+        return self.model_variant.source_name
+
+    @property
+    def model_variant_name(self) -> str:
+        return self.model_variant.variant_name
+
+    @property
+    def model_label(self) -> str:
+        return self.model_variant.variant_name
+
+    @property
+    def model_variant_index(self) -> int:
+        return self.model_variant.variant_index
+
+    @property
+    def model_variant_total(self) -> int:
+        return self.model_variant.total_variants
+
+    @property
+    def training_config_name(self) -> str:
+        return self.training_variant.source_name
+
+    @property
+    def training_recipe_name(self) -> str:
+        return self.training_variant.source_name
+
+    @property
+    def training_variant_name(self) -> str:
+        return self.training_variant.variant_name
+
+    @property
+    def training_label(self) -> str:
+        return self.training_variant.variant_name
+
+    @property
+    def training_variant_index(self) -> int:
+        return self.training_variant.variant_index
+
+    @property
+    def training_variant_total(self) -> int:
+        return self.training_variant.total_variants
+
+
+@dataclass(frozen=True)
+class ConfigCatalog:
+    """Loaded raw configuration files for the project."""
+
+    config_dir: Path
+    model_configs: Dict[str, Any]
+    training_configs: Dict[str, Any]
+    experiments: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ExperimentSuite:
+    """All prepared state needed to execute a training sweep."""
+
+    catalog: ConfigCatalog
+    experiment_name: Optional[str]
+    model_config_names: List[str]
+    training_config_name: str
+    model_variants_by_name: Dict[str, List[ModelVariant]]
+    training_variants: List[TrainingVariant]
+    missing_model_configs: List[str]
+    plan: List[ExperimentPlanItem]
 
 
 def _format_name_value(value: Any) -> str:
@@ -134,6 +217,36 @@ def _build_variant_name(
         name_parts.append(f"v{variant_index}")
 
     return '_'.join(name_parts)
+
+
+def load_yaml_config(config_path: Path) -> Dict[str, Any]:
+    """Load a YAML config file."""
+    with open(config_path, 'r', encoding='utf-8') as config_file:
+        return yaml.safe_load(config_file)
+
+
+def load_config_catalog(config_dir: Path) -> ConfigCatalog:
+    """Load model and training config files from a single directory."""
+    config_dir = Path(config_dir)
+    experiments_path = config_dir / 'experiments.yaml'
+    experiments = load_yaml_config(experiments_path) if experiments_path.exists() else {}
+    return ConfigCatalog(
+        config_dir=config_dir,
+        model_configs=load_yaml_config(config_dir / 'model_configs.yaml'),
+        training_configs=load_yaml_config(config_dir / 'training_configs.yaml'),
+        experiments=experiments.get('experiments', experiments),
+    )
+
+
+def resolve_experiment_definition(
+    catalog: ConfigCatalog,
+    experiment_name: str,
+) -> Dict[str, Any]:
+    """Resolve an experiment entry from experiments.yaml."""
+    experiment_definition = catalog.experiments.get(experiment_name)
+    if not experiment_definition:
+        raise ValueError(f"Experiment '{experiment_name}' not found")
+    return experiment_definition
 
 
 def prepare_model_config_variants(
@@ -246,6 +359,59 @@ def build_experiment_plan(
     return experiment_plan
 
 
+def build_experiment_suite(
+    config_dir: Path,
+    model_config_names: Optional[Sequence[str]] = None,
+    training_config_name: Optional[str] = None,
+    batch_size_override: Optional[int] = None,
+    num_batches_override: Optional[int] = None,
+    experiment_name: Optional[str] = None,
+) -> ExperimentSuite:
+    """Load configs and prepare the full experiment suite in one place."""
+    catalog = load_config_catalog(config_dir)
+    if experiment_name:
+        experiment_definition = resolve_experiment_definition(catalog, experiment_name)
+        model_config_names = experiment_definition.get('model_configs', [])
+        training_config_name = experiment_definition.get('training_config')
+        if batch_size_override is None:
+            batch_size_override = experiment_definition.get('batch_size')
+        if num_batches_override is None:
+            num_batches_override = experiment_definition.get('num_batches')
+
+    if not model_config_names:
+        raise ValueError('No model configs specified for experiment suite')
+    if not training_config_name:
+        raise ValueError('No training config specified for experiment suite')
+
+    model_config_names = [name.strip() for name in model_config_names if name.strip()]
+    model_variants_by_name, missing_model_configs = prepare_model_config_variants(
+        catalog.model_configs,
+        model_config_names,
+    )
+    training_variants = prepare_training_config_variants(
+        catalog.training_configs,
+        training_config_name,
+        batch_size_override=batch_size_override,
+        num_batches_override=num_batches_override,
+    )
+    plan = build_experiment_plan(
+        model_config_names,
+        model_variants_by_name,
+        training_variants,
+    )
+
+    return ExperimentSuite(
+        catalog=catalog,
+        experiment_name=experiment_name,
+        model_config_names=model_config_names,
+        training_config_name=training_config_name,
+        model_variants_by_name=model_variants_by_name,
+        training_variants=training_variants,
+        missing_model_configs=missing_model_configs,
+        plan=plan,
+    )
+
+
 def print_experiment_plan_summary(plan: Sequence[ExperimentPlanItem]) -> None:
     """Print a concise execution plan preview."""
     print(f"Experiment plan: {len(plan)} runs")
@@ -261,8 +427,16 @@ __all__ = [
     'ModelVariant',
     'TrainingVariant',
     'ExperimentPlanItem',
+    'ConfigCatalog',
+    'ExperimentSuite',
+    'load_yaml_config',
+    'load_config_catalog',
+    'resolve_experiment_definition',
+    'prepare_model_config_variants',
+    'prepare_training_config_variants',
     'prepare_model_config_variants',
     'prepare_training_config_variants',
     'build_experiment_plan',
+    'build_experiment_suite',
     'print_experiment_plan_summary',
 ]

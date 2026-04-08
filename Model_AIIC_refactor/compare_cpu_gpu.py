@@ -14,21 +14,32 @@ import time
 import subprocess
 from pathlib import Path
 import json
+import sys
 
 
-def run_training(model_config, training_config, num_batches, batch_size, device):
-    """Run training with specified device"""
+def build_train_command(experiment, model_config, training_config, num_batches, batch_size, device):
+    """Build a train.py command using either an experiment or direct config names."""
     cmd = [
-        'python', 'train.py',
-        '--model_config', model_config,
-        '--training_config', training_config,
+        sys.executable, 'train.py',
         '--num_batches', str(num_batches),
         '--device', device,
         '--save_dir', f'./perf_test_{device}'
     ]
-    
+
+    if experiment:
+        cmd.extend(['--experiment', experiment])
+    else:
+        cmd.extend(['--model_config', model_config, '--training_config', training_config])
+
     if batch_size:
         cmd.extend(['--batch_size', str(batch_size)])
+
+    return cmd
+
+
+def run_training(experiment, model_config, training_config, num_batches, batch_size, device):
+    """Run training with specified device"""
+    cmd = build_train_command(experiment, model_config, training_config, num_batches, batch_size, device)
     
     print(f"\n{'='*80}")
     print(f"Running on {device.upper()}")
@@ -66,6 +77,8 @@ def run_training(model_config, training_config, num_batches, batch_size, device)
 
 def main():
     parser = argparse.ArgumentParser(description='Compare CPU vs GPU training performance')
+    parser.add_argument('--experiment', type=str, default=None,
+                       help='Experiment name from experiments.yaml')
     parser.add_argument('--model_config', type=str, default='separator1_small',
                        help='Model configuration to test')
     parser.add_argument('--training_config', type=str, default='quick_test',
@@ -80,6 +93,8 @@ def main():
                        help='Skip GPU test (only run CPU)')
     
     args = parser.parse_args()
+    target_name = args.experiment or args.model_config
+    training_name = args.training_config if not args.experiment else None
     
     results = {}
     
@@ -89,6 +104,7 @@ def main():
         print("Testing CPU Performance")
         print("="*80)
         cpu_result = run_training(
+            args.experiment,
             args.model_config,
             args.training_config,
             args.num_batches,
@@ -110,6 +126,7 @@ def main():
         print("Testing GPU Performance")
         print("="*80)
         gpu_result = run_training(
+            args.experiment,
             args.model_config,
             args.training_config,
             args.num_batches,
@@ -138,7 +155,7 @@ def main():
             speedup = cpu_result['duration'] / gpu_result['duration']
             throughput_ratio = gpu_result['avg_throughput'] / cpu_result['avg_throughput'] if cpu_result['avg_throughput'] > 0 else 0
             
-            print(f"\nConfiguration: {args.model_config} ({args.num_batches} batches)")
+            print(f"\nConfiguration: {target_name} ({args.num_batches} batches)")
             print(f"\n{'Device':<10} {'Duration':<15} {'Throughput':<20} {'Speedup':<10}")
             print("-" * 60)
             print(f"{'CPU':<10} {cpu_result['duration']:>10.2f}s    {cpu_result['avg_throughput']:>10.0f} samples/s  {'1.00x':<10}")
@@ -170,8 +187,10 @@ def main():
     with open(output_file, 'w') as f:
         json.dump({
             'config': {
+                'experiment': args.experiment,
                 'model': args.model_config,
-                'training': args.training_config,
+                'training': training_name,
+                'target': target_name,
                 'num_batches': args.num_batches,
                 'batch_size': args.batch_size
             },

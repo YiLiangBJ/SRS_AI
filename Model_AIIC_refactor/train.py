@@ -23,21 +23,13 @@ from datetime import datetime
 from models import create_model, list_models
 from training import Trainer
 from utils import (
+    build_experiment_suite,
     get_device, print_device_info,
-    build_experiment_plan,
     parse_snr_config,
-    prepare_model_config_variants,
-    prepare_training_config_variants,
     print_experiment_plan_summary,
     print_search_space_summary,
     TrainingProgressTracker
 )
-
-
-def load_config(config_path: str) -> dict:
-    """Load YAML configuration file"""
-    with open(config_path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
 
 
 def generate_training_report(
@@ -111,6 +103,8 @@ def main():
     parser = argparse.ArgumentParser(description='Train channel separator models')
     
     # Configuration files
+    parser.add_argument('--experiment', type=str, default=None,
+                       help='Experiment name from experiments.yaml')
     parser.add_argument('--model_config', type=str, default='separator1_grid_search_6ports',
                        help='Model configuration name(s) from model_configs.yaml. '
                             'Multiple: "separator1_default,separator2_default"')
@@ -153,41 +147,31 @@ def main():
     
     args = parser.parse_args()
     
+    config_dir = Path(__file__).parent / 'configs'
+    suite = build_experiment_suite(
+        config_dir=config_dir,
+        model_config_names=None if args.experiment else args.model_config.split(','),
+        training_config_name=None if args.experiment else args.training_config,
+        batch_size_override=args.batch_size,
+        num_batches_override=args.num_batches,
+        experiment_name=args.experiment,
+    )
+
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # ✅ Create timestamped experiment directory (avoid conflicts)
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    
-    # Generate experiment name with timestamp
     base_save_dir = Path(args.save_dir)
-    
-    # Extract meaningful name from model_config
-    model_config_short = args.model_config.split(',')[0]  # Use first if multiple
-    experiment_name = f"{timestamp}_{model_config_short}_{args.training_config}"
-    
-    # Update save_dir to include timestamp
+    experiment_key = suite.experiment_name or f"{suite.model_config_names[0]}_{suite.training_config_name}"
+    experiment_name = f"{timestamp}_{experiment_key}"
     args.save_dir = str(base_save_dir / experiment_name)
-    
+
     print(f"\n{'='*80}")
     print(f"🚀 Experiment: {experiment_name}")
     print(f"{'='*80}")
     print(f"   Save directory: {args.save_dir}")
     print(f"   Timestamp: {timestamp}")
     print(f"{'='*80}\n")
-    
-    # Load configurations
-    model_configs_file = Path(__file__).parent / 'configs' / 'model_configs.yaml'
-    training_configs_file = Path(__file__).parent / 'configs' / 'training_configs.yaml'
-    
-    all_model_configs = load_config(model_configs_file)
-    all_training_configs = load_config(training_configs_file)
-    
-    training_variants = prepare_training_config_variants(
-        all_training_configs,
-        args.training_config,
-        batch_size_override=args.batch_size,
-        num_batches_override=args.num_batches,
-    )
     
     # Print device info
     device = get_device(args.device)
@@ -202,45 +186,36 @@ def main():
     print_device_info(device)
     print()
     
-    # Parse model configs (support multiple models)
-    model_config_names = [name.strip() for name in args.model_config.split(',')]
-    model_variants_by_name, missing_model_configs = prepare_model_config_variants(
-        all_model_configs,
-        model_config_names
-    )
-    experiment_plan = build_experiment_plan(
-        model_config_names,
-        model_variants_by_name,
-        training_variants,
-    )
-    if missing_model_configs:
-        missing_configs_str = ', '.join(missing_model_configs)
+    if suite.missing_model_configs:
+        missing_configs_str = ', '.join(suite.missing_model_configs)
         print(f"✗ Model config(s) not found: {missing_configs_str}")
 
-    if not model_variants_by_name:
+    if not suite.model_variants_by_name:
         raise ValueError(f"No valid model configs found in: {args.model_config}")
     
     print(f"Training configurations:")
-    print(f"  Training config: {args.training_config} ({len(training_variants)} variants)")
-    print(f"  Model config(s): {model_config_names}")
+    if suite.experiment_name:
+        print(f"  Experiment: {suite.experiment_name}")
+    print(f"  Training config: {suite.training_config_name} ({len(suite.training_variants)} variants)")
+    print(f"  Model config(s): {suite.model_config_names}")
     print(f"  Available models: {list_models()}")
-    print(f"  Planned runs: {len(experiment_plan)}")
+    print(f"  Planned runs: {len(suite.plan)}")
     print()
     
     # Show training config search space (if any)
-    if len(training_variants) > 1:
-        print(f"Training search space: {len(training_variants)} configurations")
-        print_search_space_summary([variant.config for variant in training_variants], args.training_config)
+    if len(suite.training_variants) > 1:
+        print(f"Training search space: {len(suite.training_variants)} configurations")
+        print_search_space_summary([variant.config for variant in suite.training_variants], suite.training_config_name)
         print()
 
-    for model_config_name in model_config_names:
-        model_variants = model_variants_by_name.get(model_config_name)
+    for model_config_name in suite.model_config_names:
+        model_variants = suite.model_variants_by_name.get(model_config_name)
         if model_variants is None:
             continue
         print_search_space_summary([variant.config for variant in model_variants], model_config_name)
         print()
 
-    print_experiment_plan_summary(experiment_plan)
+    print_experiment_plan_summary(suite.plan)
     print()
 
     if args.plan_only:
@@ -252,23 +227,21 @@ def main():
     script_start_datetime = datetime.now()
     
     # Count total configurations first (model configs × training configs)
-    total_configs = len(experiment_plan)
+    total_configs = len(suite.plan)
     
     # Initialize progress tracker (report every 5 minutes)
     progress_tracker = TrainingProgressTracker(total_configs, report_interval=300.0)
     
     # Train each combination of (training_config × model_config)
     results = []
-    previous_training_variant_name = None
-    previous_model_source_name = None
+    previous_training_label = None
+    previous_model_recipe_name = None
     
-    for experiment in experiment_plan:
-        training_variant = experiment.training_variant
-        model_variant = experiment.model_variant
-        training_config = training_variant.config
-        config = model_variant.config
-        training_variant_name = training_variant.variant_name
-        model_config_name = model_variant.source_name
+    for experiment in suite.plan:
+        training_config = experiment.training_config
+        model_config = experiment.model_config
+        training_label = experiment.training_label
+        model_recipe_name = experiment.model_recipe_name
 
         batch_size = training_config['batch_size']
         num_batches = training_config['num_batches']
@@ -283,11 +256,11 @@ def main():
         keep_last_n = training_config['keep_last_n_checkpoints']
         snr_config = parse_snr_config(snr_config_dict)
 
-        if len(training_variants) > 1 and training_variant_name != previous_training_variant_name:
+        if len(suite.training_variants) > 1 and training_label != previous_training_label:
             print(f"\n{'='*80}")
             print(
-                f"Training Config Variant {training_variant.variant_index}/{training_variant.total_variants}: "
-                f"{training_variant_name}"
+                f"Training Config Variant {experiment.training_variant_index}/{experiment.training_variant_total}: "
+                f"{training_label}"
             )
             print(f"{'='*80}")
             print(f"  Loss type: {loss_type}")
@@ -295,21 +268,21 @@ def main():
             print(f"  SNR: {snr_config}")
             print()
 
-        if model_config_name != previous_model_source_name or training_variant_name != previous_training_variant_name:
+        if model_recipe_name != previous_model_recipe_name or training_label != previous_training_label:
             print(f"\n{'='*80}")
-            print(f"Model: {model_config_name}")
-            if len(training_variants) > 1:
-                print(f"Training: {training_variant_name}")
+            print(f"Model: {model_recipe_name}")
+            if len(suite.training_variants) > 1:
+                print(f"Training: {training_label}")
             print(f"{'='*80}\n")
 
         print(f"\n{'─'*80}")
-        if model_variant.total_variants > 1:
+        if experiment.model_variant_total > 1:
             print(
-                f"Model Config {model_variant.variant_index}/{model_variant.total_variants} "
-                f"of {model_config_name}"
+                f"Model Config {experiment.model_variant_index}/{experiment.model_variant_total} "
+                f"of {model_recipe_name}"
             )
-        if len(training_variants) > 1:
-            print(f"Training Config: {training_variant_name}")
+        if len(suite.training_variants) > 1:
+            print(f"Training Config: {training_label}")
         print(f"{'─'*80}\n")
 
         config_instance_name = experiment.run_name
@@ -317,13 +290,13 @@ def main():
         progress_tracker.start_task(config_instance_name, experiment.task_index)
         print(f"Configuration: {config_instance_name}")
 
-        model_type = config['model_type']
-        model_params = {key: value for key, value in config.items() if key != 'model_type'}
+        model_type = model_config['model_type']
+        model_params = {key: value for key, value in model_config.items() if key != 'model_type'}
 
         print(f"  Model type: {model_type}")
         print(f"  Parameters: {model_params}")
 
-        model = create_model(model_type, config)
+        model = create_model(model_type, model_config)
         num_params = sum(p.numel() for p in model.parameters())
         print(f"  Total parameters: {num_params:,}")
         print()
@@ -354,9 +327,9 @@ def main():
             num_batches=num_batches,
             batch_size=batch_size,
             snr_config=snr_config,
-            pos_values=config['pos_values'],
+            pos_values=model_config['pos_values'],
             tdl_config=tdl_config,
-            seq_len=config['seq_len'],
+            seq_len=model_config['seq_len'],
             print_interval=print_interval,
             val_interval=val_interval,
             early_stop_loss=early_stop_loss,
@@ -381,7 +354,7 @@ def main():
         eval_results = trainer.evaluate(
             batch_size=200,
             snr_db=eval_snr,
-            pos_values=config['pos_values'],
+            pos_values=model_config['pos_values'],
             tdl_config=tdl_config
         )
 
@@ -392,15 +365,15 @@ def main():
 
         save_path = experiment_dir / 'model.pth'
         model_config_dict = {
-            'model_type': config['model_type'],
-            'hidden_dim': config.get('hidden_dim', 64),
-            'num_stages': config.get('num_stages', 2),
-            'mlp_depth': config.get('mlp_depth', 3),
-            'share_weights_across_stages': config.get('share_weights_across_stages', False),
-            'activation_type': config.get('activation_type', 'relu'),
-            'seq_len': config['seq_len'],
-            'num_ports': len(config['pos_values']),
-            'pos_values': config['pos_values'],
+            'model_type': model_config['model_type'],
+            'hidden_dim': model_config.get('hidden_dim', 64),
+            'num_stages': model_config.get('num_stages', 2),
+            'mlp_depth': model_config.get('mlp_depth', 3),
+            'share_weights_across_stages': model_config.get('share_weights_across_stages', False),
+            'activation_type': model_config.get('activation_type', 'relu'),
+            'seq_len': model_config['seq_len'],
+            'num_ports': len(model_config['pos_values']),
+            'pos_values': model_config['pos_values'],
             'num_params': num_params,
         }
 
@@ -414,9 +387,12 @@ def main():
         }
 
         metadata_dict = {
-            'model_config_name': model_config_name,
-            'config_instance_name': config_instance_name,
-            'training_config_name': training_variant_name,
+            'experiment_name': suite.experiment_name,
+            'model_recipe_name': model_recipe_name,
+            'model_label': experiment.model_label,
+            'run_name': config_instance_name,
+            'training_recipe_name': experiment.training_recipe_name,
+            'training_label': training_label,
             'training_duration': training_duration,
             'timestamp': datetime.now().isoformat(),
         }
@@ -442,9 +418,9 @@ def main():
         print(f"✓ Model saved to: {experiment_dir}")
 
         result = {
-            'model_config_name': model_config_name,
+            'model_config_name': model_recipe_name,
             'config_instance_name': config_instance_name,
-            'training_config_name': training_variant_name,
+            'training_config_name': training_label,
             'final_loss': losses[-1],
             'min_loss': min(losses),
             'eval_nmse_db': eval_results['nmse_db'],
@@ -453,8 +429,8 @@ def main():
         }
         results.append(result)
         progress_tracker.complete_task(result)
-        previous_training_variant_name = training_variant_name
-        previous_model_source_name = model_config_name
+        previous_training_label = training_label
+        previous_model_recipe_name = model_recipe_name
     
     # Calculate total time
     script_end_time = time.time()
@@ -496,7 +472,7 @@ def main():
     generate_training_report(
         report_path=report_path,
         results=results_sorted,
-        training_config_name=args.training_config,
+        training_config_name=suite.training_config_name,
         start_time=script_start_datetime,
         end_time=script_end_datetime,
         total_duration=total_duration,

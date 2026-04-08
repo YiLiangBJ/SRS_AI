@@ -4,6 +4,7 @@
 
 - model_configs.yaml: only model architecture, port layout, and model-side search spaces.
 - training_configs.yaml: only optimization, data sampling, stopping, logging, and training-side search spaces.
+- experiments.yaml: optional reusable workflow presets that bind model configs to one training config.
 - train.py: builds the Cartesian product of model variants and training variants into one experiment plan.
 
 ## Supported Patterns
@@ -35,9 +36,20 @@ separator1_grid_search:
 
 - Keep ports and seq_len on the model side. They define what the model is.
 - Keep SNR, TDL, loss, LR, batch size, validation, and checkpointing on the training side. They define how the model is trained.
+- Put workflow intent in experiments.yaml: smoke tests, architecture comparisons, benchmark presets, and paper-ready sweeps.
 - If a field is part of a deliberate sweep, put it in search_space. If it is just a constant, put it in fixed_params or leave it flat for single configs.
 - Prefer one search dimension per question. Example: compare losses in one training config, compare LR in another, instead of one very wide sweep.
-- Use train.py --plan_only to inspect the final run matrix before launching long jobs.
+- Use train.py --experiment quick_separator1 --plan_only to inspect the final run matrix before launching long jobs.
+
+## Naming
+
+- recipe name: the YAML entry name, such as separator1_default or quick_test.
+- label: the resolved variant name after search-space expansion.
+- run name: the executable training instance name composed from model label and training label.
+
+Use recipe when you want traceability back to config files.
+Use label when you want to distinguish variants inside one recipe.
+Use run name when you need a filesystem path or a unique execution id.
 
 ## Why This Layout Works
 

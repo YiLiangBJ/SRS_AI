@@ -4,6 +4,7 @@ import unittest
 
 from utils.experiment_plan import (
     build_experiment_plan,
+    build_experiment_suite,
     prepare_model_config_variants,
     prepare_training_config_variants,
 )
@@ -82,6 +83,24 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(plan[0].task_index, 1)
         self.assertEqual(plan[-1].task_index, 4)
         self.assertTrue(all('loss_search_' in item.run_name for item in plan))
+        self.assertEqual(plan[0].model_config_name, 'separator1_test')
+        self.assertEqual(plan[0].training_config_name, 'loss_search')
+        self.assertEqual(plan[0].model_recipe_name, 'separator1_test')
+        self.assertEqual(plan[0].training_recipe_name, 'loss_search')
+        self.assertIn('hidden_dim', plan[0].model_config)
+        self.assertIn('loss_type', plan[0].training_config)
+
+    def test_build_experiment_suite_from_experiment_definition(self):
+        config_dir = '/home/liangyi/SRS_AI/Model_AIIC_refactor/configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='quick_separator1',
+        )
+
+        self.assertEqual(suite.experiment_name, 'quick_separator1')
+        self.assertEqual(suite.training_config_name, 'quick_test')
+        self.assertEqual(suite.model_config_names, ['separator1_small'])
+        self.assertEqual(len(suite.plan), 1)
 
 
 if __name__ == '__main__':

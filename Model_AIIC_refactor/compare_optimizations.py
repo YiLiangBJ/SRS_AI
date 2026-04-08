@@ -27,10 +27,8 @@ import json
 import sys
 
 
-def run_training(model_config, training_config, num_batches, batch_size, device, use_amp, compile_model):
-    """Run training with specified configuration"""
-    
-    # Build name
+def build_train_command(experiment, model_config, training_config, num_batches, batch_size, device, use_amp, compile_model):
+    """Build a train.py command using either an experiment or direct config names."""
     opt_parts = []
     if device == 'cuda':
         if compile_model:
@@ -39,25 +37,45 @@ def run_training(model_config, training_config, num_batches, batch_size, device,
             opt_parts.append('amp')
         if not compile_model and not use_amp:
             opt_parts.append('baseline')
-    opt_name = f"{device}" + (f" + {' + '.join(opt_parts)}" if opt_parts else "")
-    
+
     cmd = [
-        'python', 'train.py',
-        '--model_config', model_config,
-        '--training_config', training_config,
+        sys.executable, 'train.py',
         '--num_batches', str(num_batches),
         '--device', device,
         '--save_dir', f'./perf_test_{device}_{"_".join(opt_parts) if opt_parts else "baseline"}'
     ]
-    
+
+    if experiment:
+        cmd.extend(['--experiment', experiment])
+    else:
+        cmd.extend(['--model_config', model_config, '--training_config', training_config])
+
     if batch_size:
         cmd.extend(['--batch_size', str(batch_size)])
-    
+
     if not compile_model:
         cmd.append('--no-compile')
-    
+
     if not use_amp:
         cmd.append('--no-amp')
+
+    return cmd, opt_parts
+
+
+def run_training(experiment, model_config, training_config, num_batches, batch_size, device, use_amp, compile_model):
+    """Run training with specified configuration"""
+    
+    cmd, opt_parts = build_train_command(
+        experiment,
+        model_config,
+        training_config,
+        num_batches,
+        batch_size,
+        device,
+        use_amp,
+        compile_model,
+    )
+    opt_name = f"{device}" + (f" + {' + '.join(opt_parts)}" if opt_parts else "")
     
     print(f"\n{'='*80}")
     print(f"Testing: {opt_name}")
@@ -135,6 +153,8 @@ def run_training(model_config, training_config, num_batches, batch_size, device,
 
 def main():
     parser = argparse.ArgumentParser(description='Compare training performance with different optimizations')
+    parser.add_argument('--experiment', type=str, default=None,
+                       help='Experiment name from experiments.yaml')
     parser.add_argument('--model_config', type=str, default='separator1_small',
                        help='Model configuration to test')
     parser.add_argument('--training_config', type=str, default='quick_test',
@@ -149,6 +169,8 @@ def main():
                        help='Skip GPU test (only run CPU)')
     
     args = parser.parse_args()
+    target_name = args.experiment or args.model_config
+    training_name = args.training_config if not args.experiment else None
     
     results = []
     
@@ -173,6 +195,7 @@ def main():
         print("="*80)
         
         result = run_training(
+            args.experiment,
             args.model_config,
             args.training_config,
             args.num_batches,
@@ -212,7 +235,7 @@ def main():
         baseline_throughput = results[0]['throughput'] if results else 1
     
     # Print table
-    print(f"\nConfiguration: {args.model_config} ({args.num_batches} batches)")
+    print(f"\nConfiguration: {target_name} ({args.num_batches} batches)")
     print(f"\n{'Configuration':<30} {'Duration':<12} {'Throughput (top 10%)':<25} {'Speedup':<10}")
     print("-" * 80)
     
@@ -288,8 +311,10 @@ def main():
     with open(output_file, 'w') as f:
         json.dump({
             'config': {
+                'experiment': args.experiment,
                 'model': args.model_config,
-                'training': args.training_config,
+                'training': training_name,
+                'target': target_name,
                 'num_batches': args.num_batches,
                 'batch_size': args.batch_size
             },

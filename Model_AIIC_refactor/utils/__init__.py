@@ -19,9 +19,15 @@ from .experiment_plan import (
     ModelVariant,
     TrainingVariant,
     ExperimentPlanItem,
+    ConfigCatalog,
+    ExperimentSuite,
+    load_yaml_config,
+    load_config_catalog,
+    resolve_experiment_definition,
     prepare_model_config_variants,
     prepare_training_config_variants,
     build_experiment_plan,
+    build_experiment_suite,
     print_experiment_plan_summary,
 )
 from .progress_tracker import TrainingProgressTracker
@@ -43,9 +49,15 @@ __all__ = [
     'ModelVariant',
     'TrainingVariant',
     'ExperimentPlanItem',
+    'ConfigCatalog',
+    'ExperimentSuite',
+    'load_yaml_config',
+    'load_config_catalog',
+    'resolve_experiment_definition',
     'prepare_model_config_variants',
     'prepare_training_config_variants',
     'build_experiment_plan',
+    'build_experiment_suite',
     'print_experiment_plan_summary',
     'TrainingProgressTracker'
 ]

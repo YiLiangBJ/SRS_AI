@@ -1,0 +1,26 @@
+experiments:
+  quick_separator1:
+    description: Quick smoke test for separator1_small.
+    model_configs:
+      - separator1_small
+    training_config: quick_test
+
+  compare_default_models:
+    description: Train both default model families under the standard per-sample SNR setup.
+    model_configs:
+      - separator1_default
+      - separator2_default
+    training_config: snr_range_0_30_perSample
+
+  separator1_loss_search:
+    description: Compare loss choices for the default separator1 architecture.
+    model_configs:
+      - separator1_default
+    training_config: default_loss_search
+
+  perf_quick:
+    description: Small performance benchmark preset.
+    model_configs:
+      - separator1_small
+    training_config: quick_test
+    num_batches: 100
