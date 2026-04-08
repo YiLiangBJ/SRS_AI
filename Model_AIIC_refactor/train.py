@@ -107,7 +107,7 @@ def main():
     parser = argparse.ArgumentParser(description='Train channel separator models')
     
     # Configuration files
-    parser.add_argument('--model_config', type=str, default='separator1_default',
+    parser.add_argument('--model_config', type=str, default='separator1_grid_search_6ports',
                        help='Model configuration name(s) from model_configs.yaml. '
                             'Multiple: "separator1_default,separator2_default"')
     parser.add_argument('--training_config', type=str, default='default',
@@ -129,7 +129,7 @@ def main():
     parser.add_argument('--no-compile', dest='compile_model', action='store_false',
                        help='Disable model compilation (torch.compile)')
     # ✅ GPU默认启用compile，CPU默认禁用（将在后面根据device调整）
-    parser.set_defaults(use_amp=True, compile_model=True)
+    parser.set_defaults(use_amp=False, compile_model=False)
     
     # ✅ NEW: Post-training workflow options
     parser.add_argument('--eval_after_train', action='store_true',
