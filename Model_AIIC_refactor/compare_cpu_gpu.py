@@ -139,7 +139,7 @@ def main():
             speedup = cpu_result['duration'] / gpu_result['duration']
             throughput_ratio = gpu_result['avg_throughput'] / cpu_result['avg_throughput'] if cpu_result['avg_throughput'] > 0 else 0
             
-            print(f"\nConfiguration: {target_name} ({args.num_batches} batches)")
+            print(f"\nExperiment: {target_name} ({args.num_batches} batches)")
             print(f"\n{'Device':<10} {'Duration':<15} {'Throughput':<20} {'Speedup':<10}")
             print("-" * 60)
             print(f"{'CPU':<10} {cpu_result['duration']:>10.2f}s    {cpu_result['avg_throughput']:>10.0f} samples/s  {'1.00x':<10}")

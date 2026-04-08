@@ -216,7 +216,7 @@ def main():
         baseline_throughput = results[0]['throughput'] if results else 1
     
     # Print table
-    print(f"\nConfiguration: {target_name} ({args.num_batches} batches)")
+    print(f"\nExperiment: {target_name} ({args.num_batches} batches)")
     print(f"\n{'Configuration':<30} {'Duration':<12} {'Throughput (top 10%)':<25} {'Speedup':<10}")
     print("-" * 80)
     

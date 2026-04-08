@@ -1,0 +1,35 @@
+metadata:
+  experiment_name: perf_quick
+  model_label: separator1_small_hd32_stages2_depth3_share0
+  model_recipe_name: separator1_small
+  run_name: separator1_small_hd32_stages2_depth3_share0
+  timestamp: '2026-04-08T14:44:59.231885'
+  training_duration: 0.2553853988647461
+  training_label: quick_test
+  training_recipe_name: quick_test
+model_spec:
+  activation_type: relu
+  hidden_dim: 32
+  mlp_depth: 3
+  model_type: separator1
+  num_params: 36032
+  num_ports: 4
+  num_stages: 2
+  pos_values:
+  - 0
+  - 3
+  - 6
+  - 9
+  seq_len: 12
+  share_weights_across_stages: false
+training_spec:
+  batch_size: 32
+  learning_rate: 0.01
+  loss_type: nmse
+  num_batches: 1
+  snr_config:
+    max: 20
+    min: 10
+    per_sample: false
+    type: range
+  tdl_config: A-30

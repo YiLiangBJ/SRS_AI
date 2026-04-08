@@ -1,3 +1,137 @@
+# Complete Pipeline
+
+This project now uses an experiment-first workflow.
+
+## Core Idea
+
+You do not launch training by manually pairing model and training configs on the CLI.
+You launch a named experiment from experiments.yaml, and the code resolves:
+
+1. model recipes
+2. training recipe
+3. expanded variants
+4. final run plan
+
+## Common Commands
+
+### Preview a plan
+
+```bash
+python train.py \
+  --experiment quick_separator1 \
+  --plan_only \
+  --device cpu
+```
+
+### Train a named experiment
+
+```bash
+python train.py \
+  --experiment compare_default_models \
+  --device cuda
+```
+
+### Train, evaluate, and plot
+
+```bash
+python train.py \
+  --experiment compare_default_models \
+  --device cuda \
+  --eval_after_train \
+  --plot_after_eval
+```
+
+### Override batch count for a benchmark preset
+
+```bash
+python train.py \
+  --experiment perf_quick \
+  --num_batches 100 \
+  --device cpu
+```
+
+## Output Layout
+
+```text
+experiments_refactored/
+  <timestamp>_<experiment_name>/
+    <run_name>/
+      model.pth
+      config.yaml
+      tensorboard/
+    TRAINING_REPORT.md
+    evaluation_results/
+    plots/
+```
+
+## Runtime Terms
+
+- experiment: a workflow preset from experiments.yaml
+- model recipe: one model entry from model_configs.yaml
+- training recipe: one training entry from training_configs.yaml
+- model label: expanded model variant name
+- training label: expanded training variant name
+- run_name: final unique executable run identifier
+
+## Train CLI
+
+| Argument | Meaning |
+|---|---|
+| --experiment | Required experiment name from experiments.yaml |
+| --batch_size | Optional override applied after recipe resolution |
+| --num_batches | Optional override applied after recipe resolution |
+| --device | auto, cpu, cuda, cuda:0, ... |
+| --save_dir | Parent output directory |
+| --no-amp | Disable mixed precision |
+| --no-compile | Disable torch.compile |
+| --eval_after_train | Run evaluation after training |
+| --eval_snr_range | SNR range for evaluation |
+| --eval_tdl | TDL list for evaluation |
+| --eval_num_batches | Number of evaluation batches |
+| --eval_batch_size | Evaluation batch size |
+| --plot_after_eval | Generate plots after evaluation |
+| --plan_only | Print the run plan and exit |
+
+## Benchmark CLI
+
+Benchmark scripts also use experiment-first entry points:
+
+```bash
+python compare_cpu_gpu.py --experiment perf_quick --skip_gpu
+python compare_optimizations.py --experiment perf_quick --skip_gpu
+```
+
+## Typical Flow
+
+1. Define recipes in model_configs.yaml and training_configs.yaml.
+2. Define a workflow preset in experiments.yaml.
+3. Preview with --plan_only.
+4. Train the experiment.
+5. Optionally evaluate and plot.
+
+## Example Summary Output
+
+```text
+Training Summary
+
+Total runs trained: 1
+Start time: 2026-04-08 14:00:00
+End time: 2026-04-08 14:05:30
+Total duration: 0.09 hours (330.0s)
+
+1. separator1_default_hd64_stages2_depth3:
+   Final loss: 0.123456
+   Min loss: 0.123456
+   Eval NMSE: -5.23 dB
+   Parameters: 156,032
+   Duration: 330.0s
+
+Best run: separator1_default_hd64_stages2_depth3
+```
+
+## Policy
+
+The old model_config plus training_config CLI pairing is intentionally removed. experiments.yaml is the supported workflow entry point.
 # 🚀 一键完整流程：Train → Eval → Plot
 
 ## ✅ 已实现功能

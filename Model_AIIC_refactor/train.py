@@ -50,14 +50,14 @@ def generate_training_report(
         f.write(f"- **Total Duration**: {total_duration/3600:.2f} hours ({total_duration:.1f} seconds)\n")
         f.write(f"- **Device**: {device}\n\n")
         
-        # Training Configuration
-        f.write("## Training Configuration\n\n")
+        # Training Recipe
+        f.write("## Training Recipe\n\n")
         f.write(f"- **Training Recipe**: {training_recipe_name}\n")
-        f.write(f"- **Total Configurations**: {len(results)}\n\n")
+        f.write(f"- **Total Runs**: {len(results)}\n\n")
         
         # Results Summary
         f.write("## Results Summary\n\n")
-        f.write("| Rank | Configuration | NMSE (dB) | Parameters | Duration (s) |\n")
+        f.write("| Rank | Run | NMSE (dB) | Parameters | Duration (s) |\n")
         f.write("|------|--------------|-----------|------------|-------------|\n")
         
         for i, result in enumerate(results, 1):
@@ -67,10 +67,10 @@ def generate_training_report(
         
         f.write("\n")
         
-        # Best Configuration
+        # Best Run
         if results:
             best = results[0]
-            f.write("## 🏆 Best Configuration\n\n")
+            f.write("## 🏆 Best Run\n\n")
             f.write(f"**Run**: `{best['run_name']}`\n\n")
             f.write(f"- **Eval NMSE**: {best['eval_nmse_db']:.2f} dB\n")
             f.write(f"- **Final Loss**: {best['final_loss']:.6f}\n")
@@ -179,12 +179,12 @@ def main():
     
     if suite.missing_model_recipes:
         missing_configs_str = ', '.join(suite.missing_model_recipes)
-        print(f"✗ Model config(s) not found: {missing_configs_str}")
+        print(f"✗ Model recipe(s) not found: {missing_configs_str}")
 
     if not suite.model_variants_by_recipe:
         raise ValueError(f"No valid model recipes found in experiment: {args.experiment}")
     
-    print(f"Training configurations:")
+    print(f"Training plan:")
     print(f"  Experiment: {suite.experiment_name}")
     print(f"  Training recipe: {suite.training_recipe_name} ({len(suite.training_variants)} variants)")
     print(f"  Model recipes: {suite.model_recipe_names}")
@@ -192,9 +192,9 @@ def main():
     print(f"  Planned runs: {len(suite.plan)}")
     print()
     
-    # Show training config search space (if any)
+    # Show training recipe search space (if any)
     if len(suite.training_variants) > 1:
-        print(f"Training search space: {len(suite.training_variants)} configurations")
+        print(f"Training search space: {len(suite.training_variants)} variants")
         print_search_space_summary([variant.spec for variant in suite.training_variants], suite.training_recipe_name)
         print()
 
@@ -216,7 +216,7 @@ def main():
     script_start_time = time.time()
     script_start_datetime = datetime.now()
     
-    # Count total configurations first (model configs × training configs)
+    # Count total planned runs
     total_configs = len(suite.plan)
     
     # Initialize progress tracker (report every 5 minutes)
@@ -249,7 +249,7 @@ def main():
         if len(suite.training_variants) > 1 and training_label != previous_training_label:
             print(f"\n{'='*80}")
             print(
-                f"Training Config Variant {experiment.training_variant_index}/{experiment.training_variant_total}: "
+                f"Training Variant {experiment.training_index}/{experiment.training_total}: "
                 f"{training_label}"
             )
             print(f"{'='*80}")
@@ -275,10 +275,10 @@ def main():
             print(f"Training Variant: {training_label}")
         print(f"{'─'*80}\n")
 
-        config_instance_name = experiment.run_name
+        run_name = experiment.run_name
 
-        progress_tracker.start_task(config_instance_name, experiment.task_index)
-        print(f"Configuration: {config_instance_name}")
+        progress_tracker.start_task(run_name, experiment.task_index)
+        print(f"Run: {run_name}")
 
         model_type = model_spec['model_type']
         model_params = {key: value for key, value in model_spec.items() if key != 'model_type'}
@@ -291,7 +291,7 @@ def main():
         print(f"  Total parameters: {num_params:,}")
         print()
 
-        experiment_dir = Path(args.save_dir) / config_instance_name
+        experiment_dir = Path(args.save_dir) / run_name
         tensorboard_dir = experiment_dir / 'tensorboard'
 
         trainer = Trainer(
@@ -380,7 +380,7 @@ def main():
             'experiment_name': suite.experiment_name,
             'model_recipe_name': model_recipe_name,
             'model_label': experiment.model_label,
-            'run_name': config_instance_name,
+            'run_name': run_name,
             'training_recipe_name': experiment.training_recipe_name,
             'training_label': training_label,
             'training_duration': training_duration,
@@ -409,7 +409,7 @@ def main():
 
         result = {
             'model_recipe_name': model_recipe_name,
-            'run_name': config_instance_name,
+            'run_name': run_name,
             'training_label': training_label,
             'final_loss': losses[-1],
             'min_loss': min(losses),
@@ -432,7 +432,7 @@ def main():
     print("Training Summary")
     print(f"{'='*80}\n")
     
-    print(f"Total configurations trained: {len(results)}")
+    print(f"Total runs trained: {len(results)}")
     print(f"Start time: {script_start_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"End time: {script_end_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Total duration: {total_duration/3600:.2f} hours ({total_duration:.1f}s)")
@@ -450,7 +450,7 @@ def main():
         print(f"   Duration: {result['training_duration']:.1f}s")
         print()
     
-    # Highlight best configuration
+    # Highlight best run
     if results_sorted:
         best = results_sorted[0]
         print(f"🏆 Best run: {best['run_name']}")

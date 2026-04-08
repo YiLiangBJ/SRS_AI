@@ -1,3 +1,90 @@
+# Standalone Eval And Plot
+## Summary
+
+Evaluation and plotting can still be run independently.
+What changed is only the training entry point: training is experiment-first.
+
+## Supported Workflow
+### Step 1: Train a named experiment
+
+```bash
+python train.py \
+    --experiment compare_default_models \
+    --device cuda
+```
+
+This creates a timestamped experiment directory under experiments_refactored.
+### Step 2: Evaluate later
+
+```bash
+python evaluate_models.py \
+    --exp_dir "./experiments_refactored/20260408_120000_compare_default_models" \
+    --device cuda \
+    --snr_range "30:-3:0" \
+    --tdl "A-30,B-100,C-300" \
+    --num_batches 100 \
+    --batch_size 2048 \
+    --output "./experiments_refactored/20260408_120000_compare_default_models/evaluation_results"
+```
+### Step 3: Plot later
+
+```bash
+python plot.py \
+    --input "./experiments_refactored/20260408_120000_compare_default_models/evaluation_results/evaluation_results.json" \
+    --output "./experiments_refactored/20260408_120000_compare_default_models/plots"
+```
+
+## Directory Shape
+```text
+experiments_refactored/
+    <timestamp>_<experiment_name>/
+        <run_name>/
+            model.pth
+            config.yaml
+            tensorboard/
+        evaluation_results/
+            evaluation_results.json
+            evaluation_results.npy
+        plots/
+            ...png
+    TRAINING_REPORT.md
+```
+
+## Notes
+- Training is launched by experiment name only.
+- Evaluation works on an experiment output directory and discovers trained runs inside it.
+- Plotting works on evaluation_results.json and is fully decoupled from training.
+- You can re-run evaluation with different SNR or TDL settings as many times as you want.
+
+## Typical Use Cases
+### Train now, evaluate later
+
+```bash
+python train.py --experiment compare_default_models --device cuda
+python evaluate_models.py --exp_dir "./experiments_refactored/<timestamp>_compare_default_models" --device cuda
+```
+### Train once, evaluate multiple ways
+
+```bash
+python evaluate_models.py \
+    --exp_dir "./experiments_refactored/<timestamp>_compare_default_models" \
+    --snr_range "30:-3:0" \
+    --output "./experiments_refactored/<timestamp>_compare_default_models/eval_full"
+
+python evaluate_models.py \
+    --exp_dir "./experiments_refactored/<timestamp>_compare_default_models" \
+    --snr_range "20:-2:0" \
+    --output "./experiments_refactored/<timestamp>_compare_default_models/eval_fast"
+```
+### Benchmark presets
+
+```bash
+python compare_cpu_gpu.py --experiment perf_quick --skip_gpu
+python compare_optimizations.py --experiment perf_quick --skip_gpu
+```
+## Policy
+
+The old model_config plus training_config training CLI is removed. For training and benchmark launches, experiments.yaml is the supported interface.
 # ✅ 独立使用 Eval 和 Plot
 
 ## 🎯 确认：完全可以独立使用！

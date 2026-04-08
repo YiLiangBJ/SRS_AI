@@ -11,11 +11,11 @@
       "device": "cpu",
       "compile": false,
       "amp": false,
-      "duration": 2.0120301246643066,
-      "throughput": 125.0,
-      "max_throughput": 125.0,
+      "duration": 2.044353723526001,
+      "throughput": 127.0,
+      "max_throughput": 127.0,
       "all_throughputs": [
-        125.0
+        127.0
       ],
       "success": true,
       "output": null

@@ -1,3 +1,149 @@
+# Checkpoint Format Spec
+
+## Principles
+
+1. Single source of truth: a checkpoint must contain everything needed to rebuild the model and understand the run.
+2. Clear naming: use model_spec, training_spec, metadata, and eval_results.
+3. Experiment traceability: metadata should tell you which experiment, recipes, labels, and run produced the artifact.
+
+## Standard Format
+
+```python
+checkpoint = {
+        'model_state_dict': model.state_dict(),
+        'model_info': model.get_model_info(),
+
+        'model_spec': {
+                'model_type': 'separator1',
+                'hidden_dim': 64,
+                'num_stages': 2,
+                'mlp_depth': 3,
+                'share_weights_across_stages': False,
+                'activation_type': 'relu',
+                'seq_len': 12,
+                'num_ports': 4,
+                'pos_values': [0, 3, 6, 9],
+                'num_params': 156032,
+        },
+
+        'training_spec': {
+                'loss_type': 'nmse',
+                'learning_rate': 0.01,
+                'num_batches': 10000,
+                'batch_size': 4096,
+                'snr_config': {'type': 'range', 'min': 0, 'max': 30},
+                'tdl_config': 'A-30',
+        },
+
+        'optimizer_state_dict': optimizer.state_dict(),
+        'losses': [0.5, 0.3, 0.2],
+        'val_losses': [0.6, 0.4, 0.25],
+        'loss_type': 'nmse',
+
+        'metadata': {
+                'experiment_name': 'compare_default_models',
+                'model_recipe_name': 'separator1_default',
+                'model_label': 'separator1_default_hd64_stages2_depth3',
+                'run_name': 'separator1_default_hd64_stages2_depth3_quick_test',
+                'training_recipe_name': 'quick_test',
+                'training_label': 'quick_test',
+                'training_duration': 1234.5,
+                'timestamp': '20260408_120000',
+        },
+
+        'eval_results': {
+                'nmse': 0.001234,
+                'nmse_db': -29.08,
+                'per_port_nmse_db': [-30.1, -28.5, -29.2, -28.8],
+        }
+}
+```
+
+## Field Semantics
+
+| Key | Meaning |
+|---|---|
+| model_spec | Exact model-side parameters needed to rebuild the model |
+| training_spec | Exact training-side parameters used for the run |
+| metadata | Experiment lineage and run identity |
+| eval_results | Quick evaluation snapshot saved with the model |
+
+## Naming Rules
+
+Use these terms consistently:
+
+- experiment_name: named workflow from experiments.yaml
+- model_recipe_name: model entry from model_configs.yaml
+- training_recipe_name: training entry from training_configs.yaml
+- model_label: expanded model variant name
+- training_label: expanded training variant name
+- run_name: final executable run identifier
+
+Do not use these legacy names in new code or docs:
+
+- config
+- training_config
+- model_config
+- model_config_name
+- training_config_name
+- config_instance_name
+
+## Save Path Expectations
+
+Each trained run directory should contain:
+
+```text
+<run_dir>/
+    model.pth
+    config.yaml
+    tensorboard/
+```
+
+config.yaml should mirror the checkpoint structure at a human-readable level:
+
+```yaml
+model_spec:
+    ...
+training_spec:
+    ...
+metadata:
+    ...
+```
+
+## Load Expectations
+
+Evaluators should read model_spec and ignore legacy keys.
+
+```python
+checkpoint = torch.load(model_path, map_location=device)
+model_spec = checkpoint['model_spec']
+
+model = create_model(
+        model_name=model_spec['model_type'],
+        config=model_spec,
+)
+```
+
+If a checkpoint does not contain model_spec, treat it as obsolete and retrain rather than maintaining compatibility glue.
+
+## Validation Checklist
+
+```python
+assert 'model_spec' in checkpoint
+assert 'training_spec' in checkpoint
+assert 'metadata' in checkpoint
+assert 'model_state_dict' in checkpoint
+
+assert 'model_type' in checkpoint['model_spec']
+assert 'pos_values' in checkpoint['model_spec']
+assert 'num_ports' in checkpoint['model_spec']
+
+assert len(checkpoint['model_spec']['pos_values']) == checkpoint['model_spec']['num_ports']
+```
+
+## Migration Policy
+
+Backward compatibility is intentionally not maintained. Old checkpoints should be considered stale artifacts and replaced by retrained runs using the current format.
 # 🏗️ 统一的 Checkpoint 格式规范
 
 ## 📋 设计原则
