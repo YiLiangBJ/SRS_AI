@@ -53,11 +53,11 @@ def load_trained_model(model_dir: Path):
     if config_path.exists():
         with open(config_path, 'r', encoding='utf-8') as f:
             full_config = yaml.safe_load(f)
-            model_config = full_config.get('model_config', {})
+            model_config = full_config.get('model_spec', {})
     else:
         # Try to load from checkpoint
         checkpoint = torch.load(model_path, map_location='cpu')
-        model_config = checkpoint.get('model_config', checkpoint.get('config', {}))
+        model_config = checkpoint.get('model_spec', {})
     
     # Create model
     model_type = model_config.get('model_type', 'separator1')

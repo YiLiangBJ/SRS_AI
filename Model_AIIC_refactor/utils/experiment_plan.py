@@ -35,22 +35,22 @@ TRAINING_NAME_ALIASES = {
 class ModelVariant:
     """A fully resolved model configuration variant."""
 
-    source_name: str
-    variant_name: str
-    config: Dict[str, Any]
-    variant_index: int
-    total_variants: int
+    recipe_name: str
+    label: str
+    spec: Dict[str, Any]
+    index: int
+    total: int
 
 
 @dataclass(frozen=True)
 class TrainingVariant:
     """A fully resolved training configuration variant."""
 
-    source_name: str
-    variant_name: str
-    config: Dict[str, Any]
-    variant_index: int
-    total_variants: int
+    recipe_name: str
+    label: str
+    spec: Dict[str, Any]
+    index: int
+    total: int
 
 
 @dataclass(frozen=True)
@@ -63,60 +63,44 @@ class ExperimentPlanItem:
     training_variant: TrainingVariant
 
     @property
-    def model_config(self) -> Dict[str, Any]:
-        return self.model_variant.config
+    def model_spec(self) -> Dict[str, Any]:
+        return self.model_variant.spec
 
     @property
-    def training_config(self) -> Dict[str, Any]:
-        return self.training_variant.config
-
-    @property
-    def model_config_name(self) -> str:
-        return self.model_variant.source_name
+    def training_spec(self) -> Dict[str, Any]:
+        return self.training_variant.spec
 
     @property
     def model_recipe_name(self) -> str:
-        return self.model_variant.source_name
-
-    @property
-    def model_variant_name(self) -> str:
-        return self.model_variant.variant_name
+        return self.model_variant.recipe_name
 
     @property
     def model_label(self) -> str:
-        return self.model_variant.variant_name
+        return self.model_variant.label
 
     @property
-    def model_variant_index(self) -> int:
-        return self.model_variant.variant_index
+    def model_index(self) -> int:
+        return self.model_variant.index
 
     @property
-    def model_variant_total(self) -> int:
-        return self.model_variant.total_variants
-
-    @property
-    def training_config_name(self) -> str:
-        return self.training_variant.source_name
+    def model_total(self) -> int:
+        return self.model_variant.total
 
     @property
     def training_recipe_name(self) -> str:
-        return self.training_variant.source_name
-
-    @property
-    def training_variant_name(self) -> str:
-        return self.training_variant.variant_name
+        return self.training_variant.recipe_name
 
     @property
     def training_label(self) -> str:
-        return self.training_variant.variant_name
+        return self.training_variant.label
 
     @property
-    def training_variant_index(self) -> int:
-        return self.training_variant.variant_index
+    def training_index(self) -> int:
+        return self.training_variant.index
 
     @property
-    def training_variant_total(self) -> int:
-        return self.training_variant.total_variants
+    def training_total(self) -> int:
+        return self.training_variant.total
 
 
 @dataclass(frozen=True)
@@ -135,11 +119,11 @@ class ExperimentSuite:
 
     catalog: ConfigCatalog
     experiment_name: Optional[str]
-    model_config_names: List[str]
-    training_config_name: str
-    model_variants_by_name: Dict[str, List[ModelVariant]]
+    model_recipe_names: List[str]
+    training_recipe_name: str
+    model_variants_by_recipe: Dict[str, List[ModelVariant]]
     training_variants: List[TrainingVariant]
-    missing_model_configs: List[str]
+    missing_model_recipes: List[str]
     plan: List[ExperimentPlanItem]
 
 
@@ -251,47 +235,47 @@ def resolve_experiment_definition(
 
 def prepare_model_config_variants(
     all_model_configs: Mapping[str, Any],
-    model_config_names: Sequence[str]
+    model_recipe_names: Sequence[str]
 ) -> Tuple[Dict[str, List[ModelVariant]], List[str]]:
     """Merge common model config and expand all requested model variants once."""
     common_config = all_model_configs.get('common', {})
     available_model_configs = all_model_configs.get('models', {})
 
-    model_variants_by_name: Dict[str, List[ModelVariant]] = {}
-    missing_model_configs = []
+    model_variants_by_recipe: Dict[str, List[ModelVariant]] = {}
+    missing_model_recipes = []
 
-    for model_config_name in model_config_names:
-        model_config = available_model_configs.get(model_config_name)
+    for model_recipe_name in model_recipe_names:
+        model_config = available_model_configs.get(model_recipe_name)
         if not model_config:
-            missing_model_configs.append(model_config_name)
+            missing_model_recipes.append(model_recipe_name)
             continue
 
         full_model_config = {**common_config, **model_config}
         parsed_configs = parse_config_variants(full_model_config)
-        model_variants_by_name[model_config_name] = [
+        model_variants_by_recipe[model_recipe_name] = [
             ModelVariant(
-                source_name=model_config_name,
-                variant_name=generate_config_name(config, model_config_name),
-                config=config,
-                variant_index=index,
-                total_variants=len(parsed_configs),
+                recipe_name=model_recipe_name,
+                label=generate_config_name(config, model_recipe_name),
+                spec=config,
+                index=index,
+                total=len(parsed_configs),
             )
             for index, config in enumerate(parsed_configs, 1)
         ]
 
-    return model_variants_by_name, missing_model_configs
+    return model_variants_by_recipe, missing_model_recipes
 
 
 def prepare_training_config_variants(
     all_training_configs: Mapping[str, Any],
-    training_config_name: str,
+    training_recipe_name: str,
     batch_size_override: Optional[int] = None,
     num_batches_override: Optional[int] = None,
 ) -> List[TrainingVariant]:
     """Expand and normalize training config variants with optional CLI overrides."""
-    training_config_raw = all_training_configs.get(training_config_name, {})
+    training_config_raw = all_training_configs.get(training_recipe_name, {})
     if not training_config_raw:
-        raise ValueError(f"Training config '{training_config_name}' not found")
+        raise ValueError(f"Training config '{training_recipe_name}' not found")
 
     parsed_training_configs = parse_config_variants(training_config_raw)
     normalized_configs = []
@@ -311,26 +295,26 @@ def prepare_training_config_variants(
 
     return [
         TrainingVariant(
-            source_name=training_config_name,
-            variant_name=_build_variant_name(
-                training_config_name,
+            recipe_name=training_recipe_name,
+            label=_build_variant_name(
+                training_recipe_name,
                 config,
                 varying_keys,
                 index,
                 len(normalized_configs),
                 aliases=TRAINING_NAME_ALIASES,
             ),
-            config=config,
-            variant_index=index,
-            total_variants=len(normalized_configs),
+            spec=config,
+            index=index,
+            total=len(normalized_configs),
         )
         for index, config in enumerate(normalized_configs, 1)
     ]
 
 
 def build_experiment_plan(
-    model_config_names: Sequence[str],
-    model_variants_by_name: Mapping[str, Sequence[ModelVariant]],
+    model_recipe_names: Sequence[str],
+    model_variants_by_recipe: Mapping[str, Sequence[ModelVariant]],
     training_variants: Sequence[TrainingVariant],
 ) -> List[ExperimentPlanItem]:
     """Build the full training matrix as an ordered execution plan."""
@@ -339,13 +323,13 @@ def build_experiment_plan(
     include_training_suffix = len(training_variants) > 1
 
     for training_variant in training_variants:
-        for model_config_name in model_config_names:
-            model_variants = model_variants_by_name.get(model_config_name, [])
+        for model_recipe_name in model_recipe_names:
+            model_variants = model_variants_by_recipe.get(model_recipe_name, [])
             for model_variant in model_variants:
                 task_index += 1
-                run_name = model_variant.variant_name
+                run_name = model_variant.label
                 if include_training_suffix:
-                    run_name = f"{run_name}_{training_variant.variant_name}"
+                    run_name = f"{run_name}_{training_variant.label}"
 
                 experiment_plan.append(
                     ExperimentPlanItem(
@@ -361,8 +345,8 @@ def build_experiment_plan(
 
 def build_experiment_suite(
     config_dir: Path,
-    model_config_names: Optional[Sequence[str]] = None,
-    training_config_name: Optional[str] = None,
+    model_recipe_names: Optional[Sequence[str]] = None,
+    training_recipe_name: Optional[str] = None,
     batch_size_override: Optional[int] = None,
     num_batches_override: Optional[int] = None,
     experiment_name: Optional[str] = None,
@@ -371,43 +355,43 @@ def build_experiment_suite(
     catalog = load_config_catalog(config_dir)
     if experiment_name:
         experiment_definition = resolve_experiment_definition(catalog, experiment_name)
-        model_config_names = experiment_definition.get('model_configs', [])
-        training_config_name = experiment_definition.get('training_config')
+        model_recipe_names = experiment_definition.get('model_configs', [])
+        training_recipe_name = experiment_definition.get('training_config')
         if batch_size_override is None:
             batch_size_override = experiment_definition.get('batch_size')
         if num_batches_override is None:
             num_batches_override = experiment_definition.get('num_batches')
 
-    if not model_config_names:
+    if not model_recipe_names:
         raise ValueError('No model configs specified for experiment suite')
-    if not training_config_name:
+    if not training_recipe_name:
         raise ValueError('No training config specified for experiment suite')
 
-    model_config_names = [name.strip() for name in model_config_names if name.strip()]
-    model_variants_by_name, missing_model_configs = prepare_model_config_variants(
+    model_recipe_names = [name.strip() for name in model_recipe_names if name.strip()]
+    model_variants_by_recipe, missing_model_recipes = prepare_model_config_variants(
         catalog.model_configs,
-        model_config_names,
+        model_recipe_names,
     )
     training_variants = prepare_training_config_variants(
         catalog.training_configs,
-        training_config_name,
+        training_recipe_name,
         batch_size_override=batch_size_override,
         num_batches_override=num_batches_override,
     )
     plan = build_experiment_plan(
-        model_config_names,
-        model_variants_by_name,
+        model_recipe_names,
+        model_variants_by_recipe,
         training_variants,
     )
 
     return ExperimentSuite(
         catalog=catalog,
         experiment_name=experiment_name,
-        model_config_names=model_config_names,
-        training_config_name=training_config_name,
-        model_variants_by_name=model_variants_by_name,
+        model_recipe_names=model_recipe_names,
+        training_recipe_name=training_recipe_name,
+        model_variants_by_recipe=model_variants_by_recipe,
         training_variants=training_variants,
-        missing_model_configs=missing_model_configs,
+        missing_model_recipes=missing_model_recipes,
         plan=plan,
     )
 
@@ -418,7 +402,7 @@ def print_experiment_plan_summary(plan: Sequence[ExperimentPlanItem]) -> None:
     for item in plan:
         print(
             f"  {item.task_index:>3}. {item.run_name} "
-            f"[model={item.model_variant.source_name}, training={item.training_variant.variant_name}]"
+            f"[model={item.model_recipe_name}, training={item.training_label}]"
         )
 
 
@@ -432,8 +416,6 @@ __all__ = [
     'load_yaml_config',
     'load_config_catalog',
     'resolve_experiment_definition',
-    'prepare_model_config_variants',
-    'prepare_training_config_variants',
     'prepare_model_config_variants',
     'prepare_training_config_variants',
     'build_experiment_plan',

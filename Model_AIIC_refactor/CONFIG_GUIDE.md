@@ -40,6 +40,7 @@ separator1_grid_search:
 - If a field is part of a deliberate sweep, put it in search_space. If it is just a constant, put it in fixed_params or leave it flat for single configs.
 - Prefer one search dimension per question. Example: compare losses in one training config, compare LR in another, instead of one very wide sweep.
 - Use train.py --experiment quick_separator1 --plan_only to inspect the final run matrix before launching long jobs.
+- The CLI is experiment-first. Named experiments are the supported entry point for training and benchmark scripts.
 
 ## Naming
 
@@ -50,6 +51,8 @@ separator1_grid_search:
 Use recipe when you want traceability back to config files.
 Use label when you want to distinguish variants inside one recipe.
 Use run name when you need a filesystem path or a unique execution id.
+
+Backward-compatible aliases are intentionally removed. Prefer recipe, label, run_name, model_spec, and training_spec everywhere in new code.
 
 ## Why This Layout Works
 

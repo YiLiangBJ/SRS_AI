@@ -2,14 +2,11 @@
 Simplified training script using the refactored modules.
 
 Usage:
-    # Train with config file
-    python test_separator_refactored.py --model_config separator1_default --training_config default
-    
-    # Quick test
-    python test_separator_refactored.py --model_config separator1_small --training_config quick_test
-    
-    # Train both models for comparison
-    python test_separator_refactored.py --model_config separator1_default,separator2_default
+    # Preview an experiment plan
+    python train.py --experiment quick_separator1 --plan_only
+
+    # Run a named experiment
+    python train.py --experiment compare_default_models
 """
 
 import argparse
@@ -35,7 +32,7 @@ from utils import (
 def generate_training_report(
     report_path: Path,
     results: list,
-    training_config_name: str,
+    training_recipe_name: str,
     start_time: datetime,
     end_time: datetime,
     total_duration: float,
@@ -55,7 +52,7 @@ def generate_training_report(
         
         # Training Configuration
         f.write("## Training Configuration\n\n")
-        f.write(f"- **Training Config**: {training_config_name}\n")
+        f.write(f"- **Training Recipe**: {training_recipe_name}\n")
         f.write(f"- **Total Configurations**: {len(results)}\n\n")
         
         # Results Summary
@@ -64,7 +61,7 @@ def generate_training_report(
         f.write("|------|--------------|-----------|------------|-------------|\n")
         
         for i, result in enumerate(results, 1):
-            f.write(f"| {i} | `{result['config_instance_name']}` | "
+            f.write(f"| {i} | `{result['run_name']}` | "
                    f"{result['eval_nmse_db']:.2f} | {result['num_params']:,} | "
                    f"{result['training_duration']:.1f} |\n")
         
@@ -74,7 +71,7 @@ def generate_training_report(
         if results:
             best = results[0]
             f.write("## 🏆 Best Configuration\n\n")
-            f.write(f"**Configuration**: `{best['config_instance_name']}`\n\n")
+            f.write(f"**Run**: `{best['run_name']}`\n\n")
             f.write(f"- **Eval NMSE**: {best['eval_nmse_db']:.2f} dB\n")
             f.write(f"- **Final Loss**: {best['final_loss']:.6f}\n")
             f.write(f"- **Min Loss**: {best['min_loss']:.6f}\n")
@@ -85,8 +82,9 @@ def generate_training_report(
         f.write("## Detailed Results\n\n")
         
         for i, result in enumerate(results, 1):
-            f.write(f"### {i}. {result['config_instance_name']}\n\n")
-            f.write(f"- **Model Config**: {result['model_config_name']}\n")
+            f.write(f"### {i}. {result['run_name']}\n\n")
+            f.write(f"- **Model Recipe**: {result['model_recipe_name']}\n")
+            f.write(f"- **Training Label**: {result['training_label']}\n")
             f.write(f"- **Evaluation NMSE**: {result['eval_nmse_db']:.2f} dB\n")
             f.write(f"- **Final Training Loss**: {result['final_loss']:.6f}\n")
             f.write(f"- **Minimum Training Loss**: {result['min_loss']:.6f}\n")
@@ -103,13 +101,8 @@ def main():
     parser = argparse.ArgumentParser(description='Train channel separator models')
     
     # Configuration files
-    parser.add_argument('--experiment', type=str, default=None,
+    parser.add_argument('--experiment', type=str, required=True,
                        help='Experiment name from experiments.yaml')
-    parser.add_argument('--model_config', type=str, default='separator1_grid_search_6ports',
-                       help='Model configuration name(s) from model_configs.yaml. '
-                            'Multiple: "separator1_default,separator2_default"')
-    parser.add_argument('--training_config', type=str, default='snr_range_0_30_perSample',
-                       help='Training configuration name from training_configs.yaml')
     
     # Overrides
     parser.add_argument('--batch_size', type=int, default=None,
@@ -150,8 +143,6 @@ def main():
     config_dir = Path(__file__).parent / 'configs'
     suite = build_experiment_suite(
         config_dir=config_dir,
-        model_config_names=None if args.experiment else args.model_config.split(','),
-        training_config_name=None if args.experiment else args.training_config,
         batch_size_override=args.batch_size,
         num_batches_override=args.num_batches,
         experiment_name=args.experiment,
@@ -162,7 +153,7 @@ def main():
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     base_save_dir = Path(args.save_dir)
-    experiment_key = suite.experiment_name or f"{suite.model_config_names[0]}_{suite.training_config_name}"
+    experiment_key = suite.experiment_name or f"{suite.model_recipe_names[0]}_{suite.training_recipe_name}"
     experiment_name = f"{timestamp}_{experiment_key}"
     args.save_dir = str(base_save_dir / experiment_name)
 
@@ -186,18 +177,17 @@ def main():
     print_device_info(device)
     print()
     
-    if suite.missing_model_configs:
-        missing_configs_str = ', '.join(suite.missing_model_configs)
+    if suite.missing_model_recipes:
+        missing_configs_str = ', '.join(suite.missing_model_recipes)
         print(f"✗ Model config(s) not found: {missing_configs_str}")
 
-    if not suite.model_variants_by_name:
-        raise ValueError(f"No valid model configs found in: {args.model_config}")
+    if not suite.model_variants_by_recipe:
+        raise ValueError(f"No valid model recipes found in experiment: {args.experiment}")
     
     print(f"Training configurations:")
-    if suite.experiment_name:
-        print(f"  Experiment: {suite.experiment_name}")
-    print(f"  Training config: {suite.training_config_name} ({len(suite.training_variants)} variants)")
-    print(f"  Model config(s): {suite.model_config_names}")
+    print(f"  Experiment: {suite.experiment_name}")
+    print(f"  Training recipe: {suite.training_recipe_name} ({len(suite.training_variants)} variants)")
+    print(f"  Model recipes: {suite.model_recipe_names}")
     print(f"  Available models: {list_models()}")
     print(f"  Planned runs: {len(suite.plan)}")
     print()
@@ -205,14 +195,14 @@ def main():
     # Show training config search space (if any)
     if len(suite.training_variants) > 1:
         print(f"Training search space: {len(suite.training_variants)} configurations")
-        print_search_space_summary([variant.config for variant in suite.training_variants], suite.training_config_name)
+        print_search_space_summary([variant.spec for variant in suite.training_variants], suite.training_recipe_name)
         print()
 
-    for model_config_name in suite.model_config_names:
-        model_variants = suite.model_variants_by_name.get(model_config_name)
+    for model_recipe_name in suite.model_recipe_names:
+        model_variants = suite.model_variants_by_recipe.get(model_recipe_name)
         if model_variants is None:
             continue
-        print_search_space_summary([variant.config for variant in model_variants], model_config_name)
+        print_search_space_summary([variant.spec for variant in model_variants], model_recipe_name)
         print()
 
     print_experiment_plan_summary(suite.plan)
@@ -232,28 +222,28 @@ def main():
     # Initialize progress tracker (report every 5 minutes)
     progress_tracker = TrainingProgressTracker(total_configs, report_interval=300.0)
     
-    # Train each combination of (training_config × model_config)
+    # Train each combination of (training × model)
     results = []
     previous_training_label = None
     previous_model_recipe_name = None
     
     for experiment in suite.plan:
-        training_config = experiment.training_config
-        model_config = experiment.model_config
+        training_spec = experiment.training_spec
+        model_spec = experiment.model_spec
         training_label = experiment.training_label
         model_recipe_name = experiment.model_recipe_name
 
-        batch_size = training_config['batch_size']
-        num_batches = training_config['num_batches']
-        learning_rate = training_config['learning_rate']
-        loss_type = training_config['loss_type']
-        snr_config_dict = training_config['snr_config']
-        tdl_config = training_config['tdl_config']
-        print_interval = training_config['print_interval']
-        val_interval = training_config.get('validation_interval')
-        early_stop_loss = training_config.get('early_stop_loss')
-        patience = training_config['patience']
-        keep_last_n = training_config['keep_last_n_checkpoints']
+        batch_size = training_spec['batch_size']
+        num_batches = training_spec['num_batches']
+        learning_rate = training_spec['learning_rate']
+        loss_type = training_spec['loss_type']
+        snr_config_dict = training_spec['snr_config']
+        tdl_config = training_spec['tdl_config']
+        print_interval = training_spec['print_interval']
+        val_interval = training_spec.get('validation_interval')
+        early_stop_loss = training_spec.get('early_stop_loss')
+        patience = training_spec['patience']
+        keep_last_n = training_spec['keep_last_n_checkpoints']
         snr_config = parse_snr_config(snr_config_dict)
 
         if len(suite.training_variants) > 1 and training_label != previous_training_label:
@@ -276,13 +266,13 @@ def main():
             print(f"{'='*80}\n")
 
         print(f"\n{'─'*80}")
-        if experiment.model_variant_total > 1:
+        if experiment.model_total > 1:
             print(
-                f"Model Config {experiment.model_variant_index}/{experiment.model_variant_total} "
+                f"Model Variant {experiment.model_index}/{experiment.model_total} "
                 f"of {model_recipe_name}"
             )
         if len(suite.training_variants) > 1:
-            print(f"Training Config: {training_label}")
+            print(f"Training Variant: {training_label}")
         print(f"{'─'*80}\n")
 
         config_instance_name = experiment.run_name
@@ -290,13 +280,13 @@ def main():
         progress_tracker.start_task(config_instance_name, experiment.task_index)
         print(f"Configuration: {config_instance_name}")
 
-        model_type = model_config['model_type']
-        model_params = {key: value for key, value in model_config.items() if key != 'model_type'}
+        model_type = model_spec['model_type']
+        model_params = {key: value for key, value in model_spec.items() if key != 'model_type'}
 
         print(f"  Model type: {model_type}")
         print(f"  Parameters: {model_params}")
 
-        model = create_model(model_type, model_config)
+        model = create_model(model_type, model_spec)
         num_params = sum(p.numel() for p in model.parameters())
         print(f"  Total parameters: {num_params:,}")
         print()
@@ -315,7 +305,7 @@ def main():
         )
 
         start_time = time.time()
-        save_interval = training_config.get('save_interval')
+        save_interval = training_spec.get('save_interval')
 
         if save_interval is None and num_batches >= 1000:
             save_interval = max(1000, num_batches // 20)
@@ -327,9 +317,9 @@ def main():
             num_batches=num_batches,
             batch_size=batch_size,
             snr_config=snr_config,
-            pos_values=model_config['pos_values'],
+            pos_values=model_spec['pos_values'],
             tdl_config=tdl_config,
-            seq_len=model_config['seq_len'],
+            seq_len=model_spec['seq_len'],
             print_interval=print_interval,
             val_interval=val_interval,
             early_stop_loss=early_stop_loss,
@@ -354,7 +344,7 @@ def main():
         eval_results = trainer.evaluate(
             batch_size=200,
             snr_db=eval_snr,
-            pos_values=model_config['pos_values'],
+            pos_values=model_spec['pos_values'],
             tdl_config=tdl_config
         )
 
@@ -364,20 +354,20 @@ def main():
         experiment_dir.mkdir(parents=True, exist_ok=True)
 
         save_path = experiment_dir / 'model.pth'
-        model_config_dict = {
-            'model_type': model_config['model_type'],
-            'hidden_dim': model_config.get('hidden_dim', 64),
-            'num_stages': model_config.get('num_stages', 2),
-            'mlp_depth': model_config.get('mlp_depth', 3),
-            'share_weights_across_stages': model_config.get('share_weights_across_stages', False),
-            'activation_type': model_config.get('activation_type', 'relu'),
-            'seq_len': model_config['seq_len'],
-            'num_ports': len(model_config['pos_values']),
-            'pos_values': model_config['pos_values'],
+        model_spec_dict = {
+            'model_type': model_spec['model_type'],
+            'hidden_dim': model_spec.get('hidden_dim', 64),
+            'num_stages': model_spec.get('num_stages', 2),
+            'mlp_depth': model_spec.get('mlp_depth', 3),
+            'share_weights_across_stages': model_spec.get('share_weights_across_stages', False),
+            'activation_type': model_spec.get('activation_type', 'relu'),
+            'seq_len': model_spec['seq_len'],
+            'num_ports': len(model_spec['pos_values']),
+            'pos_values': model_spec['pos_values'],
             'num_params': num_params,
         }
 
-        training_config_dict = {
+        training_spec_dict = {
             'loss_type': loss_type,
             'learning_rate': learning_rate,
             'num_batches': num_batches,
@@ -400,8 +390,8 @@ def main():
         trainer.save_checkpoint(
             save_path,
             additional_info={
-                'config': model_config_dict,
-                'training_config': training_config_dict,
+                'model_spec': model_spec_dict,
+                'training_spec': training_spec_dict,
                 'metadata': metadata_dict,
                 'eval_results': eval_results,
             }
@@ -410,17 +400,17 @@ def main():
         config_save_path = experiment_dir / 'config.yaml'
         with open(config_save_path, 'w', encoding='utf-8') as f:
             yaml.dump({
-                'model_config': model_config_dict,
-                'training_config': training_config_dict,
+                'model_spec': model_spec_dict,
+                'training_spec': training_spec_dict,
                 'metadata': metadata_dict,
             }, f, default_flow_style=False, allow_unicode=True)
 
         print(f"✓ Model saved to: {experiment_dir}")
 
         result = {
-            'model_config_name': model_recipe_name,
-            'config_instance_name': config_instance_name,
-            'training_config_name': training_label,
+            'model_recipe_name': model_recipe_name,
+            'run_name': config_instance_name,
+            'training_label': training_label,
             'final_loss': losses[-1],
             'min_loss': min(losses),
             'eval_nmse_db': eval_results['nmse_db'],
@@ -452,7 +442,7 @@ def main():
     results_sorted = sorted(results, key=lambda x: x['eval_nmse_db'])
     
     for i, result in enumerate(results_sorted, 1):
-        print(f"{i}. {result['config_instance_name']}:")
+        print(f"{i}. {result['run_name']}:")
         print(f"   Final loss: {result['final_loss']:.6f}")
         print(f"   Min loss: {result['min_loss']:.6f}")
         print(f"   Eval NMSE: {result['eval_nmse_db']:.2f} dB")
@@ -463,7 +453,7 @@ def main():
     # Highlight best configuration
     if results_sorted:
         best = results_sorted[0]
-        print(f"🏆 Best configuration: {best['config_instance_name']}")
+        print(f"🏆 Best run: {best['run_name']}")
         print(f"   NMSE: {best['eval_nmse_db']:.2f} dB")
         print()
     
@@ -472,7 +462,7 @@ def main():
     generate_training_report(
         report_path=report_path,
         results=results_sorted,
-        training_config_name=suite.training_config_name,
+        training_recipe_name=suite.training_recipe_name,
         start_time=script_start_datetime,
         end_time=script_end_datetime,
         total_duration=total_duration,

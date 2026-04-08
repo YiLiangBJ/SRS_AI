@@ -1,8 +1,6 @@
 {
   "config": {
     "experiment": "perf_quick",
-    "model": "separator1_small",
-    "training": null,
     "target": "perf_quick",
     "num_batches": 1,
     "batch_size": null
@@ -13,11 +11,11 @@
       "device": "cpu",
       "compile": false,
       "amp": false,
-      "duration": 1.812314748764038,
-      "throughput": 410.0,
-      "max_throughput": 410.0,
+      "duration": 2.0120301246643066,
+      "throughput": 125.0,
+      "max_throughput": 125.0,
       "all_throughputs": [
-        410.0
+        125.0
       ],
       "success": true,
       "output": null

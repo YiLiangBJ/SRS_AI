@@ -30,9 +30,9 @@ class TestExperimentPlan(unittest.TestCase):
         variants = prepare_training_config_variants(all_training_configs, 'loss_lr_search')
 
         self.assertEqual(len(variants), 4)
-        self.assertTrue(all(variant.variant_name.startswith('loss_lr_search_') for variant in variants))
-        self.assertTrue(any('lossnmse' in variant.variant_name for variant in variants))
-        self.assertTrue(any('lr0.001' in variant.variant_name for variant in variants))
+        self.assertTrue(all(variant.label.startswith('loss_lr_search_') for variant in variants))
+        self.assertTrue(any('lossnmse' in variant.label for variant in variants))
+        self.assertTrue(any('lr0.001' in variant.label for variant in variants))
 
     def test_prepare_training_variants_applies_overrides(self):
         all_training_configs = {
@@ -50,8 +50,8 @@ class TestExperimentPlan(unittest.TestCase):
         )
 
         self.assertEqual(len(variants), 1)
-        self.assertEqual(variants[0].config['batch_size'], 128)
-        self.assertEqual(variants[0].config['num_batches'], 500)
+        self.assertEqual(variants[0].spec['batch_size'], 128)
+        self.assertEqual(variants[0].spec['num_batches'], 500)
 
     def test_build_experiment_plan_cartesian_product(self):
         all_model_configs = {
@@ -83,12 +83,12 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(plan[0].task_index, 1)
         self.assertEqual(plan[-1].task_index, 4)
         self.assertTrue(all('loss_search_' in item.run_name for item in plan))
-        self.assertEqual(plan[0].model_config_name, 'separator1_test')
-        self.assertEqual(plan[0].training_config_name, 'loss_search')
         self.assertEqual(plan[0].model_recipe_name, 'separator1_test')
         self.assertEqual(plan[0].training_recipe_name, 'loss_search')
-        self.assertIn('hidden_dim', plan[0].model_config)
-        self.assertIn('loss_type', plan[0].training_config)
+        self.assertEqual(plan[0].model_label, 'separator1_test_hd32')
+        self.assertEqual(plan[0].training_label, 'loss_search_lossnmse')
+        self.assertIn('hidden_dim', plan[0].model_spec)
+        self.assertIn('loss_type', plan[0].training_spec)
 
     def test_build_experiment_suite_from_experiment_definition(self):
         config_dir = '/home/liangyi/SRS_AI/Model_AIIC_refactor/configs'
@@ -98,8 +98,8 @@ class TestExperimentPlan(unittest.TestCase):
         )
 
         self.assertEqual(suite.experiment_name, 'quick_separator1')
-        self.assertEqual(suite.training_config_name, 'quick_test')
-        self.assertEqual(suite.model_config_names, ['separator1_small'])
+        self.assertEqual(suite.training_recipe_name, 'quick_test')
+        self.assertEqual(suite.model_recipe_names, ['separator1_small'])
         self.assertEqual(len(suite.plan), 1)
 
 

@@ -9,14 +9,7 @@ Compares:
 5. GPU + torch.compile + AMP (full optimizations)
 
 Usage:
-    # Full comparison
-    python compare_optimizations.py --model_config separator1_small --num_batches 100
-    
-    # GPU only (skip CPU)
-    python compare_optimizations.py --model_config separator1_default --num_batches 200 --skip_cpu
-    
-    # Quick test
-    python compare_optimizations.py --model_config separator1_small --num_batches 50 --batch_size 2048
+    python compare_optimizations.py --experiment perf_quick
 """
 
 import argparse
@@ -27,8 +20,8 @@ import json
 import sys
 
 
-def build_train_command(experiment, model_config, training_config, num_batches, batch_size, device, use_amp, compile_model):
-    """Build a train.py command using either an experiment or direct config names."""
+def build_train_command(experiment, num_batches, batch_size, device, use_amp, compile_model):
+    """Build a train.py command for a named experiment."""
     opt_parts = []
     if device == 'cuda':
         if compile_model:
@@ -45,10 +38,7 @@ def build_train_command(experiment, model_config, training_config, num_batches, 
         '--save_dir', f'./perf_test_{device}_{"_".join(opt_parts) if opt_parts else "baseline"}'
     ]
 
-    if experiment:
-        cmd.extend(['--experiment', experiment])
-    else:
-        cmd.extend(['--model_config', model_config, '--training_config', training_config])
+    cmd.extend(['--experiment', experiment])
 
     if batch_size:
         cmd.extend(['--batch_size', str(batch_size)])
@@ -62,13 +52,11 @@ def build_train_command(experiment, model_config, training_config, num_batches, 
     return cmd, opt_parts
 
 
-def run_training(experiment, model_config, training_config, num_batches, batch_size, device, use_amp, compile_model):
+def run_training(experiment, num_batches, batch_size, device, use_amp, compile_model):
     """Run training with specified configuration"""
     
     cmd, opt_parts = build_train_command(
         experiment,
-        model_config,
-        training_config,
         num_batches,
         batch_size,
         device,
@@ -153,12 +141,8 @@ def run_training(experiment, model_config, training_config, num_batches, batch_s
 
 def main():
     parser = argparse.ArgumentParser(description='Compare training performance with different optimizations')
-    parser.add_argument('--experiment', type=str, default=None,
+    parser.add_argument('--experiment', type=str, required=True,
                        help='Experiment name from experiments.yaml')
-    parser.add_argument('--model_config', type=str, default='separator1_small',
-                       help='Model configuration to test')
-    parser.add_argument('--training_config', type=str, default='quick_test',
-                       help='Training configuration')
     parser.add_argument('--num_batches', type=int, default=100,
                        help='Number of batches to train')
     parser.add_argument('--batch_size', type=int, default=None,
@@ -169,8 +153,7 @@ def main():
                        help='Skip GPU test (only run CPU)')
     
     args = parser.parse_args()
-    target_name = args.experiment or args.model_config
-    training_name = args.training_config if not args.experiment else None
+    target_name = args.experiment
     
     results = []
     
@@ -196,8 +179,6 @@ def main():
         
         result = run_training(
             args.experiment,
-            args.model_config,
-            args.training_config,
             args.num_batches,
             args.batch_size,
             device,
@@ -312,8 +293,6 @@ def main():
         json.dump({
             'config': {
                 'experiment': args.experiment,
-                'model': args.model_config,
-                'training': training_name,
                 'target': target_name,
                 'num_batches': args.num_batches,
                 'batch_size': args.batch_size

@@ -79,14 +79,14 @@ def load_model(model_dir, device='cpu'):
     # 加载 checkpoint
     checkpoint = torch.load(model_path, map_location=device)
     
-    # ✅ 读取标准格式的 config
-    if 'config' not in checkpoint:
+    # ✅ 读取标准格式的 model_spec
+    if 'model_spec' not in checkpoint:
         raise KeyError(
-            f"Checkpoint missing 'config' key in {model_path}.\n"
+            f"Checkpoint missing 'model_spec' key in {model_path}.\n"
             f"This model was saved with an old format. Please retrain the model."
         )
     
-    config = checkpoint['config']
+    config = checkpoint['model_spec']
     
     # ✅ 验证必需字段
     required_fields = ['model_type', 'pos_values', 'num_ports', 'seq_len']

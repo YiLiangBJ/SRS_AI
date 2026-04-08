@@ -2,11 +2,7 @@
 Performance comparison script: CPU vs GPU
 
 Usage:
-    # Compare on single model
-    python compare_cpu_gpu.py --model_config separator1_small --num_batches 100
-    
-    # Compare with custom batch size
-    python compare_cpu_gpu.py --model_config separator1_default --num_batches 200 --batch_size 4096
+    python compare_cpu_gpu.py --experiment perf_quick
 """
 
 import argparse
@@ -17,8 +13,8 @@ import json
 import sys
 
 
-def build_train_command(experiment, model_config, training_config, num_batches, batch_size, device):
-    """Build a train.py command using either an experiment or direct config names."""
+def build_train_command(experiment, num_batches, batch_size, device):
+    """Build a train.py command for a named experiment."""
     cmd = [
         sys.executable, 'train.py',
         '--num_batches', str(num_batches),
@@ -26,10 +22,7 @@ def build_train_command(experiment, model_config, training_config, num_batches, 
         '--save_dir', f'./perf_test_{device}'
     ]
 
-    if experiment:
-        cmd.extend(['--experiment', experiment])
-    else:
-        cmd.extend(['--model_config', model_config, '--training_config', training_config])
+    cmd.extend(['--experiment', experiment])
 
     if batch_size:
         cmd.extend(['--batch_size', str(batch_size)])
@@ -37,9 +30,9 @@ def build_train_command(experiment, model_config, training_config, num_batches, 
     return cmd
 
 
-def run_training(experiment, model_config, training_config, num_batches, batch_size, device):
+def run_training(experiment, num_batches, batch_size, device):
     """Run training with specified device"""
-    cmd = build_train_command(experiment, model_config, training_config, num_batches, batch_size, device)
+    cmd = build_train_command(experiment, num_batches, batch_size, device)
     
     print(f"\n{'='*80}")
     print(f"Running on {device.upper()}")
@@ -77,12 +70,8 @@ def run_training(experiment, model_config, training_config, num_batches, batch_s
 
 def main():
     parser = argparse.ArgumentParser(description='Compare CPU vs GPU training performance')
-    parser.add_argument('--experiment', type=str, default=None,
+    parser.add_argument('--experiment', type=str, required=True,
                        help='Experiment name from experiments.yaml')
-    parser.add_argument('--model_config', type=str, default='separator1_small',
-                       help='Model configuration to test')
-    parser.add_argument('--training_config', type=str, default='quick_test',
-                       help='Training configuration')
     parser.add_argument('--num_batches', type=int, default=100,
                        help='Number of batches to train')
     parser.add_argument('--batch_size', type=int, default=None,
@@ -93,8 +82,7 @@ def main():
                        help='Skip GPU test (only run CPU)')
     
     args = parser.parse_args()
-    target_name = args.experiment or args.model_config
-    training_name = args.training_config if not args.experiment else None
+    target_name = args.experiment
     
     results = {}
     
@@ -105,8 +93,6 @@ def main():
         print("="*80)
         cpu_result = run_training(
             args.experiment,
-            args.model_config,
-            args.training_config,
             args.num_batches,
             args.batch_size,
             'cpu'
@@ -127,8 +113,6 @@ def main():
         print("="*80)
         gpu_result = run_training(
             args.experiment,
-            args.model_config,
-            args.training_config,
             args.num_batches,
             args.batch_size,
             'cuda'
@@ -188,8 +172,6 @@ def main():
         json.dump({
             'config': {
                 'experiment': args.experiment,
-                'model': args.model_config,
-                'training': training_name,
                 'target': target_name,
                 'num_batches': args.num_batches,
                 'batch_size': args.batch_size
