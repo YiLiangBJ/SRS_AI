@@ -110,7 +110,7 @@ def main():
     parser.add_argument('--model_config', type=str, default='separator1_grid_search_6ports',
                        help='Model configuration name(s) from model_configs.yaml. '
                             'Multiple: "separator1_default,separator2_default"')
-    parser.add_argument('--training_config', type=str, default='default',
+    parser.add_argument('--training_config', type=str, default='snr_range_0_30_perSample',
                        help='Training configuration name from training_configs.yaml')
     
     # Overrides
