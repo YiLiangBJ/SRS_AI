@@ -60,8 +60,11 @@ experiments_refactored/
       config.yaml
       tensorboard/
     TRAINING_REPORT.md
-    evaluation_results/
-    plots/
+    evaluations/
+      <timestamp>_<scope>/
+        evaluation_results.json
+        evaluation_results.npy
+        plots/
 ```
 
 ## Runtime Terms
@@ -266,17 +269,31 @@ This is a practical research-friendly structure:
 ```bash
 python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/separator1_default_training" \
-    --device cuda \
-    --output "./my_evaluation_results"
+  --device cuda
 ```
+
+默认会写到：
+
+```text
+./experiments_refactored/separator1_default_training/evaluations/<timestamp>_<scope>/
+```
+
+这样重复评估不同模型组合、不同 SNR 范围、不同 TDL 配置时不会互相覆盖。
 
 ### 只绘图（不训练/评估）
 
 ```bash
 python plot.py \
-    --input "./evaluation_results/evaluation_results.json" \
-    --output "./my_plots"
+  --input "./experiments_refactored/separator1_default_training"
 ```
+
+`plot.py` 的 `--input` 支持三种形式：
+
+- 实验目录：自动选择最新一次评估目录
+- 评估目录：读取其中的 `evaluation_results.json`
+- 结果 JSON 文件本身
+
+默认绘图输出到该次评估目录下的 `plots/`。
 
 ---
 
@@ -387,14 +404,13 @@ python train.py \
 # 如果忘了加 --eval_after_train，后期补充：
 
 # 1. 评估已训练的模型
-python evaluate_models_refactored.py \
-    --exp_dir "./experiments_refactored/20260409_032740_default_6port_separator1" \
+python ./Model_AIIC_refactor/evaluate_models_refactored.py \
+    --exp_dir "./experiments_refactored/20260409_033734_default_6port_separator1" \
     --device cuda
 
 # 2. 生成图表
-python plot.py \
-    --input "./experiments_refactored/evaluation_results/evaluation_results.json" \
-    --output "./experiments_refactored/my_experiment/plots"
+python ./Model_AIIC_refactor/plot.py \
+  --input "./experiments_refactored/20260409_033734_default_6port_separator1/evaluations/20260409_063011_4-runs"
 ```
 
 ---
@@ -424,11 +440,11 @@ train.py
   ↓ (if --eval_after_train)
   → evaluate_models_programmatic()
       → 评估所有模型
-      → 保存结果到 save_dir/evaluation_results/
+      → 保存结果到 save_dir/evaluations/<timestamp>_<scope>/
   ↓ (if --plot_after_eval)
   → generate_plots_programmatic()
-      → 读取评估结果
-      → 生成图表到 save_dir/plots/
+      → 读取该次评估目录下的 evaluation_results.json
+      → 生成图表到 save_dir/evaluations/<timestamp>_<scope>/plots/
   ↓
 ✓ 完成！
 ```

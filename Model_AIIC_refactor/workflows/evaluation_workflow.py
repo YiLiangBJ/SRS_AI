@@ -3,6 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
+import re
 
 import numpy as np
 import torch
@@ -126,25 +127,47 @@ def save_evaluation_results(results, output_dir: Path):
     return json_path, npy_path
 
 
+def _slugify_label(value: str) -> str:
+    """Normalize a path label for directory names."""
+    normalized = re.sub(r'[^A-Za-z0-9._-]+', '-', value).strip('-')
+    return normalized or 'evaluation'
+
+
+def _build_evaluation_scope_label(model_dirs) -> str:
+    """Build a short label describing the evaluated run selection."""
+    if not model_dirs:
+        return 'all-runs'
+
+    run_names = [Path(model_dir).name for model_dir in model_dirs]
+    if len(run_names) == 1:
+        return _slugify_label(run_names[0])
+    if len(run_names) <= 3:
+        combined = '_'.join(_slugify_label(run_name) for run_name in run_names)
+        return combined[:80].rstrip('_-')
+    return f'{len(run_names)}-runs'
+
+
 def resolve_evaluation_output_dir(explicit_output=None, exp_dir: Path | None = None, model_dirs=None) -> Path:
     """Resolve the default output directory for evaluation artifacts."""
     if explicit_output:
         return Path(explicit_output)
 
+    evaluation_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_build_evaluation_scope_label(model_dirs)}"
+
     if exp_dir is not None:
-        return Path(exp_dir) / 'evaluation_results'
+        return Path(exp_dir) / 'evaluations' / evaluation_name
 
     if model_dirs:
         common_parent = Path(model_dirs[0]).parent
         if all(Path(model_dir).parent == common_parent for model_dir in model_dirs):
-            return common_parent / 'evaluation_results'
+            return common_parent / 'evaluations' / evaluation_name
 
-    return Path('evaluation_results')
+    return Path('evaluations') / evaluation_name
 
 
 def evaluate_models_programmatic(
     exp_dir,
-    output_dir,
+    output_dir=None,
     snr_range='30:-3:0',
     snr_values=None,
     tdl_list=None,
@@ -179,14 +202,24 @@ def evaluate_models_programmatic(
     if not target_dirs:
         raise ValueError('No trained runs found to evaluate')
 
+    output_dir = Path(output_dir) if output_dir is not None else resolve_evaluation_output_dir(
+        exp_dir=exp_dir,
+        model_dirs=target_dirs,
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     results = {
         'timestamp': datetime.now().isoformat(),
+        'evaluation_name': output_dir.name,
+        'output_dir': str(output_dir),
         'config': {
             'snr_list': snr_list,
             'tdl_list': tdl_list,
             'num_batches': num_batches,
             'batch_size': batch_size,
             'total_samples_per_point': num_batches * batch_size,
+            'run_names': [run_dir.name for run_dir in target_dirs],
+            'run_count': len(target_dirs),
         },
         'models': {},
     }

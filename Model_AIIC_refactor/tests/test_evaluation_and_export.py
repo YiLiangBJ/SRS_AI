@@ -1,6 +1,7 @@
 """Tests for evaluation aggregation and ONNX export workflows."""
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,8 +12,9 @@ import yaml
 
 from models import create_model
 from utils import find_checkpoint_path, load_run_artifacts
-from workflows.evaluation_workflow import evaluate_models_programmatic
+from workflows.evaluation_workflow import evaluate_models_programmatic, resolve_evaluation_output_dir
 from workflows.export_workflow import export_run_to_onnx
+from workflows.plotting_workflow import resolve_plot_inputs
 
 
 class TestEvaluationAndExport(unittest.TestCase):
@@ -108,6 +110,24 @@ class TestEvaluationAndExport(unittest.TestCase):
         with open(json_path, 'r', encoding='utf-8') as output_file:
             saved = json.load(output_file)
         self.assertIn(self.run_dir.name, saved['models'])
+
+    def test_default_evaluation_output_dir_uses_timestamped_evaluations_root(self):
+        output_dir = resolve_evaluation_output_dir(exp_dir=self.root, model_dirs=[self.run_dir])
+        self.assertEqual(output_dir.parent, self.root / 'evaluations')
+        self.assertRegex(output_dir.name, r'^\d{8}_\d{6}_demo_run$')
+
+    def test_plot_input_can_resolve_latest_evaluation_from_experiment_dir(self):
+        older_eval_dir = self.root / 'evaluations' / '20260409_010101_demo_run'
+        newer_eval_dir = self.root / 'evaluations' / '20260409_020202_demo_run'
+        older_eval_dir.mkdir(parents=True, exist_ok=True)
+        newer_eval_dir.mkdir(parents=True, exist_ok=True)
+        (older_eval_dir / 'evaluation_results.json').write_text('{}', encoding='utf-8')
+        (newer_eval_dir / 'evaluation_results.json').write_text('{}', encoding='utf-8')
+
+        resolved_json, resolved_output = resolve_plot_inputs(self.root)
+
+        self.assertEqual(resolved_json, newer_eval_dir / 'evaluation_results.json')
+        self.assertEqual(resolved_output, newer_eval_dir / 'plots')
 
     def test_export_run_to_onnx_writes_manifest(self):
         manifest = export_run_to_onnx(

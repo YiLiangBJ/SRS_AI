@@ -32,7 +32,7 @@ def build_parser():
     parser.add_argument('--no-amp', dest='use_amp', action='store_false', help='Disable AMP on GPU during evaluation')
     parser.add_argument('--no-compile', dest='compile', action='store_false', help='Disable torch.compile on GPU')
     parser.set_defaults(use_amp=True, compile=True)
-    parser.add_argument('--output', type=str, default=None, help='Output directory for results (default: <exp_dir>/evaluation_results)')
+    parser.add_argument('--output', type=str, default=None, help='Output directory for one evaluation run (default: <exp_dir>/evaluations/<timestamp>_<scope>)')
     return parser
 
 

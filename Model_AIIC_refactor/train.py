@@ -12,7 +12,7 @@ def build_parser():
     parser.add_argument('--batch_size', type=int, default=None, help='Override batch size')
     parser.add_argument('--num_batches', type=int, default=None, help='Override number of batches')
     parser.add_argument('--device', type=str, default='auto', help='Device to use (auto, cpu, cuda, cuda:0, ...)')
-    parser.add_argument('--save_dir', type=str, default='./experiments_refactored', help='Directory to save models')
+    parser.add_argument('--save_dir', type=str, default='./experiments_refactored', help='Parent directory where timestamped experiment directories are created')
     parser.add_argument('--no-amp', dest='use_amp', action='store_false', help='Disable mixed precision training (FP16)')
     parser.add_argument('--no-compile', dest='compile_model', action='store_false', help='Disable model compilation (torch.compile)')
     parser.set_defaults(use_amp=True, compile_model=None)

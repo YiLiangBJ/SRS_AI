@@ -8,11 +8,64 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
+from utils import resolve_existing_path
+
+
+def _resolve_input_path(path_value) -> Path:
+    """Resolve a plotting input path against the project roots."""
+    resolved = resolve_existing_path(path_value)
+    if isinstance(resolved, tuple):
+        _, candidates = resolved
+        candidate_text = '\n'.join(str(path) for path in candidates)
+        raise FileNotFoundError('Plot input not found. Checked:\n' + candidate_text)
+    return resolved
+
+
+def _discover_latest_evaluation_dir(root: Path) -> Path | None:
+    """Find the newest evaluation directory containing evaluation_results.json."""
+    candidates = [
+        child for child in root.iterdir()
+        if child.is_dir() and (child / 'evaluation_results.json').exists()
+    ]
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda path: path.name)[-1]
+
+
+def resolve_plot_inputs(eval_results_path, output_dir=None):
+    """Resolve plotting input and output paths.
+
+    The input may be an experiment directory, an evaluation directory, or an
+    evaluation_results.json file.
+    """
+    resolved_input = _resolve_input_path(eval_results_path)
+
+    if resolved_input.is_file():
+        if resolved_input.name != 'evaluation_results.json':
+            raise ValueError('Plot input file must be evaluation_results.json')
+        resolved_eval_json = resolved_input
+        resolved_evaluation_dir = resolved_input.parent
+    elif (resolved_input / 'evaluation_results.json').exists():
+        resolved_evaluation_dir = resolved_input
+        resolved_eval_json = resolved_input / 'evaluation_results.json'
+    else:
+        evaluations_root = resolved_input / 'evaluations' if (resolved_input / 'evaluations').is_dir() else resolved_input
+        latest_eval_dir = _discover_latest_evaluation_dir(evaluations_root)
+        if latest_eval_dir is None:
+            raise FileNotFoundError(
+                'Could not find evaluation_results.json. Provide an experiment directory with evaluations/, '
+                'an evaluation directory, or the JSON file itself.'
+            )
+        resolved_evaluation_dir = latest_eval_dir
+        resolved_eval_json = latest_eval_dir / 'evaluation_results.json'
+
+    resolved_output_dir = Path(output_dir) if output_dir else resolved_evaluation_dir / 'plots'
+    return resolved_eval_json, resolved_output_dir
+
 
 def generate_plots_programmatic(eval_results_path, output_dir):
     """Generate plots from a refactored evaluation_results.json file."""
-    eval_results_path = Path(eval_results_path)
-    output_dir = Path(output_dir)
+    eval_results_path, output_dir = resolve_plot_inputs(eval_results_path, output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with open(eval_results_path, 'r', encoding='utf-8') as input_file:

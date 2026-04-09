@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from .evaluation_workflow import evaluate_models_programmatic
+from .evaluation_workflow import evaluate_models_programmatic, resolve_evaluation_output_dir
 from .export_workflow import export_runs_to_onnx
 from .plotting_workflow import generate_plots_programmatic
 from .types import PostprocessSummary
@@ -47,7 +47,10 @@ def run_post_training_pipeline(training_summary):
         print("📊 Post-Training Evaluation")
         print(f"{'='*80}")
 
-        summary.evaluation_output_dir = training_summary.experiment_output_dir / 'evaluation_results'
+        summary.evaluation_output_dir = resolve_evaluation_output_dir(
+            exp_dir=training_summary.experiment_output_dir,
+            model_dirs=[training_summary.experiment_output_dir / result['run_name'] for result in training_summary.results_sorted],
+        )
         summary.evaluation_results = evaluate_models_programmatic(
             exp_dir=training_summary.experiment_output_dir,
             output_dir=summary.evaluation_output_dir,
@@ -76,9 +79,9 @@ def run_post_training_pipeline(training_summary):
                     print(f"\n{'='*80}")
                     print("📈 Generating Plots")
                     print(f"{'='*80}")
-                    summary.plot_output_dir = training_summary.experiment_output_dir / 'plots'
+                    summary.plot_output_dir = summary.evaluation_output_dir / 'plots'
                     summary.generated_plots = generate_plots_programmatic(
-                        eval_results_path=eval_json_path,
+                        eval_results_path=summary.evaluation_output_dir,
                         output_dir=summary.plot_output_dir,
                     )
                     print(f"\n✓ Plots generated!")

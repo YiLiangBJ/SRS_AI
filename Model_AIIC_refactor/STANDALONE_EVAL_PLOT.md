@@ -27,17 +27,31 @@ python evaluate_models_refactored.py \
   --snr_range "30:-3:0" \
   --tdl "A-30,B-100,C-300" \
   --num_batches 100 \
-  --batch_size 2048 \
-  --output "./experiments_refactored/20260409_000000_compare_default_models/evaluation_results"
+  --batch_size 2048
 ```
+
+This writes one evaluation run under:
+
+```text
+experiments_refactored/<timestamp>_<experiment_name>/evaluations/<timestamp>_<scope>/
+```
+
+so different SNR / TDL / run selections do not overwrite each other.
 
 ### Step 3: Plot later
 
 ```bash
 python plot.py \
-  --input "./experiments_refactored/20260409_000000_compare_default_models/evaluation_results/evaluation_results.json" \
-  --output "./experiments_refactored/20260409_000000_compare_default_models/plots"
+  --input "./experiments_refactored/20260409_000000_compare_default_models"
 ```
+
+`plot.py` now accepts any of these as `--input`:
+
+- experiment directory: automatically picks the latest evaluation run
+- evaluation directory: reads its `evaluation_results.json`
+- `evaluation_results.json` directly
+
+By default plots are written to `<evaluation_dir>/plots`.
 
 ## ONNX Export Later
 
@@ -61,15 +75,16 @@ experiments_refactored/
             model.pth
             config.yaml
             tensorboard/
-        evaluation_results/
-            evaluation_results.json
-            evaluation_results.npy
+    evaluations/
+      <timestamp>_<scope>/
+        evaluation_results.json
+        evaluation_results.npy
+        plots/
+          ...png
         onnx_exports/
             <run_name>/
                 <run_name>.onnx
                 export_manifest.json
-        plots/
-            ...png
         TRAINING_REPORT.md
 ```
 
@@ -78,8 +93,8 @@ experiments_refactored/
 - Training, evaluation, export, and plotting each have a thin CLI entrypoint.
 - The orchestration logic lives in `workflows/`, so scripts stay lightweight.
 - Evaluation discovers trained runs inside an experiment directory.
-- Plotting works on `evaluation_results.json` and is decoupled from training.
-- You can re-run evaluation with different SNR or TDL settings as many times as you want.
+- Plotting works on one evaluation run directory and is decoupled from training.
+- You can re-run evaluation with different SNR, TDL, or run selections as many times as you want without overwriting previous results.
 - You can re-export ONNX with different dynamic-axis or validation options without retraining.
 
 ## Benchmark Presets
