@@ -9,10 +9,10 @@ from unittest.mock import patch
 import torch
 import yaml
 
-from evaluate_models_refactored import evaluate_models_programmatic
-from export_onnx import export_run_to_onnx
 from models import create_model
 from utils import find_checkpoint_path, load_run_artifacts
+from workflows.evaluation_workflow import evaluate_models_programmatic
+from workflows.export_workflow import export_run_to_onnx
 
 
 class TestEvaluationAndExport(unittest.TestCase):
@@ -87,7 +87,7 @@ class TestEvaluationAndExport(unittest.TestCase):
             'num_samples': 8,
         }
 
-        with patch('evaluate_models_refactored.evaluate_at_snr', return_value=fake_eval_result):
+        with patch('workflows.evaluation_workflow.evaluate_at_snr', return_value=fake_eval_result):
             results = evaluate_models_programmatic(
                 exp_dir=self.root,
                 output_dir=self.root / 'evaluation_results',
