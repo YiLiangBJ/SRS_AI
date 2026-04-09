@@ -1,4 +1,10 @@
 experiments:
+  default_6port_separator1:
+    description: Train the default 6-port separator1 model with the standard per-sample SNR setup.
+    model_configs:
+      - separator1_grid_search_6ports
+    training_config: snr_range_0_30_perSample
+
   quick_separator1:
     description: Quick smoke test for separator1_small.
     model_configs:
