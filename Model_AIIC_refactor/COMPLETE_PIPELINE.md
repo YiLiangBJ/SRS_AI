@@ -388,12 +388,12 @@ python train.py \
 
 # 1. 评估已训练的模型
 python evaluate_models_refactored.py \
-    --exp_dir "./experiments_refactored/my_experiment" \
+    --exp_dir "./experiments_refactored/20260409_032740_default_6port_separator1" \
     --device cuda
 
 # 2. 生成图表
 python plot.py \
-    --input "./experiments_refactored/my_experiment/evaluation_results/evaluation_results.json" \
+    --input "./experiments_refactored/evaluation_results/evaluation_results.json" \
     --output "./experiments_refactored/my_experiment/plots"
 ```
 

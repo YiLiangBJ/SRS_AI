@@ -15,7 +15,7 @@ class TrainRequest:
     num_batches: Optional[int] = None
     device: str = 'auto'
     save_dir: str = './experiments_refactored'
-    use_amp: bool = False
+    use_amp: bool = True
     compile_model: Optional[bool] = None
     eval_after_train: bool = False
     eval_snr_range: str = '30:-3:0'

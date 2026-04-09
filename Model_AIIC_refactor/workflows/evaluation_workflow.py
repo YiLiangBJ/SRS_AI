@@ -126,6 +126,22 @@ def save_evaluation_results(results, output_dir: Path):
     return json_path, npy_path
 
 
+def resolve_evaluation_output_dir(explicit_output=None, exp_dir: Path | None = None, model_dirs=None) -> Path:
+    """Resolve the default output directory for evaluation artifacts."""
+    if explicit_output:
+        return Path(explicit_output)
+
+    if exp_dir is not None:
+        return Path(exp_dir) / 'evaluation_results'
+
+    if model_dirs:
+        common_parent = Path(model_dirs[0]).parent
+        if all(Path(model_dir).parent == common_parent for model_dir in model_dirs):
+            return common_parent / 'evaluation_results'
+
+    return Path('evaluation_results')
+
+
 def evaluate_models_programmatic(
     exp_dir,
     output_dir,
@@ -181,6 +197,9 @@ def evaluate_models_programmatic(
             model, artifacts = load_trained_model_from_run(run_dir, device=device)
             model_spec = artifacts.model_spec
             if compile and device.type == 'cuda' and hasattr(torch, 'compile'):
+                torch.set_float32_matmul_precision('high')
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
                 model = torch.compile(model, mode='reduce-overhead')
             model.eval()
 

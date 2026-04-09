@@ -7,6 +7,7 @@ from utils import split_csv_arg, discover_run_dirs, resolve_run_selection
 from workflows.evaluation_workflow import (
     parse_snr_range,
     resolve_device,
+    resolve_evaluation_output_dir,
     evaluate_at_snr,
     save_evaluation_results,
     evaluate_models_programmatic,
@@ -28,10 +29,10 @@ def build_parser():
     parser.add_argument('--batches_per_snr', type=int, default=None, help='Friendly alias for --num_batches')
     parser.add_argument('--batch_size', type=int, default=2048, help='Batch size for evaluation')
     parser.add_argument('--device', type=str, default='auto', help='auto, cpu, cuda, cuda:0, ...')
-    parser.add_argument('--use_amp', action='store_true', help='Enable AMP on GPU during evaluation')
+    parser.add_argument('--no-amp', dest='use_amp', action='store_false', help='Disable AMP on GPU during evaluation')
     parser.add_argument('--no-compile', dest='compile', action='store_false', help='Disable torch.compile on GPU')
-    parser.set_defaults(compile=True)
-    parser.add_argument('--output', type=str, default='evaluation_results', help='Output directory for results')
+    parser.set_defaults(use_amp=True, compile=True)
+    parser.add_argument('--output', type=str, default=None, help='Output directory for results (default: <exp_dir>/evaluation_results)')
     return parser
 
 
@@ -55,6 +56,7 @@ def main():
     device = resolve_device(args.device)
     if device.type == 'cpu':
         args.compile = False
+        args.use_amp = False
 
     target_dirs = resolve_run_selection(
         exp_dir=args.exp_dir,
@@ -64,7 +66,11 @@ def main():
     )
     snr_values = [float(value) for value in split_csv_arg(args.snr_values)] if args.snr_values else parse_snr_range(args.snr_range)
     tdl_configs = split_csv_arg(args.tdl)
-    output_dir = Path(args.output)
+    output_dir = resolve_evaluation_output_dir(
+        explicit_output=args.output,
+        exp_dir=Path(args.exp_dir) if args.exp_dir else None,
+        model_dirs=target_dirs,
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print('=' * 80)
