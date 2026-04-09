@@ -190,134 +190,30 @@ The exported ONNX model uses:
 - output: `N x num_ports x (2*seq_len)` real-stacked `single`
 
 This matches the refactored project’s main real-stacked inference path and avoids custom complex-tensor handling during export.
+ 
+## Architecture Note
 
-```bash
-python train.py \
-    --model_config separator1_default \
-    --training_config default \
-    --device cuda \
-    --eval_after_train \
-    --eval_snr_range "20:-2:0" \
-    --eval_tdl "A-30,C-300" \
-    --eval_num_batches 200 \
-    --eval_batch_size 4096 \
-    --plot_after_eval
-```
+The project now uses a lightweight workflow architecture:
 
-**自定义参数**：
-- `--eval_snr_range`: SNR范围（默认 "30:-3:0"）
-- `--eval_tdl`: TDL配置（默认 "A-30,B-100,C-300"）
-- `--eval_num_batches`: 批次数（默认 100）
-- `--eval_batch_size`: 批大小（默认 2048）
+- thin CLI entrypoints:
+  - `train.py`
+  - `evaluate_models_refactored.py`
+  - `export_onnx.py`
+  - `plot.py`
+- shared orchestration modules:
+  - `workflows/train_workflow.py`
+  - `workflows/postprocess_workflow.py`
+  - `workflows/evaluation_workflow.py`
+  - `workflows/export_workflow.py`
+  - `workflows/plotting_workflow.py`
+  - `workflows/reporting.py`
 
----
+This is a practical research-friendly structure:
 
-### 5. Grid Search + 完整流程
-
-```bash
-python train.py \
-    --model_config separator1_grid_search \
-    --training_config default \
-    --device cuda \
-    --eval_after_train \
-    --plot_after_eval
-```
-
-**自动完成**：
-1. ✅ 训练所有配置（18个模型）
-2. ✅ 评估所有模型
-3. ✅ 生成对比图表
-
----
-
-## 📊 命令行参数完整列表
-
-### 训练参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `--model_config` | str | separator1_default | 模型配置名称 |
-| `--training_config` | str | default | 训练配置名称 |
-| `--batch_size` | int | None | 覆盖batch size |
-| `--num_batches` | int | None | 覆盖batch数量 |
-| `--device` | str | auto | 设备 (auto/cpu/cuda) |
-| `--save_dir` | str | ./experiments_refactored | 保存目录 |
-| `--no-amp` | flag | False | 禁用混合精度 |
-| `--no-compile` | flag | False | 禁用模型编译 |
-
-### 评估参数 ⭐ NEW
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `--eval_after_train` | flag | False | 训练后自动评估 |
-| `--eval_snr_range` | str | "30:-3:0" | 评估SNR范围 |
-| `--eval_tdl` | str | "A-30,B-100,C-300" | 评估TDL配置 |
-| `--eval_num_batches` | int | 100 | 评估批次数 |
-| `--eval_batch_size` | int | 2048 | 评估批大小 |
-| `--plot_after_eval` | flag | False | 评估后自动绘图 |
-
----
-
-## 🎨 输出示例
-
-### 训练完成后
-
-```
-================================================================================
-Training Summary
-================================================================================
-
-Total configurations trained: 1
-Start time: 2025-12-12 10:00:00
-End time: 2025-12-12 10:05:30
-Total duration: 0.09 hours (330.0s)
-
-1. separator1_default_hd64_stages2_depth3:
-   Final loss: 0.123456
-   Min loss: 0.123456
-   Eval NMSE: -5.23 dB
-   Parameters: 156,032
-   Duration: 330.0s
-
-🏆 Best configuration: separator1_default_hd64_stages2_depth3
-   NMSE: -5.23 dB
-
-✓ Training report saved: experiments_refactored/TRAINING_REPORT.md
-
-✓ All training completed!
-```
-
----
-
-### 评估阶段
-
-```
-================================================================================
-📊 Post-Training Evaluation
-================================================================================
-
-Using device: cuda
-  GPU: NVIDIA RTX 4090
-  CUDA version: 12.1
-
-SNR 范围: [30.0, 27.0, 24.0, ..., 3.0, 0.0]
-TDL 配置: ['A-30', 'B-100', 'C-300']
-
-================================================================================
-评估模型: separator1_default_hd64_stages2_depth3
-================================================================================
-✓ 模型加载成功 (device: cuda)
-  配置: separator1, stages=2, share_weights=False
-  参数数量: 156,032
-  端口位置: [0, 3, 6, 9]
-
-  TDL: A-30
-    A-30: 100%|████████████████████| 11/11 [00:05<00:00,  2.05it/s]
-    ✓ 完成 A-30
-
-  TDL: B-100
-    B-100: 100%|███████████████████| 11/11 [00:05<00:00,  2.03it/s]
-    ✓ 完成 B-100
+- scripts stay easy to use from the command line
+- notebook or benchmark code can call workflow APIs directly
+- training, evaluation, export, and plotting share one artifact schema
+- future experiment logic changes happen in one workflow layer instead of being duplicated across scripts
 
   TDL: C-300
     C-300: 100%|███████████████████| 11/11 [00:05<00:00,  2.01it/s]
