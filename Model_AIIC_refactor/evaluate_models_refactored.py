@@ -7,23 +7,15 @@ from pathlib import Path
 import json
 import numpy as np
 import torch
-import yaml
 from tqdm import tqdm
 
-from models import create_model
 from data import generate_training_batch
-
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-
-def split_csv_arg(value):
-    """Split a comma-separated CLI argument into a cleaned list."""
-    if value is None:
-        return None
-    if isinstance(value, list):
-        return value
-    return [item.strip() for item in value.split(',') if item.strip()]
+from utils import (
+    split_csv_arg,
+    discover_run_dirs,
+    resolve_run_selection,
+    load_trained_model_from_run,
+)
 
 
 def parse_snr_range(snr_str):
@@ -37,110 +29,6 @@ def parse_snr_range(snr_str):
     if ',' in snr_str:
         return [float(value) for value in snr_str.split(',')]
     return [float(snr_str)]
-
-
-def find_checkpoint_path(run_dir: Path):
-    """Return the checkpoint path for a trained run directory."""
-    run_dir = Path(run_dir)
-    primary = run_dir / 'model.pth'
-    if primary.exists():
-        return primary
-
-    checkpoints = sorted(run_dir.glob('checkpoint_batch_*.pth'))
-    if checkpoints:
-        return checkpoints[-1]
-
-    return None
-
-
-def resolve_existing_path(path_value):
-    """Resolve a user-supplied path against cwd first, then project root."""
-    raw_path = Path(path_value)
-    candidates = []
-
-    if raw_path.is_absolute():
-        candidates.append(raw_path)
-    else:
-        candidates.append(raw_path)
-        candidates.append(PROJECT_ROOT / raw_path)
-
-    seen = []
-    for candidate in candidates:
-        resolved = candidate.resolve(strict=False)
-        if resolved not in seen:
-            seen.append(resolved)
-
-    for candidate in seen:
-        if candidate.exists():
-            return candidate
-
-    return seen[0], seen
-
-
-def discover_run_dirs(exp_dir: Path):
-    """Discover evaluable run directories inside an experiment directory."""
-    resolved = resolve_existing_path(exp_dir)
-    if isinstance(resolved, tuple):
-        primary_candidate, candidates = resolved
-        candidate_text = '\n'.join(str(path) for path in candidates)
-        raise FileNotFoundError(
-            'Experiment directory not found. Checked:\n' + candidate_text
-        )
-
-    exp_dir = resolved
-
-    return sorted(
-        [child for child in exp_dir.iterdir() if child.is_dir() and find_checkpoint_path(child) is not None],
-        key=lambda path: path.name,
-    )
-
-
-def resolve_evaluation_targets(exp_dir=None, run_dir=None, run_dirs=None, runs=None):
-    """Resolve which trained runs should be evaluated."""
-    modes = [exp_dir is not None, run_dir is not None, run_dirs is not None]
-    if sum(bool(mode) for mode in modes) == 0:
-        raise ValueError('Must provide one of --exp_dir, --run_dir, or --run_dirs')
-    if sum(bool(mode) for mode in modes) > 1:
-        raise ValueError('--exp_dir, --run_dir, and --run_dirs are mutually exclusive')
-
-    if run_dir is not None:
-        target_dirs = [resolve_existing_path(run_dir)]
-    elif run_dirs is not None:
-        target_dirs = [resolve_existing_path(path) for path in split_csv_arg(run_dirs)]
-    else:
-        resolved_exp_dir = resolve_existing_path(exp_dir)
-        if isinstance(resolved_exp_dir, tuple):
-            primary_candidate, candidates = resolved_exp_dir
-            candidate_text = '\n'.join(str(path) for path in candidates)
-            raise FileNotFoundError(
-                'Experiment directory not found. Checked:\n' + candidate_text
-            )
-        exp_dir = resolved_exp_dir
-        if runs:
-            target_dirs = [exp_dir / run_name for run_name in split_csv_arg(runs)]
-        else:
-            target_dirs = discover_run_dirs(exp_dir)
-
-    normalized_dirs = []
-    missing_path_candidates = []
-    for target in target_dirs:
-        if isinstance(target, tuple):
-            primary_candidate, candidates = target
-            missing_path_candidates.extend(str(path) for path in candidates)
-            normalized_dirs.append(primary_candidate)
-        else:
-            normalized_dirs.append(target)
-
-    missing_targets = [str(path) for path in normalized_dirs if find_checkpoint_path(path) is None]
-    if missing_path_candidates:
-        missing_targets.extend(missing_path_candidates)
-    if missing_targets:
-        unique_missing_targets = list(dict.fromkeys(missing_targets))
-        raise FileNotFoundError(
-            'Missing evaluable checkpoint in the following directories:\n' + '\n'.join(unique_missing_targets)
-        )
-
-    return normalized_dirs
 
 
 def resolve_device(device):
@@ -157,59 +45,6 @@ def resolve_device(device):
             torch.cuda.set_device(0)
 
     return resolved
-
-
-def load_trained_model(run_dir: Path, device='cpu'):
-    """
-    Load a trained model from checkpoint
-    
-    Args:
-        run_dir: Directory containing model.pth and config.yaml
-    
-    Returns:
-        model: Loaded model
-        config: Model configuration
-    """
-    run_dir = Path(run_dir)
-    model_path = find_checkpoint_path(run_dir)
-    if model_path is None:
-        raise FileNotFoundError(f'No checkpoint found in {run_dir}')
-
-    config_path = run_dir / 'config.yaml'
-    if config_path.exists():
-        with open(config_path, 'r', encoding='utf-8') as f:
-            full_config = yaml.safe_load(f)
-            model_spec = full_config.get('model_spec', {})
-    else:
-        checkpoint = torch.load(model_path, map_location=device)
-        model_spec = checkpoint.get('model_spec', {})
-
-    if not model_spec:
-        raise KeyError(
-            f"Checkpoint missing 'model_spec' in {model_path}. Retrain with the current training pipeline."
-        )
-
-    required_fields = ['model_type', 'pos_values', 'num_ports', 'seq_len']
-    missing_fields = [field for field in required_fields if field not in model_spec]
-    if missing_fields:
-        raise KeyError(f'Model spec missing required fields: {missing_fields}')
-
-    model_type = model_spec.get('model_type', 'separator1')
-    model = create_model(model_name=model_type, config=model_spec)
-
-    checkpoint = torch.load(model_path, map_location=device)
-    state_dict = checkpoint['model_state_dict']
-    if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
-        state_dict = {key.replace('_orig_mod.', ''): value for key, value in state_dict.items()}
-    model.load_state_dict(state_dict)
-    model.to(device)
-    model.eval()
-
-    print(f"✓ Loaded model from {run_dir}")
-    print(f"  Type: {model_type}")
-    print(f"  Parameters: {sum(p.numel() for p in model.parameters()):,}")
-
-    return model, model_spec
 
 
 def evaluate_at_snr(
@@ -365,21 +200,17 @@ def evaluate_models_programmatic(
     for run_dir in target_dirs:
         run_name = run_dir.name
         try:
-            model, model_spec = load_trained_model(run_dir, device=device)
+            model, artifacts = load_trained_model_from_run(run_dir, device=device)
+            model_spec = artifacts.model_spec
             if compile and device.type == 'cuda' and hasattr(torch, 'compile'):
                 model = torch.compile(model, mode='reduce-overhead')
             model.eval()
 
-            metadata = {}
-            config_path = run_dir / 'config.yaml'
-            if config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as config_file:
-                    config_data = yaml.safe_load(config_file) or {}
-                    metadata = config_data.get('metadata', {})
-
             results['models'][run_name] = {
                 'model_spec': model_spec,
-                'metadata': metadata,
+                'training_spec': artifacts.training_spec,
+                'metadata': artifacts.metadata,
+                'checkpoint_path': str(artifacts.checkpoint_path),
                 'tdl_results': {},
             }
 
@@ -393,7 +224,7 @@ def evaluate_models_programmatic(
                 }
 
                 for snr_db in tqdm(snr_list, desc=f'  {run_name} - {tdl_config}', leave=False):
-                    nmse, nmse_db, port_nmse, port_nmse_db = evaluate_at_snr(
+                    point_result = evaluate_at_snr(
                         model=model,
                         model_spec=model_spec,
                         snr_db=snr_db,
@@ -404,11 +235,11 @@ def evaluate_models_programmatic(
                         use_amp=use_amp,
                     )
 
-                    tdl_results['snr'].append(snr_db)
-                    tdl_results['nmse'].append(nmse)
-                    tdl_results['nmse_db'].append(nmse_db)
-                    tdl_results['port_nmse'].append(port_nmse)
-                    tdl_results['port_nmse_db'].append(port_nmse_db)
+                    tdl_results['snr'].append(point_result['snr_db'])
+                    tdl_results['nmse'].append(point_result['nmse'])
+                    tdl_results['nmse_db'].append(point_result['nmse_db'])
+                    tdl_results['port_nmse'].append(point_result['per_port_nmse'])
+                    tdl_results['port_nmse_db'].append(point_result['per_port_nmse_db'])
 
                 results['models'][run_name]['tdl_results'][tdl_config] = tdl_results
 
@@ -481,7 +312,7 @@ def main():
     if device.type == 'cpu':
         args.compile = False
 
-    target_dirs = resolve_evaluation_targets(
+    target_dirs = resolve_run_selection(
         exp_dir=args.exp_dir,
         run_dir=args.run_dir,
         run_dirs=args.run_dirs,

@@ -1,6 +1,7 @@
 """Unit tests for experiment plan helpers."""
 
 import unittest
+from pathlib import Path
 
 from utils.experiment_plan import (
     build_experiment_plan,
@@ -91,7 +92,7 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertIn('loss_type', plan[0].training_spec)
 
     def test_build_experiment_suite_from_experiment_definition(self):
-        config_dir = '/home/liangyi/SRS_AI/Model_AIIC_refactor/configs'
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
         suite = build_experiment_suite(
             config_dir=config_dir,
             experiment_name='quick_separator1',

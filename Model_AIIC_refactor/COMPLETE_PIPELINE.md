@@ -90,6 +90,13 @@ experiments_refactored/
 | --eval_num_batches | Number of evaluation batches |
 | --eval_batch_size | Evaluation batch size |
 | --plot_after_eval | Generate plots after evaluation |
+| --export_onnx_after_train | Export trained runs to ONNX after training |
+| --onnx_export_selection | Export `best` or `all` runs |
+| --onnx_output_dir | ONNX artifact directory |
+| --onnx_opset | ONNX opset version |
+| --onnx_batch_size | Dummy batch size used for tracing |
+| --onnx_dynamic_batch | Export a dynamic batch dimension |
+| --onnx_validate | Run ONNX checker and ORT smoke validation |
 | --plan_only | Print the run plan and exit |
 
 ## Benchmark CLI
@@ -107,7 +114,7 @@ python compare_optimizations.py --experiment perf_quick --skip_gpu
 2. Define a workflow preset in experiments.yaml.
 3. Preview with --plan_only.
 4. Train the experiment.
-5. Optionally evaluate and plot.
+5. Optionally evaluate, plot, and export ONNX artifacts.
 
 ## Example Summary Output
 
@@ -132,92 +139,57 @@ Best run: separator1_default_hd64_stages2_depth3
 ## Policy
 
 The old model_config plus training_config CLI pairing is intentionally removed. experiments.yaml is the supported workflow entry point.
-# 🚀 一键完整流程：Train → Eval → Plot
 
-## ✅ 已实现功能
+## ONNX Export for Matlab
 
-### 方案A：在 train.py 中添加参数
-
-通过命令行参数控制完整的训练、评估、绘图流程，一个命令完成所有工作！
-
----
-
-## 🎯 使用方法
-
-### 1. 基础用法：只训练
+### Export the best trained run after training
 
 ```bash
 python train.py \
-    --model_config separator1_default \
-    --training_config default \
-    --device cuda
+  --experiment compare_default_models \
+  --device cuda \
+  --export_onnx_after_train \
+  --onnx_export_selection best \
+  --onnx_validate
 ```
 
-**输出**：
-- 训练好的模型保存在 `./experiments_refactored/...`
-- 训练报告 `TRAINING_REPORT.md`
-
----
-
-### 2. 训练 + 评估
+### Export runs later from an experiment directory
 
 ```bash
-python train.py \
-    --model_config separator1_default \
-    --training_config default \
-    --device cuda \
-    --eval_after_train
+python export_onnx.py \
+  --exp_dir experiments_refactored/<timestamp>_<experiment_name> \
+  --runs separator2_default_hd64_stages3_depth3 \
+  --output onnx_exports \
+  --opset 13 \
+  --dynamic_batch \
+  --validate
 ```
 
-**输出**：
-- 训练好的模型
-- 评估结果 `evaluation_results/`
-  - `evaluation_results.json`
-  - `evaluation_results.npy`
+### Export output layout
 
-**默认评估参数**：
-- SNR 范围：30:-3:0 dB
-- TDL 配置：A-30, B-100, C-300
-- 每个SNR点：100 batches × 2048 samples
-
----
-
-### 3. 训练 + 评估 + 绘图 ⭐ 推荐
-
-```bash
-python train.py \
-    --model_config separator1_default \
-    --training_config default \
-    --device cuda \
-    --eval_after_train \
-    --plot_after_eval
+```text
+onnx_exports/
+  <run_name>/
+    <run_name>.onnx
+    export_manifest.json
 ```
 
-**输出**：
-```
-./experiments_refactored/
-├── separator1_default_xxx/
-│   ├── model.pth
-│   └── training_history.png
-├── evaluation_results/
-│   ├── evaluation_results.json
-│   └── evaluation_results.npy
-├── plots/
-│   ├── nmse_vs_snr_TDL_A_30.png
-│   ├── nmse_vs_snr_TDL_B_100.png
-│   ├── nmse_vs_snr_TDL_C_300.png
-│   └── nmse_vs_snr_combined.png
-└── TRAINING_REPORT.md
+`export_manifest.json` stores the resolved model spec, training metadata, input/output names, dummy tensor shapes, and validation summary. This is the handoff file for Matlab or deployment tooling.
+
+### Matlab import helper
+
+Use `matlab/import_refactor_onnx.m`:
+
+```matlab
+net = import_refactor_onnx("onnx_exports/my_run");
 ```
 
-**完整流程**：
-1. ✅ 训练模型
-2. ✅ 自动评估
-3. ✅ 自动生成图表
+The exported ONNX model uses:
 
----
+- input: `N x (2*seq_len)` real-stacked `single`
+- output: `N x num_ports x (2*seq_len)` real-stacked `single`
 
-### 4. 自定义评估参数
+This matches the refactored project’s main real-stacked inference path and avoids custom complex-tensor handling during export.
 
 ```bash
 python train.py \

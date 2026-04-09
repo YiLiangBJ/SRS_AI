@@ -6,6 +6,7 @@ import unittest
 import torch
 from models import create_model
 from training import Trainer, calculate_loss, evaluate_model
+from utils import parse_snr_config
 
 
 class TestTraining(unittest.TestCase):
@@ -81,7 +82,8 @@ class TestTraining(unittest.TestCase):
         losses = trainer.train(
             num_batches=2,
             batch_size=16,
-            snr_db=(10, 20),
+            snr_config=parse_snr_config({'type': 'range', 'min': 10, 'max': 20}),
+            pos_values=[0, 3, 6, 9],
             print_interval=1
         )
         

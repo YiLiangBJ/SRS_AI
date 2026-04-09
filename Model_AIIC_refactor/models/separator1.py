@@ -121,15 +121,18 @@ class Separator1(BaseSeparatorModel):
         Forward pass with per-port processing and residual refinement
         
         Args:
-            y: (B, L*2) real stacked [y_R; y_I] in interleaved format
-               Expected format: [r0, i0, r1, i1, ..., r(L-1), i(L-1)]
+            y: (B, L*2) real stacked [y_R; y_I] or (B, L) complex
         
         Returns:
-            h: (B, P, L*2) real stacked in interleaved format
+            h: (B, P, L*2) real stacked, or (B, P, L) complex if input is complex
         """
-        B, feature_dim = y.shape
-        # y is already in the right format (B, seq_len*2)
-        # No need to convert to complex and back
+        return_complex = torch.is_complex(y)
+        if return_complex:
+            y = torch.cat([y.real, y.imag], dim=-1)
+        elif not torch.jit.is_tracing() and y.shape[-1] != self.seq_len * 2:
+            raise ValueError(
+                f"Expected real-stacked input with last dim {self.seq_len * 2}, got {tuple(y.shape)}"
+            )
         
         # Initialize: all ports start with input y
         features = y.unsqueeze(1).repeat(1, self.num_ports, 1)  # (B, P, L*2)
@@ -157,7 +160,10 @@ class Separator1(BaseSeparatorModel):
             y_recon = features.sum(dim=1)  # (B, L*2)
             residual = y - y_recon  # (B, L*2)
             features = features + residual.unsqueeze(1)  # Broadcast residual
-        
+
+        if return_complex:
+            return torch.complex(features[..., :self.seq_len], features[..., self.seq_len:])
+
         return features  # (B, P, L*2)
     
     @classmethod

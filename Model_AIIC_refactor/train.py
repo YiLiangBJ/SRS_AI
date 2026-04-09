@@ -25,7 +25,11 @@ from utils import (
     parse_snr_config,
     print_experiment_plan_summary,
     print_search_space_summary,
-    TrainingProgressTracker
+    TrainingProgressTracker,
+    build_model_artifact_spec,
+    build_training_artifact_spec,
+    build_run_metadata,
+    save_run_config,
 )
 
 
@@ -134,9 +138,24 @@ def main():
     parser.add_argument('--eval_batch_size', type=int, default=2048,
                        help='评估批大小')
     parser.add_argument('--plot_after_eval', action='store_true',
-                       help='评估后自动绘图')
+                        help='评估后自动绘图')
+    parser.add_argument('--export_onnx_after_train', action='store_true',
+                       help='训练完成后导出 ONNX 供 Matlab/部署使用')
+    parser.add_argument('--onnx_export_selection', type=str, default='best',
+                       choices=['best', 'all'],
+                       help='导出最佳 run 或全部 run')
+    parser.add_argument('--onnx_output_dir', type=str, default=None,
+                       help='ONNX 导出目录（默认: <save_dir>/onnx_exports）')
+    parser.add_argument('--onnx_opset', type=int, default=13,
+                       help='ONNX opset 版本，默认 13 兼顾 Matlab 兼容性')
+    parser.add_argument('--onnx_batch_size', type=int, default=1,
+                       help='ONNX tracing 用的 dummy batch size')
+    parser.add_argument('--onnx_dynamic_batch', action='store_true',
+                       help='导出动态 batch 维')
+    parser.add_argument('--onnx_validate', action='store_true',
+                       help='导出后运行 ONNX checker / ONNX Runtime 烟雾验证')
     parser.add_argument('--plan_only', action='store_true',
-                       help='仅解析并打印实验计划，不执行训练')
+                        help='仅解析并打印实验计划，不执行训练')
     
     args = parser.parse_args()
     
@@ -354,38 +373,30 @@ def main():
         experiment_dir.mkdir(parents=True, exist_ok=True)
 
         save_path = experiment_dir / 'model.pth'
-        model_spec_dict = {
-            'model_type': model_spec['model_type'],
-            'hidden_dim': model_spec.get('hidden_dim', 64),
-            'num_stages': model_spec.get('num_stages', 2),
-            'mlp_depth': model_spec.get('mlp_depth', 3),
-            'share_weights_across_stages': model_spec.get('share_weights_across_stages', False),
-            'activation_type': model_spec.get('activation_type', 'relu'),
-            'seq_len': model_spec['seq_len'],
-            'num_ports': len(model_spec['pos_values']),
-            'pos_values': model_spec['pos_values'],
-            'num_params': num_params,
-        }
-
-        training_spec_dict = {
+        model_spec_dict = build_model_artifact_spec(model_spec, num_params=num_params)
+        training_spec_dict = build_training_artifact_spec({
             'loss_type': loss_type,
             'learning_rate': learning_rate,
             'num_batches': num_batches,
             'batch_size': batch_size,
             'snr_config': snr_config_dict,
             'tdl_config': tdl_config,
-        }
-
-        metadata_dict = {
-            'experiment_name': suite.experiment_name,
-            'model_recipe_name': model_recipe_name,
-            'model_label': experiment.model_label,
-            'run_name': run_name,
-            'training_recipe_name': experiment.training_recipe_name,
-            'training_label': training_label,
-            'training_duration': training_duration,
-            'timestamp': datetime.now().isoformat(),
-        }
+            'print_interval': print_interval,
+            'validation_interval': val_interval,
+            'early_stop_loss': early_stop_loss,
+            'patience': patience,
+            'keep_last_n_checkpoints': keep_last_n,
+            'save_interval': save_interval,
+        })
+        metadata_dict = build_run_metadata(
+            experiment_name=suite.experiment_name,
+            model_recipe_name=model_recipe_name,
+            model_label=experiment.model_label,
+            run_name=run_name,
+            training_recipe_name=experiment.training_recipe_name,
+            training_label=training_label,
+            training_duration=training_duration,
+        )
 
         trainer.save_checkpoint(
             save_path,
@@ -397,13 +408,12 @@ def main():
             }
         )
 
-        config_save_path = experiment_dir / 'config.yaml'
-        with open(config_save_path, 'w', encoding='utf-8') as f:
-            yaml.dump({
-                'model_spec': model_spec_dict,
-                'training_spec': training_spec_dict,
-                'metadata': metadata_dict,
-            }, f, default_flow_style=False, allow_unicode=True)
+        config_save_path = save_run_config(
+            run_dir=experiment_dir,
+            model_spec=model_spec_dict,
+            training_spec=training_spec_dict,
+            metadata=metadata_dict,
+        )
 
         print(f"✓ Model saved to: {experiment_dir}")
 
@@ -469,7 +479,34 @@ def main():
         device=device
     )
     print(f"✓ Training report saved: {report_path}")
-    
+
+    if args.export_onnx_after_train and results_sorted:
+        print(f"\n{'='*80}")
+        print("📦 ONNX Export")
+        print(f"{'='*80}")
+
+        from export_onnx import export_runs_to_onnx
+
+        if args.onnx_export_selection == 'best':
+            export_run_names = [results_sorted[0]['run_name']]
+        else:
+            export_run_names = [result['run_name'] for result in results_sorted]
+
+        onnx_output_dir = Path(args.onnx_output_dir) if args.onnx_output_dir else Path(args.save_dir) / 'onnx_exports'
+        export_manifests = export_runs_to_onnx(
+            output_root=onnx_output_dir,
+            exp_dir=args.save_dir,
+            runs=','.join(export_run_names),
+            opset_version=args.onnx_opset,
+            batch_size=args.onnx_batch_size,
+            dynamic_batch=args.onnx_dynamic_batch,
+            validate=args.onnx_validate,
+        )
+
+        print(f"✓ ONNX export completed: {onnx_output_dir}")
+        for manifest in export_manifests:
+            print(f"  - {manifest['run_name']}: {manifest['onnx_path']}")
+     
     print("\n✓ All training completed!")
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

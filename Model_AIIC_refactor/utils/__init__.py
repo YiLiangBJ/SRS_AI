@@ -31,6 +31,24 @@ from .experiment_plan import (
     print_experiment_plan_summary,
 )
 from .progress_tracker import TrainingProgressTracker
+from .run_artifacts import (
+    RunArtifacts,
+    find_checkpoint_path,
+    normalize_model_spec,
+    build_model_artifact_spec,
+    build_training_artifact_spec,
+    build_run_metadata,
+    save_run_config,
+    load_run_artifacts,
+    load_trained_model_from_run,
+    build_dummy_input,
+)
+from .run_selection import (
+    split_csv_arg,
+    resolve_existing_path,
+    discover_run_dirs,
+    resolve_run_selection,
+)
 
 __all__ = [
     'get_device',
@@ -59,5 +77,19 @@ __all__ = [
     'build_experiment_plan',
     'build_experiment_suite',
     'print_experiment_plan_summary',
-    'TrainingProgressTracker'
+    'TrainingProgressTracker',
+    'RunArtifacts',
+    'find_checkpoint_path',
+    'normalize_model_spec',
+    'build_model_artifact_spec',
+    'build_training_artifact_spec',
+    'build_run_metadata',
+    'save_run_config',
+    'load_run_artifacts',
+    'load_trained_model_from_run',
+    'build_dummy_input',
+    'split_csv_arg',
+    'resolve_existing_path',
+    'discover_run_dirs',
+    'resolve_run_selection',
 ]
