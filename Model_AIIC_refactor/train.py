@@ -482,7 +482,7 @@ def main():
         print(f"{'='*80}")
         
         # Import evaluation function
-        from evaluate_models import evaluate_models_programmatic
+        from evaluate_models_refactored import evaluate_models_programmatic
         
         # Run evaluation
         eval_output_dir = Path(args.save_dir) / 'evaluation_results'

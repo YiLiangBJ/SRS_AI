@@ -396,7 +396,7 @@ TDL 配置: ['A-30', 'B-100', 'C-300']
 ### 只评估（不训练）
 
 ```bash
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/separator1_default_training" \
     --device cuda \
     --output "./my_evaluation_results"
@@ -519,7 +519,7 @@ python train.py \
 # 如果忘了加 --eval_after_train，后期补充：
 
 # 1. 评估已训练的模型
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/my_experiment" \
     --device cuda
 
@@ -539,7 +539,7 @@ python plot.py \
    - `--eval_after_train`: 触发评估
    - `--plot_after_eval`: 触发绘图
 
-2. **evaluate_models.py** 添加程序化接口
+2. **evaluate_models_refactored.py** 添加程序化接口
    - `evaluate_models_programmatic()`: 供其他脚本调用
    - 保持 `main()` 用于命令行调用
 

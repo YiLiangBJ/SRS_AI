@@ -17,7 +17,7 @@ This creates a timestamped experiment directory under experiments_refactored.
 ### Step 2: Evaluate later
 
 ```bash
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20260408_120000_compare_default_models" \
     --device cuda \
     --snr_range "30:-3:0" \
@@ -61,17 +61,17 @@ experiments_refactored/
 
 ```bash
 python train.py --experiment compare_default_models --device cuda
-python evaluate_models.py --exp_dir "./experiments_refactored/<timestamp>_compare_default_models" --device cuda
+python evaluate_models_refactored.py --exp_dir "./experiments_refactored/<timestamp>_compare_default_models" --device cuda
 ```
 ### Train once, evaluate multiple ways
 
 ```bash
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/<timestamp>_compare_default_models" \
     --snr_range "30:-3:0" \
     --output "./experiments_refactored/<timestamp>_compare_default_models/eval_full"
 
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/<timestamp>_compare_default_models" \
     --snr_range "20:-2:0" \
     --output "./experiments_refactored/<timestamp>_compare_default_models/eval_fast"
@@ -129,7 +129,7 @@ python train.py \
 
 **步骤2：稍后评估（独立运行）**
 ```bash
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251212_103045_separator1_default_default" \
     --device cuda \
     --snr_range "30:-3:0" \
@@ -181,13 +181,13 @@ python plot.py \
 python train.py ...
 
 # 明天评估
-python evaluate_models.py --exp_dir ...
+python evaluate_models_refactored.py --exp_dir ...
 
 # 后天绘图
 python plot.py --input ...
 
 # 下周重新评估（不同参数）
-python evaluate_models.py --exp_dir ... --snr_range "20:-2:0"
+python evaluate_models_refactored.py --exp_dir ... --snr_range "20:-2:0"
 
 # 再次绘图
 python plot.py --input ...
@@ -214,7 +214,7 @@ python train.py \
 # ✓ Model saved to: ./experiments_refactored/20251212_103045_separator1_default_default/separator1_hd64_stages2_depth3
 
 # 2. 立即评估（使用上面的目录）
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251212_103045_separator1_default_default" \
     --device cuda
 
@@ -247,7 +247,7 @@ python train.py \
 # 创建：20251209_103045_separator1_default_default/
 
 # 周五评估（几天后）
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251209_103045_separator1_default_default" \
     --device cuda \
     --snr_range "30:-3:0" \
@@ -274,7 +274,7 @@ python train.py \
 #   └── ... (18 models)
 
 # 2. 稍后评估所有模型
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251212_103045_separator1_grid_search_default" \
     --device cuda \
     --num_batches 100
@@ -295,7 +295,7 @@ python plot.py \
 
 ```bash
 # 第一次评估（完整）
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251212_103045_separator1_default_default" \
     --device cuda \
     --snr_range "30:-3:0" \
@@ -304,7 +304,7 @@ python evaluate_models.py \
     --output "./experiments_refactored/20251212_103045_separator1_default_default/evaluation_results_full"
 
 # 第二次评估（快速，不同参数）
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251212_103045_separator1_default_default" \
     --device cuda \
     --snr_range "20:-5:0" \
@@ -321,13 +321,13 @@ python evaluate_models.py \
 
 ```bash
 # 实验1评估
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251212_103045_separator1_default_default" \
     --device cuda \
     --output "./comparison/exp1_results"
 
 # 实验2评估
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251212_105123_separator1_small_quick" \
     --device cuda \
     --output "./comparison/exp2_results"
@@ -341,7 +341,7 @@ python plot.py --input "./comparison/exp2_results/evaluation_results.json" --out
 
 ## 🔧 命令行参数
 
-### evaluate_models.py
+### evaluate_models_refactored.py
 
 | 参数 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -420,7 +420,7 @@ nohup python train.py \
     --device cuda > train.log 2>&1 &
 
 # 2. 等训练完成，稍后评估
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251212_103045_separator1_default_default" \
     --device cuda
 
@@ -447,7 +447,7 @@ python train.py \
     --device cuda
 
 # 2. 稍后批量评估
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/20251212_103045_separator1_grid_search_default" \
     --device cuda \
     --num_batches 200  # 更多批次，更准确
@@ -474,7 +474,7 @@ python train.py ... > train_log.txt
 ### 2. 评估时使用描述性输出目录
 
 ```bash
-python evaluate_models.py \
+python evaluate_models_refactored.py \
     --exp_dir "..." \
     --output "./results/eval_full_snr30-0_tdl_all"
 ```
@@ -486,7 +486,7 @@ python evaluate_models.py \
 ```bash
 # 评估多个实验
 for exp_dir in experiments_refactored/202512*/; do
-    python evaluate_models.py --exp_dir "$exp_dir" --device cuda
+    python evaluate_models_refactored.py --exp_dir "$exp_dir" --device cuda
 done
 ```
 
@@ -500,7 +500,7 @@ done
 
 **A: 完全可以！✅✅✅**
 
-1. ✅ `evaluate_models.py` 可以独立运行
+1. ✅ `evaluate_models_refactored.py` 可以独立运行
 2. ✅ `plot.py` 可以独立运行
 3. ✅ 可以在任何时候运行
 4. ✅ 可以运行多次（不同参数）
@@ -515,7 +515,7 @@ done
 | 模式 | 命令 | 优点 | 适用场景 |
 |------|------|------|---------|
 | **一键** | `train.py --eval_after_train --plot_after_eval` | 简单快速 | 小实验 |
-| **分离** | `train.py` → `evaluate_models.py` → `plot.py` | 灵活可控 | 正式实验 ⭐ |
+| **分离** | `train.py` → `evaluate_models_refactored.py` → `plot.py` | 灵活可控 | 正式实验 ⭐ |
 | **混合** | `train.py --eval_after_train` → `plot.py` | 部分自动 | 中等实验 |
 
 ---

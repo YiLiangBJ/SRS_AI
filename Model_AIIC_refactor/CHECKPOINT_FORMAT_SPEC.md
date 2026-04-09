@@ -291,7 +291,7 @@ torch.save(checkpoint, save_path)
 ### Load → Eval
 
 ```python
-# evaluate_models.py
+# evaluate_models_refactored.py
 def load_model(model_dir, device='cpu'):
     checkpoint = torch.load(model_path, map_location=device)
     
@@ -396,7 +396,7 @@ REQUIRED_TRAINING_FIELDS = {
    - 使用标准键名 `config` 和 `training_config`
    - 确保 `config` 包含所有必需字段
    
-2. ✅ `evaluate_models.py` - 统一读取格式
+2. ✅ `evaluate_models_refactored.py` - 统一读取格式
    - 读取 `config` 键
    - 移除 `pos_values` 推断逻辑（不再需要）
    
@@ -437,7 +437,7 @@ print("✅ Checkpoint format valid!")
 ### 评估前检查
 
 ```python
-# evaluate_models.py
+# evaluate_models_refactored.py
 config = checkpoint['config']
 
 # ✅ 验证必需字段
@@ -477,7 +477,7 @@ print("✅ Config valid for evaluation!")
 ## 🚀 下一步
 
 1. 修改 `train.py` 使用新格式保存
-2. 修改 `evaluate_models.py` 使用新格式读取
+2. 修改 `evaluate_models_refactored.py` 使用新格式读取
 3. 删除所有推断和兼容性代码
 4. 重新训练一个模型验证
 5. 完整测试 train → eval → plot 流程
