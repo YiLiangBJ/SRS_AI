@@ -182,8 +182,6 @@ def evaluate_models_programmatic(
     """Programmatic multi-run evaluation entry point."""
     device = resolve_device(device)
     exp_dir = Path(exp_dir) if exp_dir is not None else None
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     snr_list = [float(value) for value in split_csv_arg(snr_values)] if snr_values else parse_snr_range(snr_range)
     tdl_list = split_csv_arg(tdl_list) if tdl_list is not None else ['A-30', 'B-100', 'C-300']

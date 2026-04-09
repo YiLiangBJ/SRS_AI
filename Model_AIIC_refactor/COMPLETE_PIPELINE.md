@@ -272,6 +272,17 @@ python evaluate_models_refactored.py \
   --device cuda
 ```
 
+如果一次实验里训练了很多 run，只评估其中一部分可以直接加：
+
+```bash
+python evaluate_models_refactored.py \
+    --exp_dir "./experiments_refactored/separator1_default_training" \
+    --runs "separator1_default_hd64_stages2_depth3,separator2_default_hd64_stages3_depth3" \
+    --device cuda
+```
+
+这样只会评估你点名的 run，不会把这个实验目录下所有超参数组合都跑一遍。
+
 默认会写到：
 
 ```text
