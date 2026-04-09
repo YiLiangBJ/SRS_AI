@@ -19,8 +19,8 @@
             "justMyCode": true,
             "args": [
                 "--experiment","default_6port_separator1",
-                "--batch_size","32",
-                "--num_batches","100",
+                "--batch_size","4096",
+                "--num_batches","100000",
                 "--device","auto",
                 "--save_dir","./experiments_refactored",
                 "--eval_snr_range","30:-3:0",
@@ -31,8 +31,8 @@
                 "--onnx_opset","13",
                 "--onnx_batch_size","1"
                 // 需要开关型参数时，按需取消下面这些注释：
-                ,"--no-amp"
-                ,"--no-compile"
+                //,"--no-amp"
+                //,"--no-compile"
                 // ,"--eval_after_train"
                 // ,"--plot_after_eval"
                 // ,"--export_onnx_after_train"
