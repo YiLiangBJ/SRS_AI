@@ -8,6 +8,26 @@ Use the explicit Matlab bundle path when you want to inspect the architecture as
 
 If you mainly care about separator1, also read `SEPARATOR1_IMPLEMENTATION.md`.
 
+## No-Path Workflow
+
+If you do not want to add this folder to the Matlab path, use this workflow:
+
+```matlab
+cd('.../SRS_AI/Model_AIIC_refactor/matlab')
+run('run_refactor_separator1_demo.m')
+```
+
+or:
+
+```matlab
+cd('.../SRS_AI/Model_AIIC_refactor/matlab')
+run('run_refactor_model_demo.m')
+```
+
+This is supported directly.
+
+The demo scripts add their own folder to the temporary Matlab path and build `exportDir` from the script location, so they do not depend on the current working directory being the repository root.
+
 ## What You Need To Know First
 
 The refactored training pipeline saves one trained run per directory:
@@ -76,9 +96,23 @@ This writes:
 
 In Matlab:
 
-1. Add this folder to the path.
+1. Either enter the `matlab/` folder and run the script directly, or add this folder to the path.
 2. Edit `exportDir` in `run_refactor_model_demo.m` or `run_refactor_onnx_demo.m`.
 3. Run the script.
+
+The import helpers now resolve export directories robustly across platforms.
+
+That means these all work:
+
+- absolute Windows paths such as `C:\work\SRS_AI\Model_AIIC_refactor\...`
+- absolute Linux paths
+- repo-root relative paths such as `./Model_AIIC_refactor/experiments_refactored/...`
+
+The most common source of `ManifestNotFound` in Matlab is not Windows path separators.
+
+It is using a relative path from the wrong current working directory.
+
+The demo scripts now build `exportDir` from the script location, so they do not depend on the current working directory.
 
 ```matlab
 run("./Model_AIIC_refactor/matlab/run_refactor_model_demo.m")
@@ -171,6 +205,8 @@ Even if training used `share_weights_across_stages=True`, the exporter writes ev
 2. Edit `exportDir` in `run_refactor_model_demo.m` or `run_refactor_matlab_bundle_demo.m`.
 3. Run the script.
 
+If you prefer not to add paths manually, first `cd` into the `matlab/` folder and run the script there.
+
 ```matlab
 run("./Model_AIIC_refactor/matlab/run_refactor_model_demo.m")
 ```
@@ -187,6 +223,11 @@ If you want the lower-level explicit API, keep using:
 bundle = import_refactor_matlab_bundle(".../matlab_exports/my_run");
 [outputData, debug] = predict_refactor_matlab_bundle(bundle, bundle.weights.sample_input);
 ```
+
+If you pass a relative path manually, it is resolved in this order:
+
+1. relative to the current Matlab working directory
+2. relative to the repository root inferred from the `matlab/` helper folder
 
 `info.debug.stage_outputs` or `debug.stage_outputs` keeps each stage result so you can inspect the refinement process.
 

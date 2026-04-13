@@ -4,18 +4,18 @@ function bundle = import_refactor_matlab_bundle(exportDir)
 % Usage:
 %   bundle = import_refactor_matlab_bundle("matlab_exports/my_run")
 
-exportDir = string(exportDir);
-manifestPath = fullfile(char(exportDir), "matlab_model_bundle_manifest.json");
+exportDir = resolve_refactor_export_dir(exportDir);
+manifestPath = fullfile(char(exportDir), 'matlab_model_bundle_manifest.json');
 if ~isfile(manifestPath)
     error("import_refactor_matlab_bundle:ManifestNotFound", ...
-        "matlab_model_bundle_manifest.json was not found under %s", exportDir);
+    "matlab_model_bundle_manifest.json was not found under %s", char(exportDir));
 end
 
 manifest = jsondecode(fileread(manifestPath));
-matPath = fullfile(char(exportDir), string(manifest.mat_file));
+matPath = fullfile(char(exportDir), char(string(manifest.mat_file)));
 if ~isfile(matPath)
     error("import_refactor_matlab_bundle:MatFileNotFound", ...
-        "Matlab bundle MAT file was not found: %s", matPath);
+    "Matlab bundle MAT file was not found: %s", char(matPath));
 end
 
 weights = load(matPath);

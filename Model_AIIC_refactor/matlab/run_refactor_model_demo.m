@@ -3,9 +3,14 @@ clc;
 
 thisDir = fileparts(mfilename('fullpath'));
 addpath(thisDir);
+repoRoot = fileparts(fileparts(thisDir));
 
 % Set exportDir to either an ONNX export directory or a Matlab bundle directory.
-exportDir = "./Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_exports/separator1_grid_search_6ports_hd16_stages2_depth3_share0";
+exportDir = fullfile(repoRoot, "Model_AIIC_refactor", "experiments_refactored", ...
+	"20260409_033734_default_6port_separator1", ...
+	"separator1_grid_search_6ports_hd16_stages2_depth3_share0", ...
+	"matlab_exports", ...
+	"separator1_grid_search_6ports_hd16_stages2_depth3_share0");
 
 % Use "auto", "onnx", or "bundle".
 mode = "bundle";

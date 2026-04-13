@@ -3,9 +3,14 @@ clc;
 
 thisDir = fileparts(mfilename('fullpath'));
 addpath(thisDir);
+repoRoot = fileparts(fileparts(thisDir));
 
 % Edit this path to your exported ONNX run directory.
-exportDir = "./Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/onnx_exports/separator1_grid_search_6ports_hd16_stages2_depth3_share0";
+exportDir = fullfile(repoRoot, "Model_AIIC_refactor", "experiments_refactored", ...
+	"20260409_033734_default_6port_separator1", ...
+	"separator1_grid_search_6ports_hd16_stages2_depth3_share0", ...
+	"onnx_exports", ...
+	"separator1_grid_search_6ports_hd16_stages2_depth3_share0");
 batchSize = 2;
 
 [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(exportDir, batchSize);

@@ -10,7 +10,7 @@ if nargin < 2 || isempty(mode)
     mode = "auto";
 end
 
-exportDir = string(exportDir);
+exportDir = resolve_refactor_export_dir(exportDir);
 mode = string(mode);
 
 resolvedMode = local_resolve_mode(exportDir, mode);
@@ -38,8 +38,8 @@ if mode ~= "auto"
     return;
 end
 
-onnxManifest = fullfile(char(exportDir), "export_manifest.json");
-matlabManifest = fullfile(char(exportDir), "matlab_model_bundle_manifest.json");
+onnxManifest = fullfile(char(exportDir), 'export_manifest.json');
+matlabManifest = fullfile(char(exportDir), 'matlab_model_bundle_manifest.json');
 
 if isfile(onnxManifest)
     resolvedMode = "onnx";
@@ -47,6 +47,6 @@ elseif isfile(matlabManifest)
     resolvedMode = "bundle";
 else
     error("import_refactor_model:NoKnownManifest", ...
-        "Could not detect ONNX or Matlab bundle manifest under %s", exportDir);
+    "Could not detect ONNX or Matlab bundle manifest under %s", char(exportDir));
 end
 end

@@ -9,11 +9,11 @@ function [net, manifest] = import_refactor_onnx(exportDir)
 %   - <run_name>.onnx
 %   - export_manifest.json
 
-exportDir = string(exportDir);
-manifestPath = fullfile(char(exportDir), "export_manifest.json");
+exportDir = resolve_refactor_export_dir(exportDir);
+manifestPath = fullfile(char(exportDir), 'export_manifest.json');
 if ~isfile(manifestPath)
     error("import_refactor_onnx:ManifestNotFound", ...
-        "export_manifest.json was not found under %s", exportDir);
+    "export_manifest.json was not found under %s", char(exportDir));
 end
 
 manifest = jsondecode(fileread(manifestPath));
@@ -25,7 +25,7 @@ if ~isfile(onnxPath)
 end
 if ~isfile(onnxPath)
     error("import_refactor_onnx:OnnxNotFound", ...
-        "ONNX file referenced by the manifest was not found: %s", onnxPath);
+        "ONNX file referenced by the manifest was not found: %s", char(onnxPath));
 end
 
 net = importNetworkFromONNX(char(onnxPath), OutputLayerType="regression");
