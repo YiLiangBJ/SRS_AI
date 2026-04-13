@@ -1,0 +1,90 @@
+{
+  "timestamp": "2026-04-13T03:31:56.804911",
+  "format": "srs_ai_refactor_matlab_bundle_v1",
+  "run_name": "separator1_grid_search_6ports_hd16_stages2_depth3_share0",
+  "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0",
+  "checkpoint_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/model.pth",
+  "mat_file": "matlab_model_bundle.mat",
+  "mat_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_exports/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_model_bundle.mat",
+  "model_spec": {
+    "seq_len": 12,
+    "model_type": "separator1",
+    "pos_values": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "mlp_depth": 3,
+    "share_weights_across_stages": false,
+    "hidden_dim": 16,
+    "num_stages": 2,
+    "num_ports": 6,
+    "activation_type": "relu",
+    "onnx_mode": false,
+    "num_params": 21024
+  },
+  "training_spec": {
+    "loss_type": "log",
+    "learning_rate": 0.01,
+    "num_batches": 100000,
+    "batch_size": 4096,
+    "snr_config": {
+      "type": "range",
+      "min": 0,
+      "max": 30,
+      "per_sample": true,
+      "sampling": "stratified",
+      "num_bins": 10
+    },
+    "tdl_config": [
+      "A-30",
+      "B-100",
+      "C-300"
+    ],
+    "print_interval": 100,
+    "validation_interval": 100,
+    "early_stop_loss": null,
+    "patience": 5,
+    "keep_last_n_checkpoints": 2,
+    "save_interval": 1000
+  },
+  "metadata": {
+    "experiment_name": "default_6port_separator1",
+    "model_recipe_name": "separator1_grid_search_6ports",
+    "model_label": "separator1_grid_search_6ports_hd16_stages2_depth3_share0",
+    "run_name": "separator1_grid_search_6ports_hd16_stages2_depth3_share0",
+    "training_recipe_name": "snr_range_0_30_perSample",
+    "training_label": "snr_range_0_30_perSample",
+    "training_duration": 1311.0613451004028,
+    "timestamp": "2026-04-09T03:59:39.120067"
+  },
+  "input_layout": "N x (2*seq_len) real-stacked float32 = [real_part, imag_part]",
+  "output_layout": "N x num_ports x (2*seq_len) real-stacked float32",
+  "sample_input_shape": [
+    2,
+    24
+  ],
+  "reference_output_shape": [
+    2,
+    6,
+    24
+  ],
+  "materialization_rule": "Every effective port-stage MLP is materialized explicitly, even when training used shared stage weights.",
+  "matlab_entrypoints": [
+    "import_refactor_matlab_bundle",
+    "predict_refactor_matlab_bundle",
+    "run_refactor_matlab_bundle_demo"
+  ],
+  "bundle_contents": {
+    "sample_input_field": "sample_input",
+    "reference_output_field": "reference_output",
+    "pos_values_field": "pos_values",
+    "linear_layers_per_mlp": 3,
+    "separator2_field_pattern": "p##_s##_l##_weight_real/weight_imag/bias_real/bias_imag",
+    "separator1_field_pattern": "p##_s##_real_l##_weight/bias and p##_s##_imag_l##_weight/bias"
+  },
+  "manifest_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_exports/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_model_bundle_manifest.json"
+}

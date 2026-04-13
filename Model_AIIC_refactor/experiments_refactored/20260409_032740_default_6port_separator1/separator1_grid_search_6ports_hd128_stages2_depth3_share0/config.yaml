@@ -1,0 +1,49 @@
+model_spec:
+  seq_len: 12
+  model_type: separator1
+  pos_values:
+  - 0
+  - 2
+  - 4
+  - 6
+  - 8
+  - 10
+  mlp_depth: 3
+  share_weights_across_stages: false
+  hidden_dim: 128
+  num_stages: 2
+  num_ports: 6
+  activation_type: relu
+  onnx_mode: false
+  num_params: 510240
+training_spec:
+  loss_type: log
+  learning_rate: 0.01
+  num_batches: 100
+  batch_size: 32
+  snr_config:
+    type: range
+    min: 0
+    max: 30
+    per_sample: true
+    sampling: stratified
+    num_bins: 10
+  tdl_config:
+  - A-30
+  - B-100
+  - C-300
+  print_interval: 100
+  validation_interval: 100
+  early_stop_loss: null
+  patience: 5
+  keep_last_n_checkpoints: 2
+  save_interval: 1000
+metadata:
+  experiment_name: default_6port_separator1
+  model_recipe_name: separator1_grid_search_6ports
+  model_label: separator1_grid_search_6ports_hd128_stages2_depth3_share0
+  run_name: separator1_grid_search_6ports_hd128_stages2_depth3_share0
+  training_recipe_name: snr_range_0_30_perSample
+  training_label: snr_range_0_30_perSample
+  training_duration: 4.134186506271362
+  timestamp: '2026-04-09T03:33:14.625215'

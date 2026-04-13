@@ -1,0 +1,101 @@
+{
+  "timestamp": "2026-04-13T03:15:44.089682",
+  "evaluation_name": "20260413_031544_separator1_small_hd32_stages2_depth3_share0",
+  "output_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260413_031523_quick_separator1/separator1_small_hd32_stages2_depth3_share0/evaluations/20260413_031544_separator1_small_hd32_stages2_depth3_share0",
+  "config": {
+    "snr_list": [
+      10.0
+    ],
+    "tdl_list": [
+      "A-30"
+    ],
+    "num_batches": 1,
+    "batch_size": 8,
+    "total_samples_per_point": 8,
+    "run_names": [
+      "separator1_small_hd32_stages2_depth3_share0"
+    ],
+    "run_count": 1
+  },
+  "models": {
+    "separator1_small_hd32_stages2_depth3_share0": {
+      "model_spec": {
+        "seq_len": 12,
+        "model_type": "separator1",
+        "pos_values": [
+          0,
+          3,
+          6,
+          9
+        ],
+        "hidden_dim": 32,
+        "num_stages": 2,
+        "mlp_depth": 3,
+        "share_weights_across_stages": false,
+        "num_ports": 4,
+        "activation_type": "relu",
+        "onnx_mode": false,
+        "num_params": 36032
+      },
+      "training_spec": {
+        "loss_type": "nmse",
+        "learning_rate": 0.01,
+        "num_batches": 2,
+        "batch_size": 32,
+        "snr_config": {
+          "type": "range",
+          "min": 10,
+          "max": 20,
+          "per_sample": false
+        },
+        "tdl_config": "A-30",
+        "print_interval": 10,
+        "validation_interval": null,
+        "early_stop_loss": null,
+        "patience": 3,
+        "keep_last_n_checkpoints": 2,
+        "save_interval": null
+      },
+      "metadata": {
+        "experiment_name": "quick_separator1",
+        "model_recipe_name": "separator1_small",
+        "model_label": "separator1_small_hd32_stages2_depth3_share0",
+        "run_name": "separator1_small_hd32_stages2_depth3_share0",
+        "training_recipe_name": "quick_test",
+        "training_label": "quick_test",
+        "training_duration": 0.2791435718536377,
+        "timestamp": "2026-04-13T03:15:23.639228"
+      },
+      "checkpoint_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260413_031523_quick_separator1/separator1_small_hd32_stages2_depth3_share0/model.pth",
+      "tdl_results": {
+        "A-30": {
+          "snr": [
+            10.0
+          ],
+          "nmse": [
+            3.108241081237793
+          ],
+          "nmse_db": [
+            4.925146961619466
+          ],
+          "port_nmse": [
+            [
+              2.3919858932495117,
+              4.207888603210449,
+              3.021836996078491,
+              3.2829291820526123
+            ]
+          ],
+          "port_nmse_db": [
+            [
+              3.7875864505767822,
+              6.240642547607422,
+              4.80271053314209,
+              5.1626152992248535
+            ]
+          ]
+        }
+      }
+    }
+  }
+}

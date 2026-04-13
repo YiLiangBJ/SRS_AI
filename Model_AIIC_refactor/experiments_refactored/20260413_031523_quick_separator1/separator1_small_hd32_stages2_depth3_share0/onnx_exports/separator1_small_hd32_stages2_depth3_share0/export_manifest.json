@@ -1,0 +1,79 @@
+{
+  "timestamp": "2026-04-13T03:15:48.280079",
+  "run_name": "separator1_small_hd32_stages2_depth3_share0",
+  "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260413_031523_quick_separator1/separator1_small_hd32_stages2_depth3_share0",
+  "checkpoint_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260413_031523_quick_separator1/separator1_small_hd32_stages2_depth3_share0/model.pth",
+  "onnx_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260413_031523_quick_separator1/separator1_small_hd32_stages2_depth3_share0/onnx_exports/separator1_small_hd32_stages2_depth3_share0/separator1_small_hd32_stages2_depth3_share0.onnx",
+  "model_spec": {
+    "seq_len": 12,
+    "model_type": "separator1",
+    "pos_values": [
+      0,
+      3,
+      6,
+      9
+    ],
+    "hidden_dim": 32,
+    "num_stages": 2,
+    "mlp_depth": 3,
+    "share_weights_across_stages": false,
+    "num_ports": 4,
+    "activation_type": "relu",
+    "onnx_mode": false,
+    "num_params": 36032
+  },
+  "training_spec": {
+    "loss_type": "nmse",
+    "learning_rate": 0.01,
+    "num_batches": 2,
+    "batch_size": 32,
+    "snr_config": {
+      "type": "range",
+      "min": 10,
+      "max": 20,
+      "per_sample": false
+    },
+    "tdl_config": "A-30",
+    "print_interval": 10,
+    "validation_interval": null,
+    "early_stop_loss": null,
+    "patience": 3,
+    "keep_last_n_checkpoints": 2,
+    "save_interval": null
+  },
+  "metadata": {
+    "experiment_name": "quick_separator1",
+    "model_recipe_name": "separator1_small",
+    "model_label": "separator1_small_hd32_stages2_depth3_share0",
+    "run_name": "separator1_small_hd32_stages2_depth3_share0",
+    "training_recipe_name": "quick_test",
+    "training_label": "quick_test",
+    "training_duration": 0.2791435718536377,
+    "timestamp": "2026-04-13T03:15:23.639228"
+  },
+  "input_names": [
+    "mixed_signal"
+  ],
+  "output_names": [
+    "separated_channels"
+  ],
+  "dummy_input_shape": [
+    1,
+    24
+  ],
+  "dummy_output_shape": [
+    1,
+    4,
+    24
+  ],
+  "opset_version": 13,
+  "dynamic_batch": false,
+  "validation": {},
+  "matlab_notes": {
+    "recommended_import": "importNetworkFromONNX",
+    "input_name": "mixed_signal",
+    "output_name": "separated_channels",
+    "input_layout": "N x (2*seq_len) real-stacked float32",
+    "output_layout": "N x num_ports x (2*seq_len) real-stacked float32"
+  }
+}
