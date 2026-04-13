@@ -1,3 +1,11 @@
 {
-    "iis.configDir": ""
+    "iis.configDir": "",
+    "MATLAB.installPath": "C:\\Program Files\\MATLAB\\R2025b",
+    "MATLAB.defaultEditor": true,
+    "MATLAB.startDebuggerAutomatically": true,
+    "MATLAB.indexWorkspace": true,
+    "MATLAB.matlabConnectionTiming": "onDemand",
+    "files.associations": {
+        "*.m": "matlab"
+    }
 }
