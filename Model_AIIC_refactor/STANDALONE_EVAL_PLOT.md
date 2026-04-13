@@ -11,7 +11,7 @@ Training is launched experiment-first with `train.py`, while evaluation and plot
 ### Step 1: Train a named experiment
 
 ```bash
-python train.py \
+python ./Model_AIIC_refactor/train.py \
   --experiment compare_default_models \
   --device cuda
 ```
@@ -21,7 +21,7 @@ This creates a timestamped experiment directory under `experiments_refactored/`.
 ### Step 2: Evaluate later
 
 ```bash
-python evaluate_models_refactored.py \
+python ./Model_AIIC_refactor/evaluate_models_refactored.py \
   --exp_dir "./experiments_refactored/20260409_000000_compare_default_models" \
   --device cuda \
   --snr_range "30:-3:0" \
@@ -41,7 +41,7 @@ so different SNR / TDL / run selections do not overwrite each other.
 ### Step 3: Plot later
 
 ```bash
-python plot.py \
+python ./Model_AIIC_refactor/plot.py \
   --input "./experiments_refactored/20260409_000000_compare_default_models"
 ```
 
@@ -58,7 +58,7 @@ By default plots are written to `<evaluation_dir>/plots`.
 You can also export ONNX after training:
 
 ```bash
-python export_onnx.py \
+python ./Model_AIIC_refactor/export_onnx.py \
   --exp_dir "./experiments_refactored/20260409_000000_compare_default_models" \
   --runs separator2_default_hd64_stages3_depth3 \
   --output "./experiments_refactored/20260409_000000_compare_default_models/onnx_exports" \
@@ -100,8 +100,8 @@ experiments_refactored/
 ## Benchmark Presets
 
 ```bash
-python compare_cpu_gpu.py --experiment perf_quick --skip_gpu
-python compare_optimizations.py --experiment perf_quick --skip_gpu
+python ./Model_AIIC_refactor/compare_cpu_gpu.py --experiment perf_quick --skip_gpu
+python ./Model_AIIC_refactor/compare_optimizations.py --experiment perf_quick --skip_gpu
 ```
 
 ## Policy

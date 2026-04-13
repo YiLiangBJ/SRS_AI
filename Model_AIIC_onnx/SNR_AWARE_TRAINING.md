@@ -112,7 +112,7 @@ if val_loss < early_stop_loss:
 ### 示例 1：训练 SNR 范围 0-30 dB
 
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 \
   --batch_size 4096 \
   --snr "0,30" \  # ⭐ 范围
@@ -143,7 +143,7 @@ Batch 4, SNR:8.7dB, Loss: 0.0201 (-16.97 dB), ...
 ### 示例 2：训练固定 SNR
 
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 10000 \
   --snr "20" \  # ⭐ 固定 SNR
   --save_dir "./models_snr20"
@@ -302,7 +302,7 @@ Online Training...
 
 **立即测试**：
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 10000 --batch_size 4096 \
   --snr "0,30" \
   --early_stop "0.0001" --patience 10 \

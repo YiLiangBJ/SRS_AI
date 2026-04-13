@@ -33,7 +33,7 @@
 cd c:/GitRepo/SRS_AI
 
 # 快速测试（4 端口，50 批次，训练模式）
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 50 \
   --batch_size 128 \
   --stages "2" \
@@ -45,7 +45,7 @@ python Model_AIIC_onnx/test_separator.py \
 
 ```bash
 # 导出模型（自动切换到 onnx_mode）
-python Model_AIIC_onnx/export_onnx.py \
+python ./Model_AIIC_onnx/export_onnx.py \
   --checkpoint ./Model_AIIC_onnx/quick_test/stages=2_share=False_loss=nmse_act=split_relu/model.pth \
   --output my_model.onnx \
   --opset 9
@@ -65,7 +65,7 @@ test_onnx_function('my_model.onnx')
 ### 基本训练命令
 
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 1000 \
   --batch_size 2048 \
   --stages "2,3" \
@@ -94,7 +94,7 @@ python Model_AIIC_onnx/test_separator.py \
 
 ```bash
 # 默认模式，训练速度最快（100% 性能）
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 1000 \
   --batch_size 2048 \
   --stages "2" \
@@ -106,7 +106,7 @@ python Model_AIIC_onnx/test_separator.py \
 ```bash
 # 使用 ONNX Opset 9 兼容操作（~80-85% 性能）
 # 用于验证 ONNX 模式的训练等价性
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 1000 \
   --batch_size 2048 \
   --stages "2" \
@@ -118,7 +118,7 @@ python Model_AIIC_onnx/test_separator.py \
 
 ```bash
 # 搜索最佳超参数组合
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 1000 \
   --batch_size 2048 \
   --stages "2,3,4" \
@@ -153,7 +153,7 @@ models_training/
 
 ```bash
 # 运行等价性测试
-python Model_AIIC_onnx/verify_onnx_mode_equivalence.py
+python ./Model_AIIC_onnx/verify_onnx_mode_equivalence.py
 ```
 
 ### 期望输出
@@ -191,7 +191,7 @@ Gradient Computation Test:
 ### 基本导出
 
 ```bash
-python Model_AIIC_onnx/export_onnx.py \
+python ./Model_AIIC_onnx/export_onnx.py \
   --checkpoint ./models_training/stages=2_share=False_loss=nmse_act=split_relu/model.pth \
   --output my_model.onnx \
   --opset 9
@@ -387,7 +387,7 @@ end
 
 ```bash
 # 使用 test_separator.py 评估（包含可视化）
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100 \
   --batch_size 128 \
   --stages "2" \
@@ -506,13 +506,13 @@ features = torch.cat(features_list, dim=1)
 
 ```bash
 # 1. 训练时使用训练模式（更快）
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 1000 \
   --stages "2" \
   --save_dir "./models"
 
 # 2. 导出时自动切换到 ONNX 模式
-python Model_AIIC_onnx/export_onnx.py \
+python ./Model_AIIC_onnx/export_onnx.py \
   --checkpoint ./models/.../model.pth \
   --output model.onnx \
   --opset 9
@@ -523,14 +523,14 @@ python Model_AIIC_onnx/export_onnx.py \
 
 ```bash
 # 如果想验证 ONNX 模式训练是否工作
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 1000 \
   --stages "2" \
   --onnx_mode \
   --save_dir "./models_onnx"
 
 # 对比两种模式的结果（应该相同）
-python Model_AIIC_onnx/verify_onnx_mode_equivalence.py
+python ./Model_AIIC_onnx/verify_onnx_mode_equivalence.py
 ```
 
 ### 切换 onnx_mode
@@ -725,9 +725,9 @@ Model_AIIC_onnx/
 
 | 脚本 | 功能 | 命令 |
 |------|------|------|
-| `test_separator.py` | 训练和评估 | `python Model_AIIC_onnx/test_separator.py --help` |
-| `export_onnx.py` | 导出 ONNX | `python Model_AIIC_onnx/export_onnx.py --help` |
-| `verify_onnx_mode_equivalence.py` | 验证等价性 | `python Model_AIIC_onnx/verify_onnx_mode_equivalence.py` |
+| `test_separator.py` | 训练和评估 | `python ./Model_AIIC_onnx/test_separator.py --help` |
+| `export_onnx.py` | 导出 ONNX | `python ./Model_AIIC_onnx/export_onnx.py --help` |
+| `verify_onnx_mode_equivalence.py` | 验证等价性 | `python ./Model_AIIC_onnx/verify_onnx_mode_equivalence.py` |
 
 ### MATLAB 脚本
 
@@ -769,20 +769,20 @@ Model_AIIC_onnx/
 
 ```bash
 # 快速测试
-python Model_AIIC_onnx/test_separator.py --batches 50 --stages "2" --save_dir "./test"
+python ./Model_AIIC_onnx/test_separator.py --batches 50 --stages "2" --save_dir "./test"
 
 # 完整训练
-python Model_AIIC_onnx/test_separator.py --batches 1000 --batch_size 2048 --stages "2,3" --save_dir "./models"
+python ./Model_AIIC_onnx/test_separator.py --batches 1000 --batch_size 2048 --stages "2,3" --save_dir "./models"
 
 # ONNX 模式训练（验证）
-python Model_AIIC_onnx/test_separator.py --batches 1000 --stages "2" --onnx_mode --save_dir "./models_onnx"
+python ./Model_AIIC_onnx/test_separator.py --batches 1000 --stages "2" --onnx_mode --save_dir "./models_onnx"
 ```
 
 ### 导出
 
 ```bash
 # 导出为 ONNX
-python Model_AIIC_onnx/export_onnx.py --checkpoint ./models/.../model.pth --output model.onnx --opset 9
+python ./Model_AIIC_onnx/export_onnx.py --checkpoint ./models/.../model.pth --output model.onnx --opset 9
 
 # 检查算子
 python -c "import onnx; m=onnx.load('model.onnx'); ops={}; [ops.update({n.op_type:ops.get(n.op_type,0)+1}) for n in m.graph.node]; [print(f'{k}: {v}') for k,v in sorted(ops.items())]"
@@ -792,7 +792,7 @@ python -c "import onnx; m=onnx.load('model.onnx'); ops={}; [ops.update({n.op_typ
 
 ```bash
 # Python 等价性验证
-python Model_AIIC_onnx/verify_onnx_mode_equivalence.py
+python ./Model_AIIC_onnx/verify_onnx_mode_equivalence.py
 ```
 
 ### MATLAB

@@ -14,7 +14,7 @@
 
 **之前**:
 ```bash
-python Model_AIIC/evaluate_models.py \---
+python ./Model_AIIC/evaluate_models.py \---
   --exp_dir ./quick_test \## 🔗 Integration
   --num_batches 5 \
   --output ./quick_eval### 命令行参数
@@ -22,7 +22,7 @@ python Model_AIIC/evaluate_models.py \---
 
 **现在**:
 ```bash
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir ./quick_test \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -37,7 +37,7 @@ python Model_AIIC/evaluate_models.py \
 
 ```bash
 # 1. 训练 6 端口模型
-python Model_AIIC/test_separator.py \
+python ./Model_AIIC/test_separator.py \
   --batches 1000 \
   --batch_size 2048 \
   --stages "2,3,4" \
@@ -48,7 +48,7 @@ python Model_AIIC/test_separator.py \
   --save_dir "./out6ports"
 
 # 2. 评估 6 端口模型
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir ./Model_AIIC/out6ports \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -57,7 +57,7 @@ python Model_AIIC/evaluate_models.py \
   --output ./out6ports_eval
 
 # 3. 绘制对比图
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input ./out6ports_eval \
   --layout subplots_tdl
 ```
@@ -81,19 +81,19 @@ python Model_AIIC/plot_results.py \
 
 ```bash
 # 4 端口模型训练
-python Model_AIIC/test_separator.py \
+python ./Model_AIIC/test_separator.py \
   --batches 1000 --batch_size 2048 \
   --stages "2,3,4" --share_weights "True,False" \
   --ports "0,3,6,9" --save_dir "./full_exp"
 
 # 6 端口模型训练
-python Model_AIIC/test_separator.py \
+python ./Model_AIIC/test_separator.py \
   --batches 1000 --batch_size 2048 \
   --stages "2,3,4" --share_weights "True,False" \
   --ports "0,2,4,6,8,10" --save_dir "./out6ports"
 
 # 评估所有模型
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir ./full_exp \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -101,7 +101,7 @@ python Model_AIIC/evaluate_models.py \
   --output ./full_eval
 
 # 评估 6 端口模型（推荐参数）
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir ./Model_AIIC/out6ports \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -135,14 +135,14 @@ python Model_AIIC/evaluate_models.py \
 
 ❌ **错误的命令**:
 ```bash
-python Model_AIIC/evaluate_models.py \---
+python ./Model_AIIC/evaluate_models.py \---
   --exp_dir ./out6ports \## 标题
   --tdl "A-30,B-100,C-300" \
 ```
 
 ✅ **正确的命令**:
 ```bash
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir ./Model_AIIC/out6ports \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -156,7 +156,7 @@ python Model_AIIC/evaluate_models.py \
 ### 标准评估命令模板
 
 ```bash
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir <实验目录> \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -186,16 +186,16 @@ python Model_AIIC/evaluate_models.py \
 
 ```bash
 # 简单命令
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input out6ports_eval
 
 # 按 TDL 分图（推荐）
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input ./out6ports_eval \
   --layout subplots_tdl
 
 # 按模型分图
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input ./out6ports_eval \
   --layout subplots_model
 ```

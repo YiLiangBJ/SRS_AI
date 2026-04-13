@@ -12,7 +12,7 @@
 
 ```bash
 cd c:/GitRepo/SRS_AI
-python Model_AIIC_onnx/test_thread_usage.py
+python ./Model_AIIC_onnx/test_thread_usage.py
 ```
 
 **输出示例**：
@@ -41,8 +41,8 @@ Analysis:
 
 ```bash
 # 使用包装脚本监控任何训练命令
-python Model_AIIC_onnx/thread_monitor_wrapper.py \
-  python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/thread_monitor_wrapper.py \
+  python ./Model_AIIC_onnx/test_separator.py \
   --batches 100 --batch_size 4096 --stages "2"
 ```
 
@@ -89,7 +89,7 @@ backward        28.0        24.0        ← 问题！只用了一半线程！
 ### 步骤 1：运行线程监控测试
 
 ```bash
-python Model_AIIC_onnx/test_thread_usage.py
+python ./Model_AIIC_onnx/test_thread_usage.py
 ```
 
 ### 步骤 2：检查结果
@@ -104,7 +104,7 @@ python Model_AIIC_onnx/test_thread_usage.py
 ```bash
 # 测试 Model_AIIC（快速版本）
 # 修改 test_thread_usage.py 导入 Model_AIIC.channel_separator
-python Model_AIIC_onnx/test_thread_usage.py
+python ./Model_AIIC_onnx/test_thread_usage.py
 
 # 对比结果
 ```
@@ -172,5 +172,5 @@ model = model.to(device)
 
 **现在就运行测试查看你的线程使用情况**：
 ```bash
-python Model_AIIC_onnx/test_thread_usage.py
+python ./Model_AIIC_onnx/test_thread_usage.py
 ```

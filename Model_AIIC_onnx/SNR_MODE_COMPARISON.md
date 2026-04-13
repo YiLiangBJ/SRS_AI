@@ -27,7 +27,7 @@
 **命令**：
 ```bash
 # 默认（不需要加参数）
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 \
   --batch_size 4096 \
   --snr "0,30" \
@@ -65,7 +65,7 @@ python Model_AIIC_onnx/test_separator.py \
 **命令**：
 ```bash
 # 需要加 --snr_per_sample 参数
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 \
   --batch_size 4096 \
   --snr "0,30" \
@@ -132,7 +132,7 @@ SNR=30dB: NMSE = 0.0002 (-37 dB) ← 较差（未充分学习）
 
 **使用**：
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 \
   --batch_size 2048 \
   --snr "0,30" \
@@ -153,7 +153,7 @@ python Model_AIIC_onnx/test_separator.py \
 
 **使用**：
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 50000 \  # 可以少一些（不需要覆盖所有 SNR）
   --batch_size 4096 \  # 可以大一些（更稳定）
   --snr "0,30" \

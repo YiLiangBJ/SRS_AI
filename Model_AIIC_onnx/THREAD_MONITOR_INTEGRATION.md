@@ -63,4 +63,4 @@ if thread_monitor:
     thread_monitor.print_report()
 
 # 使用方法：
-# python Model_AIIC_onnx/test_separator.py --batches 100 --monitor_threads
+# python ./Model_AIIC_onnx/test_separator.py --batches 100 --monitor_threads

@@ -52,7 +52,7 @@ experiments:
 - If a field is part of a deliberate sweep, put it in `search_space`.
 - If it is just a constant, keep it flat or place it in `fixed_params`.
 - Prefer one search dimension per scientific question instead of one very wide sweep.
-- Use `python train.py --experiment <name> --plan_only` to inspect the resolved run matrix before launching long jobs.
+- Use `python ./Model_AIIC_refactor/train.py --experiment <name> --plan_only` to inspect the resolved run matrix before launching long jobs.
 
 ## Naming
 

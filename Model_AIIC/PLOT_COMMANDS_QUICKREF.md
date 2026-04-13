@@ -6,7 +6,7 @@
 
 ```bash
 # 1. 评估 6 端口模型
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir ./Model_AIIC/out6ports \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -15,16 +15,16 @@ python Model_AIIC/evaluate_models.py \
   --output ./out6ports_eval
 
 # 2. 绘图 - 简单命令
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input out6ports_eval
 
 # 3. 绘图 - 按 TDL 分图（推荐）⭐
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input ./out6ports_eval \
   --layout subplots_tdl
 
 # 4. 绘图 - 按模型分图
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input ./out6ports_eval \
   --layout subplots_model
 ```
@@ -42,13 +42,13 @@ python Model_AIIC/plot_results.py \
 ### 最简单（使用默认布局）
 
 ```bash
-python Model_AIIC/plot_results.py --input out6ports_eval
+python ./Model_AIIC/plot_results.py --input out6ports_eval
 ```
 
 ### 推荐使用（TDL 分图）
 
 ```bash
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input ./out6ports_eval \
   --layout subplots_tdl
 ```

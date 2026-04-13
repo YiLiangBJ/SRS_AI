@@ -17,7 +17,7 @@ You launch a named experiment from experiments.yaml, and the code resolves:
 ### Preview a plan
 
 ```bash
-python train.py \
+python ./Model_AIIC_refactor/train.py \
   --experiment quick_separator1 \
   --plan_only \
   --device cpu
@@ -26,7 +26,7 @@ python train.py \
 ### Train a named experiment
 
 ```bash
-python train.py \
+python ./Model_AIIC_refactor/train.py \
   --experiment compare_default_models \
   --device cuda
 ```
@@ -34,7 +34,7 @@ python train.py \
 ### Train, evaluate, and plot
 
 ```bash
-python train.py \
+python ./Model_AIIC_refactor/train.py \
   --experiment compare_default_models \
   --device cuda \
   --eval_after_train \
@@ -44,7 +44,7 @@ python train.py \
 ### Override batch count for a benchmark preset
 
 ```bash
-python train.py \
+python ./Model_AIIC_refactor/train.py \
   --experiment perf_quick \
   --num_batches 100 \
   --device cpu
@@ -107,8 +107,8 @@ experiments_refactored/
 Benchmark scripts also use experiment-first entry points:
 
 ```bash
-python compare_cpu_gpu.py --experiment perf_quick --skip_gpu
-python compare_optimizations.py --experiment perf_quick --skip_gpu
+python ./Model_AIIC_refactor/compare_cpu_gpu.py --experiment perf_quick --skip_gpu
+python ./Model_AIIC_refactor/compare_optimizations.py --experiment perf_quick --skip_gpu
 ```
 
 ## Typical Flow
@@ -148,7 +148,7 @@ The old model_config plus training_config CLI pairing is intentionally removed. 
 ### Export the best trained run after training
 
 ```bash
-python train.py \
+python ./Model_AIIC_refactor/train.py \
   --experiment compare_default_models \
   --device cuda \
   --export_onnx_after_train \
@@ -159,7 +159,7 @@ python train.py \
 ### Export runs later from an experiment directory
 
 ```bash
-python export_onnx.py \
+python ./Model_AIIC_refactor/export_onnx.py \
   --exp_dir experiments_refactored/<timestamp>_<experiment_name> \
   --runs separator2_default_hd64_stages3_depth3 \
   --output onnx_exports \
@@ -185,6 +185,12 @@ Use `matlab/import_refactor_onnx.m`:
 
 ```matlab
 net = import_refactor_onnx("onnx_exports/my_run");
+```
+
+For a complete import plus inference example, use `matlab/demo_refactor_onnx_inference.m`:
+
+```matlab
+[net, inputData, outputData, manifest] = demo_refactor_onnx_inference("onnx_exports/my_run", 2);
 ```
 
 The exported ONNX model uses:
@@ -267,7 +273,7 @@ This is a practical research-friendly structure:
 ### 只评估（不训练）
 
 ```bash
-python evaluate_models_refactored.py \
+python ./Model_AIIC_refactor/evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/separator1_default_training" \
   --device cuda
 ```
@@ -275,7 +281,7 @@ python evaluate_models_refactored.py \
 如果一次实验里训练了很多 run，只评估其中一部分可以直接加：
 
 ```bash
-python evaluate_models_refactored.py \
+python ./Model_AIIC_refactor/evaluate_models_refactored.py \
     --exp_dir "./experiments_refactored/separator1_default_training" \
     --runs "separator1_default_hd64_stages2_depth3,separator2_default_hd64_stages3_depth3" \
     --device cuda
@@ -294,7 +300,7 @@ python evaluate_models_refactored.py \
 ### 只绘图（不训练/评估）
 
 ```bash
-python plot.py \
+python ./Model_AIIC_refactor/plot.py \
   --input "./experiments_refactored/separator1_default_training"
 ```
 
@@ -314,7 +320,7 @@ python plot.py \
 
 ```bash
 # 训练 + 快速评估
-python train.py \
+python ./Model_AIIC_refactor/train.py \
     --model_config separator1_small \
     --training_config quick_test \
     --num_batches 1000 \
@@ -334,7 +340,7 @@ python train.py \
 
 ```bash
 # 完整训练 + 完整评估
-python train.py \
+python ./Model_AIIC_refactor/train.py \
     --model_config separator1_default \
     --training_config default \
     --device cuda \
@@ -353,7 +359,7 @@ python train.py \
 
 ```bash
 # 网格搜索 + 评估 + 对比图
-python train.py \
+python ./Model_AIIC_refactor/train.py \
     --model_config separator1_grid_search \
     --training_config default \
     --device cuda \
@@ -373,7 +379,7 @@ python train.py \
 
 ```bash
 # 推荐：GPU + 自动优化 + 完整流程
-python train.py \
+python ./Model_AIIC_refactor/train.py \
     --model_config separator1_default \
     --training_config default \
     --device cuda \
@@ -392,7 +398,7 @@ python train.py \
 
 ```bash
 # CPU + 不编译 + 小数据集
-python train.py \
+python ./Model_AIIC_refactor/train.py \
     --model_config separator1_small \
     --training_config quick_test \
     --num_batches 100 \
@@ -490,7 +496,7 @@ train.py
 
 ```bash
 # 最简单的完整流程
-python train.py \
+python ./Model_AIIC_refactor/train.py \
     --model_config separator1_default \
     --training_config default \
     --device cuda \

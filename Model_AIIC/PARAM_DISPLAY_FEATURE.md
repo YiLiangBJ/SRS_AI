@@ -79,7 +79,7 @@ stages=2_share=True (78.3K) - B-100
 ### 1. 评估模型（自动读取参数量）
 
 ```bash
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir ./Model_AIIC/out6ports \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -92,7 +92,7 @@ python Model_AIIC/evaluate_models.py \
 
 ```bash
 # 按 TDL 分图
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input ./out6ports_eval \
   --layout subplots_tdl
 ```
@@ -135,11 +135,9 @@ stages=2_share=False (104.6K) - 4 Ports: [0,3,6,9]
 
 ## 🧪 测试验证
 
-运行测试脚本：
+当前仓库没有单独提交 `test_param_display.py`。
 
-```bash
-python test_param_display.py
-```
+建议直接使用下面的评估和绘图命令验证参数量显示是否正常。
 
 **测试结果**：
 ```
@@ -160,7 +158,7 @@ python test_param_display.py
 
 ```bash
 # 评估
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir ./out6ports \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -169,7 +167,7 @@ python Model_AIIC/evaluate_models.py \
   --output ./out6ports_eval
 
 # 绘图
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input ./out6ports_eval \
   --layout subplots_tdl
 ```

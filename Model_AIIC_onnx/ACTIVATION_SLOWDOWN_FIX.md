@@ -38,7 +38,7 @@
 
 ```bash
 # 停止当前训练，使用 'relu' 重新训练
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 --batch_size 4096 \
   --ports "0,2,4,6,8,10" --snr "0,30" --tdl "A-30,B-100,C-300" \
   --loss_type "nmse,normalized,log,weighted" \
@@ -59,7 +59,7 @@ python Model_AIIC_onnx/test_separator.py \
 
 ```bash
 # 只测试 relu 和 split_relu（都很快）
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 --batch_size 4096 \
   --ports "0,2,4,6,8,10" --snr "0,30" --tdl "A-30,B-100,C-300" \
   --loss_type "nmse,normalized,log,weighted" \
@@ -75,7 +75,7 @@ python Model_AIIC_onnx/test_separator.py \
 
 **快速训练**（生产用）：
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 \
   --activation_type "relu" \
   --save_dir "./models_fast"
@@ -83,7 +83,7 @@ python Model_AIIC_onnx/test_separator.py \
 
 **慢速训练**（研究对比，小数据集）：
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 1000 \  # ⭐ 少得多！
   --activation_type "mod_relu,z_relu,cardioid" \
   --save_dir "./models_slow"
@@ -97,7 +97,7 @@ python Model_AIIC_onnx/test_separator.py \
 
 ```bash
 cd ~/SRS_AI
-python Model_AIIC_onnx/benchmark_activations.py
+python ./Model_AIIC_onnx/benchmark_activations.py
 ```
 
 **期望输出**：
@@ -168,7 +168,7 @@ parser.add_argument('--activation_type', type=str, default='relu',  # ⭐ 改为
 
 ### 步骤 2：重新训练（使用快速激活）
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 --batch_size 4096 \
   --ports "0,2,4,6,8,10" --snr "0,30" --tdl "A-30,B-100,C-300" \
   --loss_type "nmse,normalized,log,weighted" \

@@ -23,7 +23,7 @@ stages=3_share=False (157.0K) - B-100
 ### 1. 评估（自动读取/计算参数量）
 
 ```bash
-python Model_AIIC/evaluate_models.py \
+python ./Model_AIIC/evaluate_models.py \
   --exp_dir ./out6ports \
   --tdl "A-30,B-100,C-300" \
   --snr_range "30:-3:0" \
@@ -35,7 +35,7 @@ python Model_AIIC/evaluate_models.py \
 ### 2. 绘图（自动显示参数量）
 
 ```bash
-python Model_AIIC/plot_results.py \
+python ./Model_AIIC/plot_results.py \
   --input ./out6ports_eval \
   --layout subplots_tdl
 ```

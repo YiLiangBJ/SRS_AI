@@ -124,7 +124,7 @@ Batch 11: bin 0 → SNR = 2.1 dB  (cycle)
 ### 基本用法（推荐）
 
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 --batch_size 4096 \
   --snr "0,30" \
   --snr_sampling "stratified" \  # ⭐ 默认，推荐
@@ -300,7 +300,7 @@ else:
 
 **生产训练**（推荐）⭐：
 ```bash
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 \
   --snr "0,30" \
   --snr_sampling "stratified" \

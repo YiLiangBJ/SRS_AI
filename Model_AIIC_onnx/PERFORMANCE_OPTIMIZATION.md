@@ -74,7 +74,7 @@ h_true = h_base * signal_powers.sqrt().view(batch_size, 1, 1)  # 广播
 
 ```bash
 cd c:/GitRepo/SRS_AI
-python Model_AIIC_onnx/benchmark_performance.py
+python ./Model_AIIC_onnx/benchmark_performance.py
 ```
 
 ### 期望结果
@@ -122,7 +122,7 @@ Speedup: 5-10x
 ### 日常训练（推荐）⭐
 ```bash
 # 不加 --onnx_mode，使用训练模式（快！）
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 100000 \
   --batch_size 4096 \
   --stages "2,3" \
@@ -132,7 +132,7 @@ python Model_AIIC_onnx/test_separator.py \
 ### ONNX 模式训练（验证用）
 ```bash
 # 加 --onnx_mode，验证 ONNX 兼容性（慢 ~5-10x）
-python Model_AIIC_onnx/test_separator.py \
+python ./Model_AIIC_onnx/test_separator.py \
   --batches 1000 \
   --batch_size 4096 \
   --stages "2" \
@@ -143,7 +143,7 @@ python Model_AIIC_onnx/test_separator.py \
 ### 导出 ONNX（自动切换）
 ```bash
 # export_onnx.py 会自动设置 onnx_mode=True
-python Model_AIIC_onnx/export_onnx.py \
+python ./Model_AIIC_onnx/export_onnx.py \
   --checkpoint ./models/.../model.pth \
   --output model.onnx \
   --opset 9
@@ -168,21 +168,21 @@ python Model_AIIC_onnx/export_onnx.py \
 
 1. **运行基准测试**：
    ```bash
-   python Model_AIIC_onnx/benchmark_performance.py
+   python ./Model_AIIC_onnx/benchmark_performance.py
    ```
 
 2. **比较训练速度**：
    ```bash
    # 训练模式（快）
-   time python Model_AIIC_onnx/test_separator.py --batches 100 --batch_size 4096 --stages "2"
+   time python ./Model_AIIC_onnx/test_separator.py --batches 100 --batch_size 4096 --stages "2"
    
    # ONNX 模式（慢）
-   time python Model_AIIC_onnx/test_separator.py --batches 100 --batch_size 4096 --stages "2" --onnx_mode
+   time python ./Model_AIIC_onnx/test_separator.py --batches 100 --batch_size 4096 --stages "2" --onnx_mode
    ```
 
 3. **验证等价性**：
    ```bash
-   python Model_AIIC_onnx/verify_onnx_mode_equivalence.py
+   python ./Model_AIIC_onnx/verify_onnx_mode_equivalence.py
    ```
 
 ---
