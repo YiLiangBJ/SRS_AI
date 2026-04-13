@@ -65,6 +65,14 @@ python ./Model_AIIC_refactor/export_onnx.py \
   --validate
 ```
 
+If you migrated an old multi-run evaluation into per-run folders and want each copied JSON to keep only one run, use:
+
+```bash
+python ./Model_AIIC_refactor/split_evaluation_results.py \
+  --input "./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/evaluations/<eval_dir>" \
+  --run_name "<run_name>"
+```
+
 ## Directory Shape
 
 ```text

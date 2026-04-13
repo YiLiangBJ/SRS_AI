@@ -107,11 +107,11 @@ class Separator1(BaseSeparatorModel):
                 self.mlp_imag = nn.Sequential(*imag_layers)
             
             def forward(self, x):
-                # x: (B, L*2) real stacked [r0,i0,r1,i1,...] in interleaved format
-                # Process directly without converting to complex
+                # x: (B, L*2) real-stacked in block format [real_part, imag_part]
+                # Process directly without converting to complex tensors
                 out_real = self.mlp_real(x)  # (B, L)
                 out_imag = self.mlp_imag(x)  # (B, L)
-                # Return in stacked format [r0,i0,r1,i1,...]
+                # Return in the same block-stacked format [real_part, imag_part]
                 return torch.cat([out_real, out_imag], dim=-1)  # (B, L*2)
         
         return DualPathMLP(seq_len, hidden_dim, mlp_depth)

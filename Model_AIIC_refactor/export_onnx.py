@@ -1,7 +1,6 @@
 """Thin CLI entrypoint for the ONNX export workflow."""
 
 import argparse
-from pathlib import Path
 
 from utils import discover_run_dirs
 from workflows.export_workflow import validate_exported_model, export_run_to_onnx, export_runs_to_onnx

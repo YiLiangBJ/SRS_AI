@@ -5,7 +5,7 @@ thisDir = fileparts(mfilename('fullpath'));
 addpath(thisDir);
 
 % Point this to a separator1 Matlab bundle export directory.
-exportDir = "./Model_AIIC_refactor/experiments_refactored/20260413_031523_quick_separator1/separator1_small_hd32_stages2_depth3_share0/matlab_exports/separator1_small_hd32_stages2_depth3_share0";
+exportDir = "./Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_exports/separator1_grid_search_6ports_hd16_stages2_depth3_share0";
 
 bundle = import_refactor_matlab_bundle(exportDir);
 [outputData, debug] = predict_refactor_separator1_bundle_explicit(bundle, bundle.weights.sample_input);

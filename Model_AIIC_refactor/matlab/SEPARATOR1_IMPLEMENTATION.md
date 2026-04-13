@@ -34,6 +34,36 @@ The naming means:
 - `real` or `imag`: branch
 - `l01`: layer 1 inside that branch MLP
 
+## Tensor Shapes
+
+For separator1, keep these shapes in mind:
+
+- mixed input: `N x (2*seq_len)`
+- one branch hidden layer: `N x hidden_dim`
+- one branch final layer: `N x seq_len`
+- one port output: `N x (2*seq_len)`
+- all ports in one stage: `N x num_ports x (2*seq_len)`
+
+For the common 6-port setup in this repo:
+
+- `seq_len = 12`
+- input width = `24`
+- output width per port = `24`
+
+If `mlp_depth = 3`, each branch has:
+
+- layer 1: `24 -> hidden_dim`
+- layer 2: `hidden_dim -> hidden_dim`
+- layer 3: `hidden_dim -> 12`
+
+The final separator output for one port is built as:
+
+```text
+[real_out, imag_out]
+```
+
+This is block-stacked, not interleaved.
+
 ## Forward Structure
 
 For one port in one stage, Matlab computes:
@@ -48,6 +78,18 @@ imag_2 = ReLU(imag_1 * W_imag_2^T + b_imag_2)
 imag_out = imag_2 * W_imag_3^T + b_imag_3
 
 port_output = [real_out, imag_out]
+```
+
+That means the bundle and Matlab reference both use:
+
+```text
+[real_0 ... real_(L-1), imag_0 ... imag_(L-1)]
+```
+
+and not:
+
+```text
+[real_0, imag_0, real_1, imag_1, ...]
 ```
 
 Then the stage performs residual refinement:
@@ -85,6 +127,16 @@ It also stores debug information in:
 `debug.port_layer_outputs{stageIdx, portIdx}{layerIdx, 1}` is the real-branch output.
 
 `debug.port_layer_outputs{stageIdx, portIdx}{layerIdx, 2}` is the imag-branch output.
+
+## Suggested Re-implementation Order
+
+If another team is rewriting separator1 in Matlab or C, this is the safest order:
+
+1. Load one exported bundle and verify `reference_output` with the provided Matlab explicit helper.
+2. Re-implement one branch MLP as repeated `y = xW^T + b`, then ReLU on non-final layers.
+3. Re-implement one full port as `real_branch + imag_branch` concatenation.
+4. Re-implement one stage as all ports plus residual refinement.
+5. Repeat stages and compare against `debug.stage_outputs`.
 
 ## Recommendation
 
