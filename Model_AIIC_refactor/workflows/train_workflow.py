@@ -10,6 +10,7 @@ from models import create_model, list_models
 from training import Trainer
 from utils import (
     build_experiment_suite,
+    default_refactor_experiments_root,
     get_device,
     print_device_info,
     parse_snr_config,
@@ -291,6 +292,8 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
 def run_training_experiment(request):
     """Run a named experiment through the full training workflow."""
     config_dir = Path(__file__).resolve().parent.parent / 'configs'
+    if not request.save_dir:
+        request.save_dir = str(default_refactor_experiments_root())
     suite = build_experiment_suite(
         config_dir=config_dir,
         batch_size_override=request.batch_size,
@@ -362,7 +365,9 @@ def run_training_experiment(request):
         if training_summary.postprocess.plot_output_dir:
             print(f"  Plots:      {training_summary.postprocess.plot_output_dir}")
     if training_summary.postprocess and training_summary.postprocess.onnx_manifests:
-        print(f"  ONNX:       {training_summary.experiment_output_dir / 'onnx_exports'}")
+        print(f"  ONNX:       per-run onnx_exports/ under selected run directories")
+    if training_summary.postprocess and training_summary.postprocess.matlab_manifests:
+        print(f"  Matlab:     per-run matlab_exports/ under selected run directories")
     print(f"{'='*80}\n")
 
     return training_summary

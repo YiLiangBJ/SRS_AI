@@ -46,6 +46,7 @@ from .run_artifacts import (
 from .run_selection import (
     split_csv_arg,
     resolve_existing_path,
+    default_refactor_experiments_root,
     discover_run_dirs,
     resolve_run_selection,
 )
@@ -90,6 +91,7 @@ __all__ = [
     'build_dummy_input',
     'split_csv_arg',
     'resolve_existing_path',
+    'default_refactor_experiments_root',
     'discover_run_dirs',
     'resolve_run_selection',
 ]

@@ -14,7 +14,7 @@ class TrainRequest:
     batch_size: Optional[int] = None
     num_batches: Optional[int] = None
     device: str = 'auto'
-    save_dir: str = './experiments_refactored'
+    save_dir: str = ''
     use_amp: bool = True
     compile_model: Optional[bool] = None
     eval_after_train: bool = False
@@ -30,6 +30,10 @@ class TrainRequest:
     onnx_batch_size: int = 1
     onnx_dynamic_batch: bool = False
     onnx_validate: bool = False
+    export_matlab_after_train: bool = False
+    matlab_export_selection: str = 'best'
+    matlab_output_dir: Optional[str] = None
+    matlab_batch_size: int = 2
     plan_only: bool = False
 
     @classmethod
@@ -43,6 +47,7 @@ class PostprocessSummary:
     """Outputs created after training."""
 
     onnx_manifests: List[Dict[str, Any]] = field(default_factory=list)
+    matlab_manifests: List[Dict[str, Any]] = field(default_factory=list)
     evaluation_output_dir: Optional[Path] = None
     evaluation_results: Optional[Dict[str, Any]] = None
     plot_output_dir: Optional[Path] = None

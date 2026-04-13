@@ -22,7 +22,7 @@ This creates a timestamped experiment directory under `experiments_refactored/`.
 
 ```bash
 python ./Model_AIIC_refactor/evaluate_models_refactored.py \
-  --exp_dir "./experiments_refactored/20260409_000000_compare_default_models" \
+  --exp_dir "./Model_AIIC_refactor/experiments_refactored/20260409_000000_compare_default_models" \
   --device cuda \
   --snr_range "30:-3:0" \
   --tdl "A-30,B-100,C-300" \
@@ -33,7 +33,7 @@ python ./Model_AIIC_refactor/evaluate_models_refactored.py \
 This writes one evaluation run under:
 
 ```text
-experiments_refactored/<timestamp>_<experiment_name>/evaluations/<timestamp>_<scope>/
+Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/evaluations/<timestamp>_<scope>/
 ```
 
 so different SNR / TDL / run selections do not overwrite each other.
@@ -42,7 +42,7 @@ so different SNR / TDL / run selections do not overwrite each other.
 
 ```bash
 python ./Model_AIIC_refactor/plot.py \
-  --input "./experiments_refactored/20260409_000000_compare_default_models"
+  --input "./Model_AIIC_refactor/experiments_refactored/20260409_000000_compare_default_models"
 ```
 
 `plot.py` now accepts any of these as `--input`:
@@ -59,9 +59,8 @@ You can also export ONNX after training:
 
 ```bash
 python ./Model_AIIC_refactor/export_onnx.py \
-  --exp_dir "./experiments_refactored/20260409_000000_compare_default_models" \
+  --exp_dir "./Model_AIIC_refactor/experiments_refactored/20260409_000000_compare_default_models" \
   --runs separator2_default_hd64_stages3_depth3 \
-  --output "./experiments_refactored/20260409_000000_compare_default_models/onnx_exports" \
   --dynamic_batch \
   --validate
 ```

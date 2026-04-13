@@ -154,6 +154,9 @@ def resolve_evaluation_output_dir(explicit_output=None, exp_dir: Path | None = N
 
     evaluation_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_build_evaluation_scope_label(model_dirs)}"
 
+    if model_dirs and len(model_dirs) == 1:
+        return Path(model_dirs[0]) / 'evaluations' / evaluation_name
+
     if exp_dir is not None:
         return Path(exp_dir) / 'evaluations' / evaluation_name
 

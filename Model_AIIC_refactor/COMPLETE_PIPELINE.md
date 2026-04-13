@@ -53,18 +53,27 @@ python ./Model_AIIC_refactor/train.py \
 ## Output Layout
 
 ```text
-experiments_refactored/
-  <timestamp>_<experiment_name>/
-    <run_name>/
-      model.pth
-      config.yaml
-      tensorboard/
-    TRAINING_REPORT.md
-    evaluations/
-      <timestamp>_<scope>/
-        evaluation_results.json
-        evaluation_results.npy
-        plots/
+Model_AIIC_refactor/
+  experiments_refactored/
+    <timestamp>_<experiment_name>/
+      <run_name>/
+        model.pth
+        config.yaml
+        tensorboard/
+        evaluations/
+          <timestamp>_<scope>/
+            evaluation_results.json
+            evaluation_results.npy
+            plots/
+        onnx_exports/
+          <run_name>/
+            <run_name>.onnx
+            export_manifest.json
+        matlab_exports/
+          <run_name>/
+            matlab_model_bundle.mat
+            matlab_model_bundle_manifest.json
+      TRAINING_REPORT.md
 ```
 
 ## Runtime Terms
@@ -100,6 +109,10 @@ experiments_refactored/
 | --onnx_batch_size | Dummy batch size used for tracing |
 | --onnx_dynamic_batch | Export a dynamic batch dimension |
 | --onnx_validate | Run ONNX checker and ORT smoke validation |
+| --export_matlab_after_train | Export trained runs to Matlab explicit-weight bundles after training |
+| --matlab_export_selection | Export `best` or `all` runs as Matlab bundles |
+| --matlab_output_dir | Matlab bundle output directory |
+| --matlab_batch_size | Reference batch size stored in Matlab bundle sample_input/reference_output |
 | --plan_only | Print the run plan and exit |
 
 ## Benchmark CLI
@@ -160,9 +173,8 @@ python ./Model_AIIC_refactor/train.py \
 
 ```bash
 python ./Model_AIIC_refactor/export_onnx.py \
-  --exp_dir experiments_refactored/<timestamp>_<experiment_name> \
+  --exp_dir Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name> \
   --runs separator2_default_hd64_stages3_depth3 \
-  --output onnx_exports \
   --opset 13 \
   --dynamic_batch \
   --validate
@@ -171,7 +183,7 @@ python ./Model_AIIC_refactor/export_onnx.py \
 ### Export output layout
 
 ```text
-onnx_exports/
+<run_dir>/onnx_exports/
   <run_name>/
     <run_name>.onnx
     export_manifest.json
@@ -192,6 +204,39 @@ For a complete import plus inference example, use `matlab/demo_refactor_onnx_inf
 ```matlab
 [net, inputData, outputData, manifest] = demo_refactor_onnx_inference("onnx_exports/my_run", 2);
 ```
+
+For a script-style demo, edit and run `matlab/run_refactor_onnx_demo.m`.
+
+For one unified Matlab entry that works for both ONNX and non-ONNX bundle imports, use `matlab/import_refactor_model.m`, `matlab/demo_refactor_model_inference.m`, and `matlab/run_refactor_model_demo.m`.
+
+### Direct Matlab bundle export without ONNX
+
+If the Matlab side needs explicit matrices and activations rather than an ONNX graph, export a Matlab bundle from an existing trained run:
+
+```bash
+python ./Model_AIIC_refactor/export_matlab_bundle.py \
+  --run_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name> \
+  --batch_size 2
+```
+
+This writes:
+
+```text
+<run_dir>/matlab_exports/
+  <run_name>/
+    matlab_model_bundle.mat
+    matlab_model_bundle_manifest.json
+```
+
+In Matlab, use:
+
+```matlab
+[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../matlab_exports/my_run", "bundle", 2);
+```
+
+For a script-style demo, edit and run `matlab/run_refactor_model_demo.m` or `matlab/run_refactor_matlab_bundle_demo.m`.
+
+For the full handoff guide, including how to start from a run directory when you only know where the model is stored, see `matlab/README.md`.
 
 The exported ONNX model uses:
 
@@ -274,7 +319,7 @@ This is a practical research-friendly structure:
 
 ```bash
 python ./Model_AIIC_refactor/evaluate_models_refactored.py \
-    --exp_dir "./experiments_refactored/separator1_default_training" \
+    --exp_dir "./Model_AIIC_refactor/experiments_refactored/separator1_default_training" \
   --device cuda
 ```
 
@@ -282,7 +327,7 @@ python ./Model_AIIC_refactor/evaluate_models_refactored.py \
 
 ```bash
 python ./Model_AIIC_refactor/evaluate_models_refactored.py \
-    --exp_dir "./experiments_refactored/separator1_default_training" \
+  --exp_dir "./Model_AIIC_refactor/experiments_refactored/separator1_default_training" \
     --runs "separator1_default_hd64_stages2_depth3,separator2_default_hd64_stages3_depth3" \
     --device cuda
 ```
@@ -292,7 +337,7 @@ python ./Model_AIIC_refactor/evaluate_models_refactored.py \
 默认会写到：
 
 ```text
-./experiments_refactored/separator1_default_training/evaluations/<timestamp>_<scope>/
+./Model_AIIC_refactor/experiments_refactored/separator1_default_training/evaluations/<timestamp>_<scope>/
 ```
 
 这样重复评估不同模型组合、不同 SNR 范围、不同 TDL 配置时不会互相覆盖。
@@ -301,7 +346,7 @@ python ./Model_AIIC_refactor/evaluate_models_refactored.py \
 
 ```bash
 python ./Model_AIIC_refactor/plot.py \
-  --input "./experiments_refactored/separator1_default_training"
+  --input "./Model_AIIC_refactor/experiments_refactored/separator1_default_training"
 ```
 
 `plot.py` 的 `--input` 支持三种形式：
@@ -422,12 +467,12 @@ python ./Model_AIIC_refactor/train.py \
 
 # 1. 评估已训练的模型
 python ./Model_AIIC_refactor/evaluate_models_refactored.py \
-    --exp_dir "./experiments_refactored/20260409_033734_default_6port_separator1" \
+  --exp_dir "./Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1" \
     --device cuda
 
 # 2. 生成图表
 python ./Model_AIIC_refactor/plot.py \
-  --input "./experiments_refactored/20260409_033734_default_6port_separator1/evaluations/20260409_063011_4-runs"
+  --input "./Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/evaluations/20260409_063011_4-runs"
 ```
 
 ---

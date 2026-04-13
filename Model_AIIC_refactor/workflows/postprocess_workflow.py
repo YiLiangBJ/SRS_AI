@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .evaluation_workflow import evaluate_models_programmatic, resolve_evaluation_output_dir
 from .export_workflow import export_runs_to_onnx
+from .matlab_export_workflow import export_runs_to_matlab_bundle
 from .plotting_workflow import generate_plots_programmatic
 from .types import PostprocessSummary
 
@@ -24,13 +25,8 @@ def run_post_training_pipeline(training_summary):
             if request.onnx_export_selection == 'best'
             else [result['run_name'] for result in training_summary.results_sorted]
         )
-        onnx_output_dir = (
-            Path(request.onnx_output_dir)
-            if request.onnx_output_dir
-            else training_summary.experiment_output_dir / 'onnx_exports'
-        )
         summary.onnx_manifests = export_runs_to_onnx(
-            output_root=onnx_output_dir,
+            output_root=Path(request.onnx_output_dir) if request.onnx_output_dir else None,
             exp_dir=training_summary.experiment_output_dir,
             runs=','.join(export_run_names),
             opset_version=request.onnx_opset,
@@ -38,9 +34,30 @@ def run_post_training_pipeline(training_summary):
             dynamic_batch=request.onnx_dynamic_batch,
             validate=request.onnx_validate,
         )
-        print(f"✓ ONNX export completed: {onnx_output_dir}")
+        print(f"✓ ONNX export completed")
         for manifest in summary.onnx_manifests:
             print(f"  - {manifest['run_name']}: {manifest['onnx_path']}")
+
+    if request.export_matlab_after_train and training_summary.results_sorted:
+        print(f"\n{'='*80}")
+        print("📦 Matlab Bundle Export")
+        print(f"{'='*80}")
+
+        export_run_names = (
+            [training_summary.results_sorted[0]['run_name']]
+            if request.matlab_export_selection == 'best'
+            else [result['run_name'] for result in training_summary.results_sorted]
+        )
+        summary.matlab_manifests = export_runs_to_matlab_bundle(
+            output_root=Path(request.matlab_output_dir) if request.matlab_output_dir else None,
+            exp_dir=training_summary.experiment_output_dir,
+            runs=','.join(export_run_names),
+            batch_size=request.matlab_batch_size,
+        )
+        print(f"✓ Matlab bundle export completed")
+        for manifest in summary.matlab_manifests:
+            manifest_dir = Path(manifest['run_dir']) / 'matlab_exports' / manifest['run_name'] if not request.matlab_output_dir else Path(request.matlab_output_dir) / manifest['run_name']
+            print(f"  - {manifest['run_name']}: {manifest_dir}")
 
     if request.eval_after_train:
         print(f"\n{'='*80}")

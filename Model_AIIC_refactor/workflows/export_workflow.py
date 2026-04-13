@@ -52,7 +52,7 @@ def validate_exported_model(
 
 def export_run_to_onnx(
     run_dir,
-    output_root,
+    output_root=None,
     opset_version: int = 13,
     batch_size: int = 1,
     dynamic_batch: bool = False,
@@ -63,7 +63,10 @@ def export_run_to_onnx(
     model, artifacts = load_trained_model_from_run(run_dir, device='cpu')
     model = _prepare_model_for_export(model)
 
-    output_root = Path(output_root)
+    if output_root is None:
+        output_root = artifacts.run_dir / 'onnx_exports'
+    else:
+        output_root = Path(output_root)
     run_output_dir = output_root / artifacts.run_dir.name
     run_output_dir.mkdir(parents=True, exist_ok=True)
 

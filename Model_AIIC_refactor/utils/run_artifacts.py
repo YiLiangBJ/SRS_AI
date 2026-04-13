@@ -16,6 +16,30 @@ except ImportError:
 REQUIRED_MODEL_SPEC_FIELDS = ('model_type', 'pos_values', 'seq_len')
 
 
+def _first_non_empty(mapping: Dict[str, Any], *keys: str) -> Dict[str, Any]:
+    """Return the first non-empty dictionary-like payload from the given keys."""
+    for key in keys:
+        value = mapping.get(key)
+        if value:
+            return value
+    return {}
+
+
+def _normalize_legacy_metadata(metadata: Dict[str, Any], run_dir: Path) -> Dict[str, Any]:
+    """Map older metadata field names into the canonical refactor schema."""
+    resolved = dict(metadata or {})
+    if not resolved:
+        return {}
+
+    resolved.setdefault('run_name', resolved.get('config_instance_name') or run_dir.name)
+    resolved.setdefault('model_recipe_name', resolved.get('model_config_name'))
+    resolved.setdefault('training_recipe_name', resolved.get('training_config_name'))
+    resolved.setdefault('model_label', resolved.get('model_label') or resolved.get('model_config_name'))
+    resolved.setdefault('training_label', resolved.get('training_label') or resolved.get('training_config_name'))
+    resolved.setdefault('experiment_name', resolved.get('experiment_name'))
+    return resolved
+
+
 @dataclass(frozen=True)
 class RunArtifacts:
     """Resolved metadata and checkpoint assets for a trained run."""
@@ -140,7 +164,7 @@ def load_run_artifacts(
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    model_spec = config_data.get('model_spec') or checkpoint.get('model_spec') or {}
+    model_spec = _first_non_empty(config_data, 'model_spec', 'model_config') or checkpoint.get('model_spec') or {}
     if not model_spec:
         raise KeyError(
             f"Checkpoint missing 'model_spec' in {checkpoint_path}. Retrain with the current training pipeline."
@@ -154,8 +178,11 @@ def load_run_artifacts(
         model_spec,
         num_params=checkpoint.get('model_info', {}).get('num_params') or model_spec.get('num_params'),
     )
-    training_spec = config_data.get('training_spec') or checkpoint.get('training_spec') or {}
-    metadata = config_data.get('metadata') or checkpoint.get('metadata') or {}
+    training_spec = _first_non_empty(config_data, 'training_spec', 'training_config') or checkpoint.get('training_spec') or {}
+    metadata = _normalize_legacy_metadata(
+        _first_non_empty(config_data, 'metadata') or checkpoint.get('metadata') or {},
+        run_dir=run_dir,
+    )
     eval_results = checkpoint.get('eval_results', {})
 
     return RunArtifacts(

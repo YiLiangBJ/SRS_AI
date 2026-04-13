@@ -10,6 +10,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 
 
+def default_refactor_experiments_root() -> Path:
+    """Return the default directory where refactor artifacts should live."""
+    return PACKAGE_ROOT / 'experiments_refactored'
+
+
 def split_csv_arg(value: Optional[Union[str, Iterable[str]]]) -> Optional[List[str]]:
     """Split a comma-separated CLI argument into a cleaned list."""
     if value is None:
