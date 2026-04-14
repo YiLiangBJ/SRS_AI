@@ -83,8 +83,8 @@
                 // ,"--run_dirs", "./run_a,./run_b"
                 // ,"--batches_per_snr", "50"
                 // ,"--output", "./evaluations/custom_eval"
-                // ,"--no-amp"
-                // ,"--no-compile"
+                ,"--no-amp"
+                ,"--no-compile"
                 // ,"--list_runs"
             ]
         }
