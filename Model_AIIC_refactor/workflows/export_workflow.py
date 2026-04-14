@@ -55,7 +55,7 @@ def export_run_to_onnx(
     output_root=None,
     opset_version: int = 13,
     batch_size: int = 1,
-    dynamic_batch: bool = False,
+    dynamic_batch: bool = True,
     validate: bool = False,
     export_params: bool = True,
 ) -> Dict[str, object]:
@@ -136,7 +136,7 @@ def export_runs_to_onnx(
     runs=None,
     opset_version: int = 13,
     batch_size: int = 1,
-    dynamic_batch: bool = False,
+    dynamic_batch: bool = True,
     validate: bool = False,
 ) -> List[Dict[str, object]]:
     """Programmatic multi-run ONNX export entry point."""

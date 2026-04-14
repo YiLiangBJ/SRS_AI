@@ -1,0 +1,32 @@
+metadata:
+  config_instance_name: separator1_small_hd32_stages2_depth3_share0
+  model_config_name: separator1_small
+  timestamp: '2025-12-15T13:56:00.582351'
+  training_config_name: quick_test
+  training_duration: 5.028793573379517
+model_config:
+  activation_type: relu
+  hidden_dim: 32
+  mlp_depth: 3
+  model_type: separator1
+  num_params: 36032
+  num_ports: 4
+  num_stages: 2
+  pos_values:
+  - 0
+  - 3
+  - 6
+  - 9
+  seq_len: 12
+  share_weights_across_stages: false
+training_config:
+  batch_size: 32
+  learning_rate: 0.01
+  loss_type: nmse
+  num_batches: 250
+  snr_config:
+    max: 20
+    min: 10
+    per_sample: false
+    type: range
+  tdl_config: A-30

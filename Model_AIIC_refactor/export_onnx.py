@@ -17,7 +17,10 @@ def build_parser():
     parser.add_argument('--output', type=str, default=None, help='Directory where exported ONNX artifacts are written (default: each run directory under onnx_exports/)')
     parser.add_argument('--opset', type=int, default=13, help='ONNX opset version (13 is a Matlab-friendly default)')
     parser.add_argument('--batch_size', type=int, default=1, help='Dummy batch size used for export tracing')
-    parser.add_argument('--dynamic_batch', action='store_true', help='Export with a dynamic batch dimension')
+    dynamic_group = parser.add_mutually_exclusive_group()
+    dynamic_group.add_argument('--dynamic_batch', dest='dynamic_batch', action='store_true', help='Export with a dynamic batch dimension (default)')
+    dynamic_group.add_argument('--fixed_batch', dest='dynamic_batch', action='store_false', help='Export with a fixed batch dimension')
+    parser.set_defaults(dynamic_batch=True)
     parser.add_argument('--validate', action='store_true', help='Run ONNX checker and ONNX Runtime smoke validation after export')
     return parser
 

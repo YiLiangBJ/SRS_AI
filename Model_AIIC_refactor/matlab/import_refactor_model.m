@@ -30,6 +30,10 @@ switch resolvedMode
     otherwise
         error("import_refactor_model:UnsupportedMode", "Unsupported mode: %s", resolvedMode);
 end
+
+modelHandle.io_spec = describe_refactor_model_io(modelHandle.manifest, modelHandle.mode, false);
+modelHandle.prepare_input = @(inputData) prepare_refactor_input(modelHandle, inputData, modelHandle.mode);
+modelHandle.predict = @(inputData) predict_refactor_model(modelHandle, inputData);
 end
 
 function resolvedMode = local_resolve_mode(exportDir, mode)

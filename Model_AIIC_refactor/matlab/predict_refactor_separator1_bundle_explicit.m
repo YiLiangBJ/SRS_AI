@@ -47,7 +47,7 @@ end
 
 features = repmat(reshape(inputData, [batchSize, 1, seqLen * 2]), [1, numPorts, 1]);
 stageOutputs = cell(numStages, 1);
-portOutputs = cell(numStages, numPorts);
+layerTraces = cell(numStages, numPorts);
 
 for stageIdx = 1:numStages
     stageTensor = zeros(size(features), "single");
@@ -58,7 +58,7 @@ for stageIdx = 1:numStages
         % separator1 uses two real MLP branches fed by the same real-stacked input.
         realBranch = portInput;
         imagBranch = portInput;
-        layerTrace = cell(numLayers, 2);
+        layerTrace = cell(numLayers, 1);
 
         for layerIdx = 1:numLayers
             realPrefix = sprintf('p%02d_s%02d_real_l%02d', portIdx, stageIdx, layerIdx);
@@ -70,24 +70,42 @@ for stageIdx = 1:numStages
             imagBias = single(weights.([imagPrefix '_bias']));
 
             % Dense layer: y = xW^T + b
-            realBranch = realBranch * realWeight.' + realBias;
-            imagBranch = imagBranch * imagWeight.' + imagBias;
+            realInput = realBranch;
+            imagInput = imagBranch;
+            realAffine = realInput * realWeight.' + realBias;
+            imagAffine = imagInput * imagWeight.' + imagBias;
+
+            realBranch = realAffine;
+            imagBranch = imagAffine;
 
             if layerIdx < numLayers
                 realBranch = max(realBranch, 0);
                 imagBranch = max(imagBranch, 0);
             end
 
-            layerTrace{layerIdx, 1} = realBranch;
-            layerTrace{layerIdx, 2} = imagBranch;
+            layerTrace{layerIdx} = struct( ...
+                'layer_index', layerIdx, ...
+                'real_prefix', realPrefix, ...
+                'imag_prefix', imagPrefix, ...
+                'real_input', realInput, ...
+                'imag_input', imagInput, ...
+                'real_weight', realWeight, ...
+                'imag_weight', imagWeight, ...
+                'real_bias', realBias, ...
+                'imag_bias', imagBias, ...
+                'real_affine', realAffine, ...
+                'imag_affine', imagAffine, ...
+                'real_post_activation', realBranch, ...
+                'imag_post_activation', imagBranch ...
+                );
         end
 
         portOutput = [realBranch, imagBranch];
         stageTensor(:, portIdx, :) = reshape(portOutput, [batchSize, 1, seqLen * 2]);
-        portOutputs{stageIdx, portIdx} = layerTrace;
+        layerTraces{stageIdx, portIdx} = layerTrace;
     end
 
-    yRecon = squeeze(sum(stageTensor, 2));
+    yRecon = reshape(sum(stageTensor, 2), [batchSize, seqLen * 2]);
     residual = inputData - yRecon;
     features = stageTensor + repmat(reshape(residual, [batchSize, 1, seqLen * 2]), [1, numPorts, 1]);
     stageOutputs{stageIdx} = features;
@@ -95,6 +113,8 @@ end
 
 outputData = features;
 debug = struct();
+debug.model_type = "separator1";
 debug.stage_outputs = stageOutputs;
-debug.port_layer_outputs = portOutputs;
+debug.stage_port_layer_traces = layerTraces;
+debug.port_layer_outputs = layerTraces;
 end

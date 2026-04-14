@@ -1,0 +1,37 @@
+metadata:
+  config_instance_name: separator1_grid_search_4ports_hd16_stages2_depth3_share0
+  model_config_name: separator1_grid_search_4ports
+  timestamp: '2026-01-15T16:15:34.050789'
+  training_config_name: snr_range_0_30_perSample
+  training_duration: 9.38114881515503
+model_config:
+  activation_type: relu
+  hidden_dim: 16
+  mlp_depth: 3
+  model_type: separator1
+  num_params: 14016
+  num_ports: 4
+  num_stages: 2
+  pos_values:
+  - 0
+  - 3
+  - 6
+  - 9
+  seq_len: 12
+  share_weights_across_stages: false
+training_config:
+  batch_size: 4096
+  learning_rate: 0.01
+  loss_type: log
+  num_batches: 100
+  snr_config:
+    max: 30
+    min: 0
+    num_bins: 10
+    per_sample: true
+    sampling: stratified
+    type: range
+  tdl_config:
+  - A-30
+  - B-100
+  - C-300

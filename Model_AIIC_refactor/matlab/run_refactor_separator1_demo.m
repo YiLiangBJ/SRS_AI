@@ -24,4 +24,5 @@ if isfield(bundle.weights, "reference_output")
     disp("  Max abs diff vs reference_output: " + string(maxAbsDiff));
 end
 
-disp("  See debug.port_layer_outputs for per-layer branch outputs.");
+disp("  See debug.stage_port_layer_traces for per-layer Wx+b traces.");
+disp("  debug.port_layer_outputs is kept as a backward-compatible alias.");

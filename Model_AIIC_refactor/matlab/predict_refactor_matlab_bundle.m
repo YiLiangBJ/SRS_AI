@@ -36,18 +36,20 @@ if size(inputData, 2) ~= expectedWidth
         "Expected input width %d, got %d.", expectedWidth, size(inputData, 2));
 end
 
+collectDetailedDebug = nargout > 1;
+
 switch string(modelSpec.model_type)
     case "separator2"
-        [outputData, debug] = local_forward_separator2(weights, modelSpec, inputData);
+        [outputData, debug] = local_forward_separator2(weights, modelSpec, inputData, collectDetailedDebug);
     case "separator1"
-        [outputData, debug] = local_forward_separator1(weights, modelSpec, inputData);
+        [outputData, debug] = local_forward_separator1(weights, modelSpec, inputData, collectDetailedDebug);
     otherwise
         error("predict_refactor_matlab_bundle:UnsupportedModel", ...
             "Unsupported model_type: %s", string(modelSpec.model_type));
 end
 end
 
-function [outputData, debug] = local_forward_separator2(weights, modelSpec, inputData)
+function [outputData, debug] = local_forward_separator2(weights, modelSpec, inputData, collectDetailedDebug)
 numPorts = double(modelSpec.num_ports);
 numStages = double(modelSpec.num_stages);
 numLayers = double(modelSpec.mlp_depth);
@@ -57,34 +59,57 @@ activationType = string(modelSpec.activation_type);
 batchSize = size(inputData, 1);
 features = repmat(reshape(inputData, [batchSize, 1, size(inputData, 2)]), [1, numPorts, 1]);
 stageOutputs = cell(numStages, 1);
+layerTraces = cell(numStages, numPorts);
 
 for stageIdx = 1:numStages
     newFeatures = zeros(size(features), "single");
     for portIdx = 1:numPorts
         x = reshape(features(:, portIdx, :), batchSize, []);
+        if collectDetailedDebug
+            portLayerTrace = cell(numLayers, 1);
+        end
         for layerIdx = 1:numLayers
             prefix = local_separator2_prefix(portIdx, stageIdx, layerIdx);
-            weightReal = single(weights.([prefix "_weight_real"]));
-            weightImag = single(weights.([prefix "_weight_imag"]));
-            biasReal = single(weights.([prefix "_bias_real"]));
-            biasImag = single(weights.([prefix "_bias_imag"]));
+            weightReal = single(weights.([prefix '_weight_real']));
+            weightImag = single(weights.([prefix '_weight_imag']));
+            biasReal = single(weights.([prefix '_bias_real']));
+            biasImag = single(weights.([prefix '_bias_imag']));
 
             inFeatures = size(weightReal, 2);
             xReal = x(:, 1:inFeatures);
             xImag = x(:, inFeatures + 1:end);
 
-            yReal = xReal * weightReal.' - xImag * weightImag.' + biasReal;
-            yImag = xReal * weightImag.' + xImag * weightReal.' + biasImag;
-            x = [yReal, yImag];
+            affineReal = xReal * weightReal.' - xImag * weightImag.' + biasReal;
+            affineImag = xReal * weightImag.' + xImag * weightReal.' + biasImag;
+            x = [affineReal, affineImag];
 
             if layerIdx < numLayers
-                x = local_apply_complex_activation(x, size(yReal, 2), activationType);
+                x = local_apply_complex_activation(x, size(affineReal, 2), activationType);
+            end
+
+            if collectDetailedDebug
+                portLayerTrace{layerIdx} = struct( ...
+                    'layer_index', layerIdx, ...
+                    'prefix', prefix, ...
+                    'x_real', xReal, ...
+                    'x_imag', xImag, ...
+                    'weight_real', weightReal, ...
+                    'weight_imag', weightImag, ...
+                    'bias_real', biasReal, ...
+                    'bias_imag', biasImag, ...
+                    'affine_real', affineReal, ...
+                    'affine_imag', affineImag, ...
+                        'post_activation', x ...
+                    );
             end
         end
         newFeatures(:, portIdx, :) = reshape(x, [batchSize, 1, seqLen * 2]);
+        if collectDetailedDebug
+            layerTraces{stageIdx, portIdx} = portLayerTrace;
+        end
     end
 
-    yRecon = squeeze(sum(newFeatures, 2));
+    yRecon = reshape(sum(newFeatures, 2), [batchSize, size(inputData, 2)]);
     residual = inputData - yRecon;
     features = newFeatures + repmat(reshape(residual, [batchSize, 1, size(residual, 2)]), [1, numPorts, 1]);
     stageOutputs{stageIdx} = features;
@@ -93,9 +118,13 @@ end
 outputData = features;
 debug = struct();
 debug.stage_outputs = stageOutputs;
+debug.model_type = "separator2";
+if collectDetailedDebug
+    debug.stage_port_layer_traces = layerTraces;
+end
 end
 
-function [outputData, debug] = local_forward_separator1(weights, modelSpec, inputData)
+function [outputData, debug] = local_forward_separator1(weights, modelSpec, inputData, collectDetailedDebug)
 numPorts = double(modelSpec.num_ports);
 numStages = double(modelSpec.num_stages);
 numLayers = double(modelSpec.mlp_depth);
@@ -104,6 +133,7 @@ seqLen = double(modelSpec.seq_len);
 batchSize = size(inputData, 1);
 features = repmat(reshape(inputData, [batchSize, 1, size(inputData, 2)]), [1, numPorts, 1]);
 stageOutputs = cell(numStages, 1);
+layerTraces = cell(numStages, numPorts);
 
 for stageIdx = 1:numStages
     newFeatures = zeros(size(features), "single");
@@ -111,30 +141,59 @@ for stageIdx = 1:numStages
         x = reshape(features(:, portIdx, :), batchSize, []);
         realBranch = x;
         imagBranch = x;
+        if collectDetailedDebug
+            portLayerTrace = cell(numLayers, 1);
+        end
 
         for layerIdx = 1:numLayers
             realPrefix = local_separator1_prefix(portIdx, stageIdx, "real", layerIdx);
             imagPrefix = local_separator1_prefix(portIdx, stageIdx, "imag", layerIdx);
 
-            realWeight = single(weights.([realPrefix "_weight"]));
-            realBias = single(weights.([realPrefix "_bias"]));
-            imagWeight = single(weights.([imagPrefix "_weight"]));
-            imagBias = single(weights.([imagPrefix "_bias"]));
+            realWeight = single(weights.([realPrefix '_weight']));
+            realBias = single(weights.([realPrefix '_bias']));
+            imagWeight = single(weights.([imagPrefix '_weight']));
+            imagBias = single(weights.([imagPrefix '_bias']));
 
-            realBranch = realBranch * realWeight.' + realBias;
-            imagBranch = imagBranch * imagWeight.' + imagBias;
+            realInput = realBranch;
+            imagInput = imagBranch;
+            realAffine = realInput * realWeight.' + realBias;
+            imagAffine = imagInput * imagWeight.' + imagBias;
+
+            realBranch = realAffine;
+            imagBranch = imagAffine;
 
             if layerIdx < numLayers
                 realBranch = max(realBranch, 0);
                 imagBranch = max(imagBranch, 0);
             end
+
+            if collectDetailedDebug
+                portLayerTrace{layerIdx} = struct( ...
+                    'layer_index', layerIdx, ...
+                    'real_prefix', realPrefix, ...
+                    'imag_prefix', imagPrefix, ...
+                    'real_input', realInput, ...
+                    'imag_input', imagInput, ...
+                    'real_weight', realWeight, ...
+                    'imag_weight', imagWeight, ...
+                    'real_bias', realBias, ...
+                    'imag_bias', imagBias, ...
+                    'real_affine', realAffine, ...
+                    'imag_affine', imagAffine, ...
+                    'real_post_activation', realBranch, ...
+                    'imag_post_activation', imagBranch ...
+                    );
+            end
         end
 
         x = [realBranch, imagBranch];
         newFeatures(:, portIdx, :) = reshape(x, [batchSize, 1, seqLen * 2]);
+        if collectDetailedDebug
+            layerTraces{stageIdx, portIdx} = portLayerTrace;
+        end
     end
 
-    yRecon = squeeze(sum(newFeatures, 2));
+    yRecon = reshape(sum(newFeatures, 2), [batchSize, size(inputData, 2)]);
     residual = inputData - yRecon;
     features = newFeatures + repmat(reshape(residual, [batchSize, 1, size(residual, 2)]), [1, numPorts, 1]);
     stageOutputs{stageIdx} = features;
@@ -143,6 +202,10 @@ end
 outputData = features;
 debug = struct();
 debug.stage_outputs = stageOutputs;
+debug.model_type = "separator1";
+if collectDetailedDebug
+    debug.stage_port_layer_traces = layerTraces;
+end
 end
 
 function x = local_apply_complex_activation(x, hiddenSize, activationType)

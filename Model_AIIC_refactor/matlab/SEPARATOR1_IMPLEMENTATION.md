@@ -122,11 +122,18 @@ It keeps the loops visible:
 It also stores debug information in:
 
 - `debug.stage_outputs`
-- `debug.port_layer_outputs`
+- `debug.stage_port_layer_traces`
+- `debug.port_layer_outputs` (backward-compatible alias)
 
-`debug.port_layer_outputs{stageIdx, portIdx}{layerIdx, 1}` is the real-branch output.
+Each `debug.stage_port_layer_traces{stageIdx, portIdx}{layerIdx}` entry stores:
 
-`debug.port_layer_outputs{stageIdx, portIdx}{layerIdx, 2}` is the imag-branch output.
+- `real_input`, `imag_input`
+- `real_weight`, `imag_weight`
+- `real_bias`, `imag_bias`
+- `real_affine`, `imag_affine`
+- `real_post_activation`, `imag_post_activation`
+
+This makes the `Wx + b` step directly visible during debugging.
 
 ## Suggested Re-implementation Order
 
@@ -136,7 +143,7 @@ If another team is rewriting separator1 in Matlab or C, this is the safest order
 2. Re-implement one branch MLP as repeated `y = xW^T + b`, then ReLU on non-final layers.
 3. Re-implement one full port as `real_branch + imag_branch` concatenation.
 4. Re-implement one stage as all ports plus residual refinement.
-5. Repeat stages and compare against `debug.stage_outputs`.
+5. Repeat stages and compare against `debug.stage_outputs` and `debug.stage_port_layer_traces`.
 
 ## Recommendation
 

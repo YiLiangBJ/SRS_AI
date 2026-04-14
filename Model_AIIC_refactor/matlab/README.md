@@ -239,6 +239,43 @@ Use `import_refactor_model.m`, `demo_refactor_model_inference.m`, and `run_refac
 - `mode = "onnx"`: force ONNX import path
 - `mode = "bundle"`: force explicit Matlab bundle path
 
+## API-Style Entry Points
+
+If you want to use these helpers as reusable APIs instead of demos, use these four functions directly:
+
+- `import_refactor_model`: import either ONNX or bundle once
+- `describe_refactor_model_io`: inspect input/output names, layouts, and dynamic dimensions
+- `prepare_refactor_input`: normalize and validate input tensors
+- `predict_refactor_model`: run unified inference on an imported handle or export directory
+
+Example:
+
+```matlab
+modelHandle = import_refactor_model(".../onnx_exports/my_run", "auto");
+ioSpec = describe_refactor_model_io(modelHandle, [], true);
+inputData = prepare_refactor_input(modelHandle, randn(3, 24, "single"));
+[outputData, debug, modelHandle] = predict_refactor_model(modelHandle, inputData);
+```
+
+The printed shape spec uses `-1` for dynamic dimensions.
+
+Examples:
+
+- dynamic ONNX input: `[-1, 24]`
+- dynamic ONNX output: `[-1, 6, 24]`
+- explicit bundle output: `[-1, 4, 24]`
+
+This is intended to make batch-dimension mismatches obvious when you move the helpers into another Matlab project.
+
+The API helpers accept:
+
+- an already imported `modelHandle`
+- a raw ONNX manifest
+- a raw Matlab bundle manifest
+- a bundle struct from `import_refactor_matlab_bundle`
+
+If you move the helper folder elsewhere, the recommended usage is still to pass an absolute export path or a path relative to the current Matlab working directory.
+
 ## Architecture Visibility In Matlab
 
 The explicit Matlab bundle path is designed to make the architecture obvious.

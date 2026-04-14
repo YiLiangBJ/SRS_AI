@@ -28,7 +28,7 @@ class TrainRequest:
     onnx_output_dir: Optional[str] = None
     onnx_opset: int = 13
     onnx_batch_size: int = 1
-    onnx_dynamic_batch: bool = False
+    onnx_dynamic_batch: bool = True
     onnx_validate: bool = False
     export_matlab_after_train: bool = False
     matlab_export_selection: str = 'best'
