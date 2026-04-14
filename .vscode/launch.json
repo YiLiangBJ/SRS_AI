@@ -53,6 +53,40 @@
                 // ,"--plan_only"
                 // ,"--onnx_output_dir", "./custom_onnx_dir"
             ]
+        },
+        {
+            "name": "Python: evaluate_models_refactored.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/evaluate_models_refactored.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--exp_dir",
+                "./experiments_refactored/20260409_033734_default_6port_separator1",
+                "--runs",
+                "separator1_grid_search_6ports_hd128_stages2_depth3_share0",
+                "--snr_range",
+                "30:-3:0",
+                "--tdl",
+                "A-30,B-100,C-300",
+                "--num_batches",
+                "100",
+                "--batch_size",
+                "2048",
+                "--device",
+                "auto"
+                // 需要时可取消下面这些注释：
+                // ,"--snr_values", "30,25,20,15,10,5,0"
+                // ,"--run_dir", "./experiments_refactored/.../your_run_name"
+                // ,"--run_dirs", "./run_a,./run_b"
+                // ,"--batches_per_snr", "50"
+                // ,"--output", "./evaluations/custom_eval"
+                // ,"--no-amp"
+                // ,"--no-compile"
+                // ,"--list_runs"
+            ]
         }
     ]
 }
