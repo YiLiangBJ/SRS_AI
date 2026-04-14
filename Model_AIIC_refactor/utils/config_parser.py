@@ -134,6 +134,8 @@ def _infer_num_ports(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     if 'pos_values' in config and 'num_ports' not in config:
         config['num_ports'] = len(config['pos_values'])
+    if 'pos_values' in config and 'normalize_energy' not in config:
+        config['normalize_energy'] = True
     return config
 
 

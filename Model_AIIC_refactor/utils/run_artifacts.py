@@ -80,6 +80,7 @@ def normalize_model_spec(model_spec: Dict[str, Any], num_params: Optional[int] =
     resolved.setdefault('share_weights_across_stages', False)
     resolved.setdefault('activation_type', 'relu')
     resolved.setdefault('onnx_mode', False)
+    resolved.setdefault('normalize_energy', False)
 
     if num_params is not None:
         resolved['num_params'] = int(num_params)

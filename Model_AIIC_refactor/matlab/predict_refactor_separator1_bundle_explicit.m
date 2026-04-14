@@ -45,7 +45,9 @@ if size(inputData, 2) ~= seqLen * 2
         "Expected input width %d, got %d.", seqLen * 2, size(inputData, 2));
 end
 
-features = repmat(reshape(inputData, [batchSize, 1, seqLen * 2]), [1, numPorts, 1]);
+[normalizedInput, inputRms, normalizationEnabled] = local_normalize_real_stacked_input(inputData, modelSpec);
+
+features = repmat(reshape(normalizedInput, [batchSize, 1, seqLen * 2]), [1, numPorts, 1]);
 stageOutputs = cell(numStages, 1);
 layerTraces = cell(numStages, numPorts);
 
@@ -106,15 +108,51 @@ for stageIdx = 1:numStages
     end
 
     yRecon = reshape(sum(stageTensor, 2), [batchSize, seqLen * 2]);
-    residual = inputData - yRecon;
+    residual = normalizedInput - yRecon;
     features = stageTensor + repmat(reshape(residual, [batchSize, 1, seqLen * 2]), [1, numPorts, 1]);
     stageOutputs{stageIdx} = features;
 end
 
-outputData = features;
+outputData = local_restore_real_stacked_output(features, inputRms, normalizationEnabled);
 debug = struct();
 debug.model_type = "separator1";
 debug.stage_outputs = stageOutputs;
 debug.stage_port_layer_traces = layerTraces;
 debug.port_layer_outputs = layerTraces;
+debug.input_rms = inputRms;
+debug.normalization_enabled = normalizationEnabled;
+debug.normalized_input = normalizedInput;
+end
+
+function [normalizedInput, inputRms, enabled] = local_normalize_real_stacked_input(inputData, modelSpec)
+enabled = local_manifest_bool(modelSpec, "normalize_energy", false);
+batchSize = size(inputData, 1);
+if ~enabled
+    inputRms = ones(batchSize, 1, "single");
+    normalizedInput = inputData;
+    return;
+end
+
+seqLen = double(modelSpec.seq_len);
+realPart = inputData(:, 1:seqLen);
+imagPart = inputData(:, seqLen + 1:end);
+inputRms = sqrt(mean(realPart.^2 + imagPart.^2, 2));
+normalizedInput = inputData ./ (inputRms + 1e-8);
+end
+
+function outputData = local_restore_real_stacked_output(outputData, inputRms, enabled)
+if ~enabled
+    return;
+end
+
+scale = reshape(inputRms, [size(inputRms, 1), 1, 1]);
+outputData = outputData .* scale;
+end
+
+function value = local_manifest_bool(structValue, fieldName, defaultValue)
+if isstruct(structValue) && isfield(structValue, fieldName)
+    value = logical(structValue.(fieldName));
+else
+    value = logical(defaultValue);
+end
 end

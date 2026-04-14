@@ -118,6 +118,8 @@ def export_run_to_onnx(
             'output_name': output_names[0],
             'input_layout': 'N x (2*seq_len) real-stacked float32',
             'output_layout': 'N x num_ports x (2*seq_len) real-stacked float32',
+            'normalize_energy': bool(artifacts.model_spec.get('normalize_energy', False)),
+            'preprocessing': 'Per-sample RMS normalization is inside the exported model when normalize_energy=true.',
         },
     }
 

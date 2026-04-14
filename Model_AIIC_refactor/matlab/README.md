@@ -93,6 +93,8 @@ This writes:
     export_manifest.json
 ```
 
+When `model_spec.normalize_energy=true`, the exported ONNX graph already includes the per-sample RMS normalization and the output rescaling step.
+
 In Matlab:
 
 1. Either enter the `matlab/` folder and run the script directly, or add this folder to the path.
@@ -159,6 +161,8 @@ This writes:
     matlab_model_bundle.mat
     matlab_model_bundle_manifest.json
 ```
+
+When `model_spec.normalize_energy=true`, the Matlab bundle helpers apply the same per-sample RMS normalization before the explicit layer stack and rescale the separated outputs afterwards, matching the PyTorch model behavior.
 
 ### What The Project Saves And What Matlab Reads
 

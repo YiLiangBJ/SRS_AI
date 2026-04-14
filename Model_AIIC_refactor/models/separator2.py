@@ -221,8 +221,8 @@ class Separator2(BaseSeparatorModel):
     
     def __init__(self, seq_len=12, num_ports=4, hidden_dim=64, num_stages=3,
                  mlp_depth=3, share_weights_across_stages=False,
-                 activation_type='relu', onnx_mode=False):
-        super().__init__(seq_len, num_ports)
+                 activation_type='relu', onnx_mode=False, normalize_energy=True):
+        super().__init__(seq_len, num_ports, normalize_energy=normalize_energy)
         
         self.hidden_dim = hidden_dim
         self.num_stages = num_stages
@@ -255,6 +255,7 @@ class Separator2(BaseSeparatorModel):
         Returns:
             h: (B, P, L*2) separated channels
         """
+        y, input_rms = self.normalize_input_energy(y)
         B = y.shape[0]
         P = self.num_ports
         L = self.seq_len
@@ -317,7 +318,7 @@ class Separator2(BaseSeparatorModel):
             else:
                 features = features + residual.unsqueeze(1)
         
-        return features
+        return self.restore_output_energy(features, input_rms)
     
     @classmethod
     def from_config(cls, config):
@@ -330,5 +331,6 @@ class Separator2(BaseSeparatorModel):
             mlp_depth=config.get('mlp_depth', 3),
             share_weights_across_stages=config.get('share_weights_across_stages', False),
             activation_type=config.get('activation_type', 'relu'),
-            onnx_mode=config.get('onnx_mode', False)
+            onnx_mode=config.get('onnx_mode', False),
+            normalize_energy=config.get('normalize_energy', True),
         )

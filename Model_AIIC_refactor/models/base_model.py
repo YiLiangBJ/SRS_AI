@@ -23,7 +23,7 @@ class BaseSeparatorModel(nn.Module, ABC):
     All subclasses must implement forward() and from_config()
     """
     
-    def __init__(self, seq_len: int, num_ports: int):
+    def __init__(self, seq_len: int, num_ports: int, normalize_energy: bool = True):
         """
         Args:
             seq_len: Sequence length
@@ -32,6 +32,34 @@ class BaseSeparatorModel(nn.Module, ABC):
         super().__init__()
         self.seq_len = seq_len
         self.num_ports = num_ports
+        self.normalize_energy = normalize_energy
+
+    def normalize_input_energy(self, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Normalize each sample to unit RMS power while keeping a restoration scale.
+
+        For real-stacked inputs [real; imag], RMS is computed in the complex domain:
+        mean(real^2 + imag^2) over the sequence length, matching complex |y|^2.
+        """
+        scale_dtype = y.real.dtype if torch.is_complex(y) else y.dtype
+        if not self.normalize_energy:
+            scale = torch.ones(y.shape[0], 1, device=y.device, dtype=scale_dtype)
+            return y, scale
+
+        if torch.is_complex(y):
+            rms = y.abs().pow(2).mean(dim=-1, keepdim=True).sqrt()
+        else:
+            y_real = y[..., :self.seq_len]
+            y_imag = y[..., self.seq_len:]
+            rms = (y_real.pow(2) + y_imag.pow(2)).mean(dim=-1, keepdim=True).sqrt()
+
+        normalized = y / (rms + 1e-8)
+        return normalized, rms.to(scale_dtype)
+
+    def restore_output_energy(self, separated: torch.Tensor, input_rms: torch.Tensor) -> torch.Tensor:
+        """Restore the original input RMS to separated outputs."""
+        if not self.normalize_energy:
+            return separated
+        return separated * input_rms.unsqueeze(1)
     
     @abstractmethod
     def forward(self, y: torch.Tensor) -> torch.Tensor:
@@ -79,6 +107,7 @@ class BaseSeparatorModel(nn.Module, ABC):
             'model_class': self.__class__.__name__,
             'seq_len': self.seq_len,
             'num_ports': self.num_ports,
+            'normalize_energy': self.normalize_energy,
             'num_params': sum(p.numel() for p in self.parameters()),
             'trainable_params': sum(p.numel() for p in self.parameters() if p.requires_grad)
         }

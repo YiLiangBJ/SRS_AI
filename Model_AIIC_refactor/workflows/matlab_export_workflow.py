@@ -134,6 +134,10 @@ def export_run_to_matlab_bundle(
             'separator2_field_pattern': 'p##_s##_l##_weight_real/weight_imag/bias_real/bias_imag',
             'separator1_field_pattern': 'p##_s##_real_l##_weight/bias and p##_s##_imag_l##_weight/bias',
         },
+        'input_normalization': {
+            'enabled': bool(model_spec.get('normalize_energy', False)),
+            'rule': 'Per-sample RMS over the complex sequence; output is rescaled by the same factor after separation.',
+        },
     }
 
     manifest_path = run_output_dir / 'matlab_model_bundle_manifest.json'

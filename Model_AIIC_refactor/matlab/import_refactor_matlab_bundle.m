@@ -30,6 +30,7 @@ bundle.io_spec = ioSpec;
 disp("Imported Matlab bundle:");
 disp("  Run: " + string(manifest.run_name));
 disp("  Model type: " + string(manifest.model_spec.model_type));
+disp("  Energy normalization: " + local_bool_string(local_manifest_bool(manifest.model_spec, "normalize_energy", false)));
 disp("  MAT file: " + string(manifest.mat_file));
 disp("  Input layout: " + string(manifest.input_layout));
 disp("  Output layout: " + string(manifest.output_layout));
@@ -37,4 +38,20 @@ disp("  Input shape: " + string(ioSpec.input.shape_string));
 disp("  Output shape: " + string(ioSpec.output.shape_string));
 disp("  Input dynamic dims: [1]");
 disp("  Output dynamic dims: [1]");
+end
+
+function value = local_manifest_bool(structValue, fieldName, defaultValue)
+if isstruct(structValue) && isfield(structValue, fieldName)
+    value = logical(structValue.(fieldName));
+else
+    value = logical(defaultValue);
+end
+end
+
+function text = local_bool_string(value)
+if value
+    text = "enabled";
+else
+    text = "disabled";
+end
 end

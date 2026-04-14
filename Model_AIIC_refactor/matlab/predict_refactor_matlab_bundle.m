@@ -36,17 +36,24 @@ if size(inputData, 2) ~= expectedWidth
         "Expected input width %d, got %d.", expectedWidth, size(inputData, 2));
 end
 
+[normalizedInput, inputRms, normalizationEnabled] = local_normalize_real_stacked_input(inputData, modelSpec);
+
 collectDetailedDebug = nargout > 1;
 
 switch string(modelSpec.model_type)
     case "separator2"
-        [outputData, debug] = local_forward_separator2(weights, modelSpec, inputData, collectDetailedDebug);
+        [outputData, debug] = local_forward_separator2(weights, modelSpec, normalizedInput, collectDetailedDebug);
     case "separator1"
-        [outputData, debug] = local_forward_separator1(weights, modelSpec, inputData, collectDetailedDebug);
+        [outputData, debug] = local_forward_separator1(weights, modelSpec, normalizedInput, collectDetailedDebug);
     otherwise
         error("predict_refactor_matlab_bundle:UnsupportedModel", ...
             "Unsupported model_type: %s", string(modelSpec.model_type));
 end
+
+outputData = local_restore_real_stacked_output(outputData, inputRms, normalizationEnabled);
+debug.input_rms = inputRms;
+debug.normalization_enabled = normalizationEnabled;
+debug.normalized_input = normalizedInput;
 end
 
 function [outputData, debug] = local_forward_separator2(weights, modelSpec, inputData, collectDetailedDebug)
@@ -241,4 +248,37 @@ end
 
 function prefix = local_separator1_prefix(portIdx, stageIdx, branchName, layerIdx)
 prefix = sprintf('p%02d_s%02d_%s_l%02d', portIdx, stageIdx, branchName, layerIdx);
+end
+
+function [normalizedInput, inputRms, enabled] = local_normalize_real_stacked_input(inputData, modelSpec)
+enabled = local_manifest_bool(modelSpec, "normalize_energy", false);
+batchSize = size(inputData, 1);
+if ~enabled
+    inputRms = ones(batchSize, 1, "single");
+    normalizedInput = inputData;
+    return;
+end
+
+seqLen = double(modelSpec.seq_len);
+realPart = inputData(:, 1:seqLen);
+imagPart = inputData(:, seqLen + 1:end);
+inputRms = sqrt(mean(realPart.^2 + imagPart.^2, 2));
+normalizedInput = inputData ./ (inputRms + 1e-8);
+end
+
+function outputData = local_restore_real_stacked_output(outputData, inputRms, enabled)
+if ~enabled
+    return;
+end
+
+scale = reshape(inputRms, [size(inputRms, 1), 1, 1]);
+outputData = outputData .* scale;
+end
+
+function value = local_manifest_bool(structValue, fieldName, defaultValue)
+if isstruct(structValue) && isfield(structValue, fieldName)
+    value = logical(structValue.(fieldName));
+else
+    value = logical(defaultValue);
+end
 end

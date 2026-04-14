@@ -9,7 +9,7 @@ Key features:
 - Two independent MLPs (one for real, one for imaginary)
 - PyTorch native complex tensor support
 - Per-port residual refinement
-- No energy normalization (handled externally)
+- Optional per-sample RMS normalization inside the model
 """
 
 import torch
@@ -40,13 +40,13 @@ class Separator1(BaseSeparatorModel):
         share_weights_across_stages: If True, same port uses same MLP across stages (default: False)
     
     Input/Output:
-        Input:  y (B, L) complex tensor - mixed signal (pre-normalized)
+        Input:  y (B, L) complex tensor or (B, 2L) real stacked mixed signal
         Output: h (B, P, L) complex tensor - separated channels
     """
     
     def __init__(self, seq_len=12, num_ports=4, hidden_dim=64, num_stages=3,
-                 mlp_depth=3, share_weights_across_stages=False):
-        super().__init__(seq_len, num_ports)
+                 mlp_depth=3, share_weights_across_stages=False, normalize_energy=True):
+        super().__init__(seq_len, num_ports, normalize_energy=normalize_energy)
         
         self.hidden_dim = hidden_dim
         self.num_stages = num_stages
@@ -127,6 +127,7 @@ class Separator1(BaseSeparatorModel):
             h: (B, P, L*2) real stacked, or (B, P, L) complex if input is complex
         """
         return_complex = torch.is_complex(y)
+        y, input_rms = self.normalize_input_energy(y)
         if return_complex:
             y = torch.cat([y.real, y.imag], dim=-1)
         elif not torch.jit.is_tracing() and y.shape[-1] != self.seq_len * 2:
@@ -162,9 +163,9 @@ class Separator1(BaseSeparatorModel):
             features = features + residual.unsqueeze(1)  # Broadcast residual
 
         if return_complex:
-            return torch.complex(features[..., :self.seq_len], features[..., self.seq_len:])
+            features = torch.complex(features[..., :self.seq_len], features[..., self.seq_len:])
 
-        return features  # (B, P, L*2)
+        return self.restore_output_energy(features, input_rms)
     
     @classmethod
     def from_config(cls, config):
@@ -189,5 +190,6 @@ class Separator1(BaseSeparatorModel):
             hidden_dim=config.get('hidden_dim', 64),
             num_stages=config.get('num_stages', 3),
             mlp_depth=config.get('mlp_depth', 3),
-            share_weights_across_stages=config.get('share_weights_across_stages', False)
+            share_weights_across_stages=config.get('share_weights_across_stages', False),
+            normalize_energy=config.get('normalize_energy', True),
         )
