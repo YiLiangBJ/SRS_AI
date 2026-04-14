@@ -1,9 +1,17 @@
-"""
-Evaluation metrics for channel separator models.
-"""
+"""Evaluation metrics for channel separator models."""
 
 import torch
 from typing import Dict, List
+
+
+EPSILON = 1e-10
+
+
+def _squared_magnitude(value: torch.Tensor) -> torch.Tensor:
+    """Return |value|^2 for both complex tensors and real-valued tensors."""
+    if torch.is_complex(value):
+        return value.real.pow(2) + value.imag.pow(2)
+    return value.pow(2)
 
 
 def calculate_nmse(pred: torch.Tensor, target: torch.Tensor) -> float:
@@ -17,9 +25,9 @@ def calculate_nmse(pred: torch.Tensor, target: torch.Tensor) -> float:
     Returns:
         nmse: NMSE value (scalar)
     """
-    mse = (pred - target).pow(2).mean()
-    target_power = target.pow(2).mean()
-    nmse = mse / (target_power + 1e-10)
+    mse = _squared_magnitude(pred - target).mean()
+    target_power = _squared_magnitude(target).mean()
+    nmse = mse / (target_power + EPSILON)
     return nmse.item()
 
 
@@ -35,7 +43,7 @@ def calculate_nmse_db(pred: torch.Tensor, target: torch.Tensor) -> float:
         nmse_db: NMSE in dB
     """
     nmse = calculate_nmse(pred, target)
-    return 10 * torch.log10(torch.tensor(nmse)).item()
+    return 10 * torch.log10(torch.tensor(max(nmse, EPSILON))).item()
 
 
 def calculate_per_port_nmse(pred: torch.Tensor, target: torch.Tensor) -> List[float]:
@@ -50,9 +58,9 @@ def calculate_per_port_nmse(pred: torch.Tensor, target: torch.Tensor) -> List[fl
         nmse_list: List of NMSE values for each port
     """
     # ✅ Vectorized: compute all ports at once
-    mse = (pred - target).pow(2).mean(dim=(0, 2))  # (P,)
-    target_power = target.pow(2).mean(dim=(0, 2))  # (P,)
-    nmse = mse / (target_power + 1e-10)  # (P,)
+    mse = _squared_magnitude(pred - target).mean(dim=(0, 2))  # (P,)
+    target_power = _squared_magnitude(target).mean(dim=(0, 2))  # (P,)
+    nmse = mse / (target_power + EPSILON)  # (P,)
     
     return nmse.tolist()  # Convert to Python list
 

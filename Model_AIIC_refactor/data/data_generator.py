@@ -22,7 +22,8 @@ def generate_training_batch(
     snr_sampler = None,
     snr_per_sample: bool = False,
     return_complex: bool = False,
-    device: str = 'cpu'  # ✅ NEW: GPU support
+    device: str = 'cpu',  # ✅ NEW: GPU support
+    return_snr_tensor: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, List[int], torch.Tensor, float]:
     """
     Generate a batch of training data with TDL channel and SNR control
@@ -43,6 +44,7 @@ def generate_training_batch(
         snr_per_sample: If True, each sample gets different SNR (for SNR-invariant learning)
         return_complex: If True, return complex tensors; else real stacked [real; imag]
         device: Device to generate data on ('cpu', 'cuda', 'cuda:0', etc.) ✅ NEW
+        return_snr_tensor: If True, also return a batch-shaped SNR tensor for loss weighting
     
     Returns:
         y: Mixed signal
@@ -56,6 +58,7 @@ def generate_training_batch(
            - If return_complex=False: (B, P, L*2) real stacked
            - If return_complex=True: (B, P, L) complex
         actual_snr: Actual SNR used for this batch (for logging)
+          snr_tensor: Optional (B,) tensor of per-sample SNRs when return_snr_tensor=True
     
     Example:
         >>> y, h_targets, pos, h_true, snr = generate_training_batch(
@@ -154,7 +157,8 @@ def generate_training_batch(
         if snr_per_sample:
             # Per-sample SNR: each sample gets different SNR ✅ Vectorized
             sample_snrs_np = np.random.uniform(snr_min, snr_max, batch_size)
-            signal_powers = torch.tensor(10 ** (sample_snrs_np / 10), device=device)
+            snr_tensor = torch.as_tensor(sample_snrs_np, device=device, dtype=torch.float32)
+            signal_powers = torch.pow(torch.full_like(snr_tensor, 10.0), snr_tensor / 10.0)
             h_true = h_base * signal_powers.sqrt().view(batch_size, 1, 1)
             actual_snr = float(sample_snrs_np.mean())
         else:
@@ -167,6 +171,7 @@ def generate_training_batch(
             signal_power = torch.tensor(10 ** (batch_snr / 10), device=device)
             h_true = h_base * signal_power.sqrt()
             actual_snr = batch_snr
+            snr_tensor = torch.full((batch_size,), float(batch_snr), device=device, dtype=torch.float32)
     
     elif isinstance(snr_db, list):
         if len(snr_db) == num_ports:
@@ -174,18 +179,21 @@ def generate_training_batch(
             signal_powers = torch.tensor([10 ** (snr / 10) for snr in snr_db], device=device)
             h_true = h_base * signal_powers.sqrt().view(1, num_ports, 1)
             actual_snr = sum(snr_db) / len(snr_db)
+            snr_tensor = torch.full((batch_size,), float(actual_snr), device=device, dtype=torch.float32)
         else:
             # Random selection from list
             batch_snr = np.random.choice(snr_db)
             signal_power = torch.tensor(10 ** (batch_snr / 10), device=device)
             h_true = h_base * signal_power.sqrt()
             actual_snr = batch_snr
+            snr_tensor = torch.full((batch_size,), float(batch_snr), device=device, dtype=torch.float32)
     
     else:
         # Scalar SNR
         signal_power = torch.tensor(10 ** (snr_db / 10), device=device)
         h_true = h_base * signal_power.sqrt()
         actual_snr = float(snr_db)
+        snr_tensor = torch.full((batch_size,), float(actual_snr), device=device, dtype=torch.float32)
     
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # Create mixed signal with circular shifts ✅ Vectorized, on device
@@ -207,10 +215,14 @@ def generate_training_batch(
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     if return_complex:
+        if return_snr_tensor:
+            return y, h_targets, pos_values, h_true, actual_snr, snr_tensor
         return y, h_targets, pos_values, h_true, actual_snr
     else:
         # Convert to real stacked format [real; imag]
         y_stacked = torch.cat([y.real, y.imag], dim=-1)
         h_targets_stacked = torch.cat([h_targets.real, h_targets.imag], dim=-1)
         h_true_stacked = torch.cat([h_true.real, h_true.imag], dim=-1)
+        if return_snr_tensor:
+            return y_stacked, h_targets_stacked, pos_values, h_true_stacked, actual_snr, snr_tensor
         return y_stacked, h_targets_stacked, pos_values, h_true_stacked, actual_snr

@@ -1,5 +1,6 @@
 """Helpers for loading configs and building experiment plans."""
 
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -17,8 +18,18 @@ DEFAULT_TRAINING_CONFIG = {
     'snr_config': {'type': 'range', 'min': 0, 'max': 30},
     'tdl_config': 'A-30',
     'print_interval': 100,
+    'validation_batches': 4,
     'patience': 3,
     'keep_last_n_checkpoints': 2,
+    'lr_scheduler': {
+        'enabled': True,
+        'factor': 0.8,
+        'patience': 30,
+        'threshold': 5e-3,
+        'threshold_mode': 'abs',
+        'cooldown': 10,
+        'min_lr': 1e-6,
+    },
 }
 
 TRAINING_NAME_ALIASES = {
@@ -280,7 +291,8 @@ def prepare_training_config_variants(
     parsed_training_configs = parse_config_variants(training_config_raw)
     normalized_configs = []
     for config in parsed_training_configs:
-        normalized_config = {**DEFAULT_TRAINING_CONFIG, **config}
+        normalized_config = deepcopy(DEFAULT_TRAINING_CONFIG)
+        normalized_config.update(deepcopy(config))
         if batch_size_override is not None:
             normalized_config['batch_size'] = batch_size_override
         if num_batches_override is not None:
@@ -290,7 +302,7 @@ def prepare_training_config_variants(
     raw_search_space = training_config_raw.get('search_space', {})
     varying_keys = list(raw_search_space.keys()) or _infer_varying_keys(
         normalized_configs,
-        ignored_keys=['snr_config', 'tdl_config', 'validation_interval', 'early_stop_loss', 'patience']
+        ignored_keys=['snr_config', 'tdl_config', 'validation_interval', 'validation_batches', 'early_stop_loss', 'patience', 'lr_scheduler']
     )
 
     return [

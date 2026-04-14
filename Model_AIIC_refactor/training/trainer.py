@@ -4,11 +4,12 @@ Unified trainer for all channel separator models.
 Supports any model inheriting from BaseSeparatorModel.
 """
 
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
 import torch
 import torch.nn as nn
-from pathlib import Path
-from typing import Optional, Union, Tuple, List
-import time
 
 from .loss_functions import calculate_loss
 from .metrics import evaluate_model
@@ -67,7 +68,8 @@ class Trainer:
         device: Union[str, torch.device] = 'auto',
         use_amp: bool = True,  # ✅ NEW: Mixed precision
         compile_model: bool = True,  # ✅ NEW: Model compilation
-        tensorboard_dir: Optional[Union[str, Path]] = None  # ✅ NEW: TensorBoard logging
+        tensorboard_dir: Optional[Union[str, Path]] = None,  # ✅ NEW: TensorBoard logging
+        scheduler_config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize trainer
@@ -163,24 +165,41 @@ class Trainer:
         # Setup optimizer
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         
-        # ✅ Setup learning rate scheduler (adaptive)
-        # ReduceLROnPlateau: reduces LR when loss stops improving
-        from torch.optim.lr_scheduler import ReduceLROnPlateau
-        self.scheduler = ReduceLROnPlateau(
-            self.optimizer,
-            mode='min',           # Minimize loss
-            factor=0.5,           # Reduce LR by half when triggered
-            patience=10,          # Wait 10 validations without improvement
-            threshold=1e-4,       # Minimum change to qualify as improvement
-            threshold_mode='rel', # Relative threshold
-            cooldown=0,           # No cooldown period
-            min_lr=1e-6,          # Minimum learning rate
-            verbose=True          # Print LR changes
-        )
-        print(f"📉 Adaptive learning rate scheduler enabled")
-        print(f"   Initial LR: {learning_rate}")
-        print(f"   Will reduce LR by 0.5× if loss doesn't improve for 10 steps")
-        print(f"   Minimum LR: 1e-6")
+        # ✅ Setup learning rate scheduler (adaptive, but smoother by default)
+        default_scheduler_config = {
+            'enabled': True,
+            'factor': 0.8,
+            'patience': 30,
+            'threshold': 5e-3,
+            'threshold_mode': 'abs',
+            'cooldown': 10,
+            'min_lr': 1e-6,
+        }
+        self.scheduler_config = {**default_scheduler_config, **(scheduler_config or {})}
+        self.scheduler = None
+        if self.scheduler_config.get('enabled', True):
+            from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+            self.scheduler = ReduceLROnPlateau(
+                self.optimizer,
+                mode='min',
+                factor=self.scheduler_config['factor'],
+                patience=self.scheduler_config['patience'],
+                threshold=self.scheduler_config['threshold'],
+                threshold_mode=self.scheduler_config['threshold_mode'],
+                cooldown=self.scheduler_config['cooldown'],
+                min_lr=self.scheduler_config['min_lr'],
+                verbose=True,
+            )
+            print("📉 Adaptive learning rate scheduler enabled")
+            print(f"   Initial LR: {learning_rate}")
+            print(
+                f"   factor={self.scheduler_config['factor']}, patience={self.scheduler_config['patience']}, "
+                f"threshold={self.scheduler_config['threshold']} ({self.scheduler_config['threshold_mode']}), "
+                f"cooldown={self.scheduler_config['cooldown']}, min_lr={self.scheduler_config['min_lr']}"
+            )
+        else:
+            print("ℹ️  Learning rate scheduler disabled")
         
         # Training state
         self.losses = []
@@ -192,6 +211,30 @@ class Trainer:
         self.data_gen_time = 0
         self.forward_time = 0
         self.backward_time = 0
+
+    def _generate_batch(
+        self,
+        batch_size: int,
+        seq_len: int,
+        pos_values: List[int],
+        snr_for_batch,
+        tdl_config: Union[str, List[str]],
+        snr_per_sample: bool = False,
+    ):
+        """Generate one batch and return both logging SNR and loss SNR inputs."""
+        y, h_targets, _, _, actual_snr, snr_tensor = generate_training_batch(
+            batch_size=batch_size,
+            seq_len=seq_len,
+            pos_values=pos_values,
+            snr_db=snr_for_batch,
+            tdl_config=tdl_config,
+            snr_per_sample=snr_per_sample,
+            return_complex=False,
+            device=self.device,
+            return_snr_tensor=True,
+        )
+        loss_snr = snr_tensor if snr_per_sample else actual_snr
+        return y, h_targets, actual_snr, loss_snr
     
     def train(
         self,
@@ -203,6 +246,7 @@ class Trainer:
         seq_len: int = None,
         print_interval: int = 100,
         val_interval: int = None,
+        validation_batches: int = 4,
         early_stop_loss: float = None,
         patience: int = 3,
         progress_tracker = None,  # Optional progress tracker for multi-task training
@@ -222,6 +266,7 @@ class Trainer:
             seq_len: Sequence length (default: from model)
             print_interval: Print progress every N batches
             val_interval: Validate every N batches (optional)
+            validation_batches: Number of batches to average for validation
             early_stop_loss: Stop if loss below this value
             patience: Number of validations that must meet early stop
             progress_tracker: Optional progress tracker for multi-task training
@@ -280,6 +325,7 @@ class Trainer:
         last_print_time = time.time()
         
         early_stop_counter = 0
+        snr_per_sample = snr_config.per_sample if hasattr(snr_config, 'per_sample') else False
         
         for batch_idx in range(num_batches):
             self.current_batch = batch_idx
@@ -289,15 +335,13 @@ class Trainer:
             
             # Generate data ✅ Directly on device
             t0_data = time.time()
-            y, h_targets, _, _, actual_snr = generate_training_batch(
+            y, h_targets, actual_snr, loss_snr = self._generate_batch(
                 batch_size=batch_size,
                 seq_len=seq_len,
                 pos_values=pos_values,
-                snr_db=snr_for_batch,
+                snr_for_batch=snr_for_batch,
                 tdl_config=tdl_config,
-                snr_per_sample=snr_config.per_sample if hasattr(snr_config, 'per_sample') else False,
-                return_complex=False,  # Always use real stacked format
-                device=self.device  # ✅ Generate directly on device (GPU/CPU)
+                snr_per_sample=snr_per_sample,
             )
             self.data_gen_time += time.time() - t0_data
             
@@ -312,7 +356,7 @@ class Trainer:
                 # ✅ Mixed precision training (FP16)
                 with autocast():
                     h_pred = self.model(y)
-                    loss = calculate_loss(h_pred, h_targets, actual_snr, self.loss_type)
+                    loss = calculate_loss(h_pred, h_targets, loss_snr, self.loss_type)
                 self.forward_time += time.time() - t0_fwd
                 
                 # Backward with gradient scaling
@@ -324,7 +368,7 @@ class Trainer:
             else:
                 # ✅ Standard FP32 training
                 h_pred = self.model(y)
-                loss = calculate_loss(h_pred, h_targets, actual_snr, self.loss_type)
+                loss = calculate_loss(h_pred, h_targets, loss_snr, self.loss_type)
                 self.forward_time += time.time() - t0_fwd
                 
                 # Backward
@@ -354,9 +398,9 @@ class Trainer:
             )
             
             if should_print:
-                nmse = ((h_pred - h_targets).pow(2).mean() / 
-                       h_targets.pow(2).mean()).item()
-                nmse_db = 10 * torch.log10(torch.tensor(nmse))
+                metrics = evaluate_model(h_pred, h_targets, actual_snr)
+                nmse = metrics['nmse']
+                nmse_db = metrics['nmse_db']
                 
                 # ✅ Log NMSE to TensorBoard
                 if self.writer is not None:
@@ -423,27 +467,31 @@ class Trainer:
             
             # Validation
             if val_interval and (batch_idx + 1) % val_interval == 0:
-                val_loss = self.validate(
+                val_loss, val_nmse_db = self.validate(
                     batch_size=batch_size,
-                    snr_db=actual_snr,
+                    snr_config=snr_config,
                     pos_values=pos_values,
                     tdl_config=tdl_config,
-                    seq_len=seq_len
+                    seq_len=seq_len,
+                    num_batches=validation_batches,
                 )
                 self.val_losses.append(val_loss)
                 
                 # ✅ Update learning rate scheduler based on validation loss
-                old_lr = self.optimizer.param_groups[0]['lr']
-                self.scheduler.step(val_loss)
-                new_lr = self.optimizer.param_groups[0]['lr']
-                
-                # Log LR change
-                if new_lr != old_lr:
-                    print(f"  📉 Learning rate reduced: {old_lr:.6f} → {new_lr:.6f}")
+                if self.scheduler is not None:
+                    old_lr = self.optimizer.param_groups[0]['lr']
+                    self.scheduler.step(val_loss)
+                    new_lr = self.optimizer.param_groups[0]['lr']
+                    
+                    # Log LR change
+                    if new_lr != old_lr:
+                        print(f"  📉 Learning rate reduced: {old_lr:.6f} → {new_lr:.6f}")
+                print(f"  Validation ({validation_batches} batches): Loss:{val_loss:.6f}, NMSE:{val_nmse_db:.2f}dB")
                 
                 # ✅ Log validation loss to TensorBoard
                 if self.writer is not None:
                     self.writer.add_scalar('Loss/validation', val_loss, batch_idx)
+                    self.writer.add_scalar('NMSE_dB/validation', val_nmse_db, batch_idx)
                 
                 # Early stopping
                 if early_stop_loss and val_loss < early_stop_loss:
@@ -469,37 +517,44 @@ class Trainer:
     def validate(
         self,
         batch_size: int,
-        snr_db: float,
+        snr_config,
         pos_values: List[int],
-        tdl_config: str,
-        seq_len: int
-    ) -> float:
+        tdl_config: Union[str, List[str]],
+        seq_len: int,
+        num_batches: int = 4,
+    ) -> tuple[float, float]:
         """
-        Validate model on a test batch
+        Validate model on several batches sampled from the training distribution.
         
         Returns:
-            val_loss: Validation loss
+            val_loss: Average validation loss
+            val_nmse_db: Average validation NMSE in dB
         """
         self.model.eval()
+        total_loss = 0.0
+        total_nmse_db = 0.0
+        snr_per_sample = snr_config.per_sample if hasattr(snr_config, 'per_sample') else False
         
         with torch.no_grad():
-            y, h_targets, _, _, actual_snr = generate_training_batch(
-                batch_size=batch_size,
-                seq_len=seq_len,
-                pos_values=pos_values,
-                snr_db=snr_db,
-                tdl_config=tdl_config,
-                return_complex=False,
-                device=self.device  # ✅ Generate on device
-            )
-            
-            # ✅ No need to move - already on device
-            
-            h_pred = self.model(y)
-            loss = calculate_loss(h_pred, h_targets, actual_snr, self.loss_type)
+            for _ in range(num_batches):
+                snr_for_batch = snr_config.get_snr_for_data_generator() if hasattr(snr_config, 'get_snr_for_data_generator') else snr_config
+                y, h_targets, actual_snr, loss_snr = self._generate_batch(
+                    batch_size=batch_size,
+                    seq_len=seq_len,
+                    pos_values=pos_values,
+                    snr_for_batch=snr_for_batch,
+                    tdl_config=tdl_config,
+                    snr_per_sample=snr_per_sample,
+                )
+
+                h_pred = self.model(y)
+                loss = calculate_loss(h_pred, h_targets, loss_snr, self.loss_type)
+                metrics = evaluate_model(h_pred, h_targets, actual_snr)
+                total_loss += loss.item()
+                total_nmse_db += metrics['nmse_db']
         
         self.model.train()
-        return loss.item()
+        return total_loss / num_batches, total_nmse_db / num_batches
     
     def evaluate(
         self,

@@ -66,6 +66,20 @@ class TestDataGenerator(unittest.TestCase):
         self.assertEqual(y.shape, (32, 12))  # (B, L) complex
         self.assertTrue(y.dtype in [torch.complex64, torch.complex128])
         self.assertEqual(h_targets.shape, (32, 4, 12))
+
+    def test_generate_batch_returns_per_sample_snr_tensor(self):
+        """Test optional per-sample SNR tensor output for loss weighting."""
+        _, _, _, _, snr_mean, snr_tensor = generate_training_batch(
+            batch_size=32,
+            snr_db=(0, 30),
+            snr_per_sample=True,
+            return_snr_tensor=True,
+        )
+
+        self.assertEqual(snr_tensor.shape, (32,))
+        self.assertGreaterEqual(float(snr_tensor.min()), 0.0)
+        self.assertLessEqual(float(snr_tensor.max()), 30.0)
+        self.assertAlmostEqual(float(snr_tensor.mean()), snr_mean, places=4)
     
     def test_different_tdl_configs(self):
         """Test different TDL configurations"""

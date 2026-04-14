@@ -13,7 +13,7 @@ snr_range_0_30_perSample:
       type: range              # 'range' for continuous sampling, 'discrete' for specific values
       min: 0                   # For range type
       max: 30                  # For range type
-      per_sample: true        # Per-batch SNR (better for specific SNR learning)
+      per_sample: true         # Each sample gets its own SNR
       sampling: stratified     # uniform, stratified, round_robin (for range type)
       num_bins: 10             # Number of bins for stratified sampling
     
@@ -23,7 +23,17 @@ snr_range_0_30_perSample:
     # Early stopping
     # early_stop_loss: 0.001  # Stop if loss below this value
     validation_interval: 100  # Validate every N batches
+    validation_batches: 4     # Average validation over several batches to reduce variance
     patience: 5  # Number of validations meeting early stop
+
+    lr_scheduler:
+      enabled: true
+      factor: 0.8
+      patience: 30
+      threshold: 0.005
+      threshold_mode: abs
+      cooldown: 10
+      min_lr: 1.0e-6
     
     # Logging
     print_interval: 100

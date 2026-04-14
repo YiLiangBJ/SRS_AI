@@ -121,9 +121,11 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
     tdl_config = training_spec['tdl_config']
     print_interval = training_spec['print_interval']
     val_interval = training_spec.get('validation_interval')
+    validation_batches = training_spec.get('validation_batches', 4)
     early_stop_loss = training_spec.get('early_stop_loss')
     patience = training_spec['patience']
     keep_last_n = training_spec['keep_last_n_checkpoints']
+    scheduler_config = training_spec.get('lr_scheduler')
     snr_config = parse_snr_config(snr_config_dict)
 
     previous_training_label, previous_model_recipe_name = previous_labels
@@ -176,6 +178,7 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         use_amp=request.use_amp,
         compile_model=request.compile_model,
         tensorboard_dir=tensorboard_dir,
+        scheduler_config=scheduler_config,
     )
 
     start_time = time.time()
@@ -195,6 +198,7 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         seq_len=model_spec['seq_len'],
         print_interval=print_interval,
         val_interval=val_interval,
+        validation_batches=validation_batches,
         early_stop_loss=early_stop_loss,
         patience=patience,
         progress_tracker=progress_tracker,
@@ -234,10 +238,12 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         'tdl_config': tdl_config,
         'print_interval': print_interval,
         'validation_interval': val_interval,
+        'validation_batches': validation_batches,
         'early_stop_loss': early_stop_loss,
         'patience': patience,
         'keep_last_n_checkpoints': keep_last_n,
         'save_interval': save_interval,
+        'lr_scheduler': scheduler_config,
     })
     metadata_dict = build_run_metadata(
         experiment_name=suite.experiment_name,

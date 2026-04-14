@@ -6,6 +6,7 @@ import unittest
 import torch
 from models import create_model
 from training import Trainer, calculate_loss, evaluate_model
+from training.loss_functions import log_loss, normalized_loss, weighted_loss
 from utils import parse_snr_config
 
 
@@ -56,6 +57,32 @@ class TestTraining(unittest.TestCase):
         
         self.assertIsInstance(loss, torch.Tensor)
         self.assertGreater(loss.item(), 0)
+
+    def test_log_loss_is_mean_log_per_sample_nmse(self):
+        """Test log loss uses mean log10 of per-sample NMSE."""
+        pred = torch.tensor([[[0.0]], [[11.0]]])
+        target = torch.tensor([[[1.0]], [[1.0]]])
+
+        loss = log_loss(pred, target)
+        self.assertAlmostEqual(loss.item(), 1.0, places=5)
+
+    def test_normalized_loss_is_mean_per_sample_nmse(self):
+        """Test normalized loss averages per-sample NMSE."""
+        pred = torch.tensor([[[0.0]], [[9.0]]])
+        target = torch.tensor([[[1.0]], [[10.0]]])
+
+        loss = normalized_loss(pred, target, snr_db=20.0)
+        self.assertAlmostEqual(loss.item(), 0.505, places=5)
+
+    def test_weighted_loss_supports_per_sample_snr_tensor(self):
+        """Test weighted loss can consume per-sample SNR values."""
+        pred = torch.zeros(2, 1, 1)
+        target = torch.ones(2, 1, 1)
+        snr_db = torch.tensor([0.0, 20.0])
+
+        loss = weighted_loss(pred, target, snr_db)
+        expected = (1.0 / 2.0 + 1.0 / 101.0) / 2.0
+        self.assertAlmostEqual(loss.item(), expected, places=6)
     
     def test_evaluate_model(self):
         """Test model evaluation"""
@@ -69,6 +96,15 @@ class TestTraining(unittest.TestCase):
         self.assertIn('per_port_nmse', metrics)
         self.assertIn('snr_db', metrics)
         self.assertEqual(len(metrics['per_port_nmse']), 4)
+
+    def test_evaluate_model_supports_complex_tensors(self):
+        """Test evaluation metrics handle complex tensors correctly."""
+        pred = torch.randn(self.batch_size, 4, 12, dtype=torch.complex64)
+        target = torch.randn(self.batch_size, 4, 12, dtype=torch.complex64)
+
+        metrics = evaluate_model(pred, target, snr_db=20.0)
+        self.assertGreater(metrics['nmse'], 0.0)
+        self.assertEqual(len(metrics['per_port_nmse_db']), 4)
     
     def test_trainer_train_short(self):
         """Test short training run"""
@@ -89,6 +125,19 @@ class TestTraining(unittest.TestCase):
         
         self.assertEqual(len(losses), 2)
         self.assertTrue(all(isinstance(loss, float) for loss in losses))
+
+    def test_trainer_scheduler_config_override(self):
+        """Test custom scheduler settings are applied."""
+        trainer = Trainer(
+            self.model,
+            learning_rate=0.01,
+            loss_type='nmse',
+            device='cpu',
+            scheduler_config={'factor': 0.9, 'patience': 50, 'threshold': 0.01, 'threshold_mode': 'abs'},
+        )
+
+        self.assertAlmostEqual(trainer.scheduler.factor, 0.9)
+        self.assertEqual(trainer.scheduler.patience, 50)
 
 
 if __name__ == '__main__':

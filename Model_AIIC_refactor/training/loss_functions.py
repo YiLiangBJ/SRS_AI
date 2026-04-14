@@ -2,14 +2,59 @@
 Loss functions for channel separator training.
 
 Supports multiple loss types:
-- NMSE: Normalized Mean Square Error
-- Weighted: SNR-weighted loss
-- Log: Logarithmic loss
-- Normalized: Per-sample normalized loss
+- NMSE: Global batch NMSE
+- Weighted: SNR-weighted per-sample NMSE
+- Log: Mean log10(per-sample NMSE)
+- Normalized: Mean per-sample NMSE
 """
 
+from typing import Union
+
 import torch
-import torch.nn.functional as F
+
+
+EPSILON = 1e-10
+
+
+def _squared_magnitude(value: torch.Tensor) -> torch.Tensor:
+    """Return |value|^2 for both complex tensors and real-valued tensors."""
+    if torch.is_complex(value):
+        return value.real.pow(2) + value.imag.pow(2)
+    return value.pow(2)
+
+
+def _reduction_dims(value: torch.Tensor) -> tuple[int, ...]:
+    """All non-batch dimensions reduced when forming per-sample losses."""
+    return tuple(range(1, value.ndim))
+
+
+def _per_sample_nmse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Compute one NMSE value per batch element."""
+    dims = _reduction_dims(pred)
+    error_power = _squared_magnitude(pred - target).mean(dim=dims)
+    target_power = _squared_magnitude(target).mean(dim=dims)
+    return error_power / (target_power + EPSILON)
+
+
+def _prepare_snr_tensor(
+    snr_db: Union[float, torch.Tensor, list, tuple],
+    batch_size: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Normalize scalar or per-sample SNR inputs to a batch-shaped tensor."""
+    if torch.is_tensor(snr_db):
+        snr_tensor = snr_db.to(device=device, dtype=dtype).reshape(-1)
+    elif isinstance(snr_db, (list, tuple)):
+        snr_tensor = torch.as_tensor(snr_db, device=device, dtype=dtype).reshape(-1)
+    else:
+        snr_tensor = torch.full((batch_size,), float(snr_db), device=device, dtype=dtype)
+
+    if snr_tensor.numel() == 1:
+        return snr_tensor.expand(batch_size)
+    if snr_tensor.numel() != batch_size:
+        raise ValueError(f'Expected snr_db to have 1 or {batch_size} entries, got {snr_tensor.numel()}')
+    return snr_tensor
 
 
 def nmse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -25,12 +70,12 @@ def nmse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     Returns:
         loss: scalar tensor
     """
-    mse = (pred - target).pow(2).mean()
-    target_power = target.pow(2).mean()
-    return mse / (target_power + 1e-10)
+    error_power = _squared_magnitude(pred - target).mean()
+    target_power = _squared_magnitude(target).mean()
+    return error_power / (target_power + EPSILON)
 
 
-def weighted_loss(pred: torch.Tensor, target: torch.Tensor, snr_db: float) -> torch.Tensor:
+def weighted_loss(pred: torch.Tensor, target: torch.Tensor, snr_db: Union[float, torch.Tensor, list, tuple]) -> torch.Tensor:
     """
     SNR-weighted loss
     
@@ -48,22 +93,23 @@ def weighted_loss(pred: torch.Tensor, target: torch.Tensor, snr_db: float) -> to
     Returns:
         loss: scalar tensor
     """
-    mse = (pred - target).pow(2).mean()
-    
-    # Convert SNR from dB to linear
-    snr_linear = 10 ** (snr_db / 10)
-    
-    # Weight: inverse of SNR (emphasize low SNR cases)
+    per_sample_nmse = _per_sample_nmse(pred, target)
+    snr_tensor = _prepare_snr_tensor(
+        snr_db=snr_db,
+        batch_size=per_sample_nmse.shape[0],
+        device=per_sample_nmse.device,
+        dtype=per_sample_nmse.dtype,
+    )
+    snr_linear = torch.pow(torch.full_like(snr_tensor, 10.0), snr_tensor / 10.0)
     weight = 1.0 / (1.0 + snr_linear)
-    
-    return mse * weight
+    return (per_sample_nmse * weight).mean()
 
 
 def log_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """
-    Logarithmic loss
+    Mean log-NMSE loss.
     
-    loss = log10(MSE + eps)
+    loss = mean(log10(per_sample_nmse + eps))
     
     Args:
         pred: (B, P, L*2) predicted channels
@@ -72,36 +118,30 @@ def log_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     Returns:
         loss: scalar tensor
     """
-    mse = (pred - target).pow(2).mean()
-    return torch.log10(mse + 1e-10)
+    per_sample_nmse = _per_sample_nmse(pred, target)
+    return torch.log10(per_sample_nmse + EPSILON).mean()
 
 
 def normalized_loss(pred: torch.Tensor, target: torch.Tensor, snr_db: float) -> torch.Tensor:
     """
-    Normalized loss (per-sample normalization)
-    
-    Normalizes by both target power and SNR
+    Mean per-sample NMSE.
     
     Args:
         pred: (B, P, L*2) predicted channels
         target: (B, P, L*2) target channels
-        snr_db: SNR in dB
+        snr_db: Unused compatibility argument kept for API stability
     
     Returns:
         loss: scalar tensor
     """
-    mse = (pred - target).pow(2).mean()
-    target_power = target.pow(2).mean()
-    snr_linear = 10 ** (snr_db / 10)
-    
-    # Normalize by both target power and SNR
-    return mse / (target_power * snr_linear + 1e-10)
+    del snr_db
+    return _per_sample_nmse(pred, target).mean()
 
 
 def calculate_loss(
     pred: torch.Tensor,
     target: torch.Tensor,
-    snr_db: float,
+    snr_db: Union[float, torch.Tensor, list, tuple],
     loss_type: str = 'nmse'
 ) -> torch.Tensor:
     """
@@ -110,12 +150,12 @@ def calculate_loss(
     Args:
         pred: (B, P, L*2) predicted channels
         target: (B, P, L*2) target channels
-        snr_db: SNR in dB for this batch
+        snr_db: Batch SNR or per-sample SNR values
         loss_type: Loss function type
                   - 'nmse': Normalized MSE
                   - 'weighted': SNR-weighted
-                  - 'log': Logarithmic
-                  - 'normalized': Per-sample normalized
+                  - 'log': Mean log-NMSE
+                  - 'normalized': Mean per-sample NMSE
     
     Returns:
         loss: scalar tensor
