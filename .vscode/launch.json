@@ -77,8 +77,8 @@
                 "2048",
                 "--device",
                 "auto"
-                // 需要时可取消下面这些注释：
-                // ,"--snr_values", "30,25,20,15,10,5,0"
+                // 默认评估后会自动出图；如需关闭可加：
+                // ,"--no-plot_after_eval"
                 // ,"--run_dir", "./experiments_refactored/.../your_run_name"
                 // ,"--run_dirs", "./run_a,./run_b"
                 // ,"--batches_per_snr", "50"
