@@ -2,8 +2,8 @@ function [net, manifest] = import_refactor_onnx(exportDir)
 %IMPORT_REFACTOR_ONNX Import an exported refactor ONNX model into Matlab.
 %
 % Usage:
-%   net = import_refactor_onnx("experiments_refactored/.../onnx_exports/my_run")
-%   [net, manifest] = import_refactor_onnx("experiments_refactored/.../onnx_exports/my_run")
+%   net = import_refactor_onnx("experiments_refactored/.../<run_name>/onnx_exports")
+%   [net, manifest] = import_refactor_onnx("experiments_refactored/.../<run_name>/onnx_exports")
 %
 % The export directory must contain:
 %   - <run_name>.onnx

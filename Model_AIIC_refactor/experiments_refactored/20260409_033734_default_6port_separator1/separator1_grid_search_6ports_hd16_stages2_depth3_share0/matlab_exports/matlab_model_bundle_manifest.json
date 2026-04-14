@@ -5,7 +5,7 @@
   "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0",
   "checkpoint_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/model.pth",
   "mat_file": "matlab_model_bundle.mat",
-  "mat_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_exports/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_model_bundle.mat",
+  "mat_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_exports/matlab_model_bundle.mat",
   "model_spec": {
     "seq_len": 12,
     "model_type": "separator1",
@@ -86,5 +86,5 @@
     "separator2_field_pattern": "p##_s##_l##_weight_real/weight_imag/bias_real/bias_imag",
     "separator1_field_pattern": "p##_s##_real_l##_weight/bias and p##_s##_imag_l##_weight/bias"
   },
-  "manifest_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_exports/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_model_bundle_manifest.json"
+  "manifest_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/separator1_grid_search_6ports_hd16_stages2_depth3_share0/matlab_exports/matlab_model_bundle_manifest.json"
 }

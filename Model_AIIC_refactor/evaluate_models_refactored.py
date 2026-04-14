@@ -33,7 +33,7 @@ def build_parser():
     plot_group.add_argument('--plot_after_eval', dest='plot_after_eval', action='store_true', help='Generate plots after evaluation (default)')
     plot_group.add_argument('--no-plot_after_eval', dest='plot_after_eval', action='store_false', help='Skip plot generation after evaluation')
     parser.set_defaults(use_amp=True, compile=True, plot_after_eval=True)
-    parser.add_argument('--output', type=str, default=None, help='Output directory for one evaluation run (default: <exp_dir>/evaluations/<timestamp>_<scope>)')
+    parser.add_argument('--output', type=str, default=None, help='Output directory for one evaluation run (default: single run -> <run_dir>/evaluations/<timestamp>, multiple runs -> <exp_dir>/evaluations/<timestamp>_<scope>)')
     return parser
 
 

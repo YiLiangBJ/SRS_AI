@@ -3,8 +3,8 @@ function [outputData, debug] = predict_refactor_separator1_bundle_explicit(bundl
 %
 % Usage:
 %   [outputData, debug] = predict_refactor_separator1_bundle_explicit(bundle, inputData)
-%   [outputData, debug] = predict_refactor_separator1_bundle_explicit(".../matlab_exports/my_run", inputData)
-%   [outputData, debug] = predict_refactor_separator1_bundle_explicit(".../matlab_exports/my_run")
+%   [outputData, debug] = predict_refactor_separator1_bundle_explicit(".../<run_name>/matlab_exports", inputData)
+%   [outputData, debug] = predict_refactor_separator1_bundle_explicit(".../<run_name>/matlab_exports")
 %
 % This function is intentionally verbose and separator1-specific.
 % It exposes the real-branch / imag-branch MLP structure clearly:

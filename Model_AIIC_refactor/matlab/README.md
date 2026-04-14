@@ -89,9 +89,8 @@ This writes:
 ```text
 <run_dir>/
   onnx_exports/
-    <run_name>/
-      <run_name>.onnx
-      export_manifest.json
+    <run_name>.onnx
+    export_manifest.json
 ```
 
 In Matlab:
@@ -121,7 +120,7 @@ run("./Model_AIIC_refactor/matlab/run_refactor_model_demo.m")
 The unified function entry is:
 
 ```matlab
-[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../onnx_exports/my_run", "onnx", 2);
+[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/onnx_exports", "onnx", 2);
 ```
 
 ### ONNX Matlab Inputs And Outputs
@@ -157,9 +156,8 @@ This writes:
 ```text
 <run_dir>/
   matlab_exports/
-    <run_name>/
-      matlab_model_bundle.mat
-      matlab_model_bundle_manifest.json
+    matlab_model_bundle.mat
+    matlab_model_bundle_manifest.json
 ```
 
 ### What The Project Saves And What Matlab Reads
@@ -214,13 +212,13 @@ run("./Model_AIIC_refactor/matlab/run_refactor_model_demo.m")
 The unified function entry is:
 
 ```matlab
-[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../matlab_exports/my_run", "bundle", 2);
+[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/matlab_exports", "bundle", 2);
 ```
 
 If you want the lower-level explicit API, keep using:
 
 ```matlab
-bundle = import_refactor_matlab_bundle(".../matlab_exports/my_run");
+bundle = import_refactor_matlab_bundle(".../<run_name>/matlab_exports");
 [outputData, debug] = predict_refactor_matlab_bundle(bundle, bundle.weights.sample_input);
 ```
 
@@ -251,7 +249,7 @@ If you want to use these helpers as reusable APIs instead of demos, use these fo
 Example:
 
 ```matlab
-modelHandle = import_refactor_model(".../onnx_exports/my_run", "auto");
+modelHandle = import_refactor_model(".../<run_name>/onnx_exports", "auto");
 ioSpec = describe_refactor_model_io(modelHandle, [], true);
 inputData = prepare_refactor_input(modelHandle, randn(3, 24, "single"));
 [outputData, debug, modelHandle] = predict_refactor_model(modelHandle, inputData);

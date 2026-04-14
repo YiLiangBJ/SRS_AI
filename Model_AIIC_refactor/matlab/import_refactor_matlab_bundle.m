@@ -2,7 +2,7 @@ function bundle = import_refactor_matlab_bundle(exportDir)
 %IMPORT_REFACTOR_MATLAB_BUNDLE Load explicit Matlab bundle exported from a run.
 %
 % Usage:
-%   bundle = import_refactor_matlab_bundle("matlab_exports/my_run")
+%   bundle = import_refactor_matlab_bundle(".../<run_name>/matlab_exports")
 
 exportDir = resolve_refactor_export_dir(exportDir);
 manifestPath = fullfile(char(exportDir), 'matlab_model_bundle_manifest.json');

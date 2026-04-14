@@ -76,5 +76,7 @@
     "linear_layers_per_mlp": 3,
     "separator2_field_pattern": "p##_s##_l##_weight_real/weight_imag/bias_real/bias_imag",
     "separator1_field_pattern": "p##_s##_real_l##_weight/bias and p##_s##_imag_l##_weight/bias"
-  }
+  },
+  "mat_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260413_031523_quick_separator1/separator1_small_hd32_stages2_depth3_share0/matlab_exports/matlab_model_bundle.mat",
+  "manifest_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260413_031523_quick_separator1/separator1_small_hd32_stages2_depth3_share0/matlab_exports/matlab_model_bundle_manifest.json"
 }

@@ -33,7 +33,8 @@ python ./Model_AIIC_refactor/evaluate_models_refactored.py \
 This writes one evaluation run under:
 
 ```text
-Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/evaluations/<timestamp>_<scope>/
+single run: Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/evaluations/<timestamp>/
+multiple runs: Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/evaluations/<timestamp>_<scope>/
 ```
 
 so different SNR / TDL / run selections do not overwrite each other.
@@ -82,17 +83,25 @@ experiments_refactored/
             model.pth
             config.yaml
             tensorboard/
+      evaluations/
+        <timestamp>/
+          evaluation_results.json
+          evaluation_results.npy
+          plots/
+            ...png
+      onnx_exports/
+        <run_name>.onnx
+        export_manifest.json
+      matlab_exports/
+        matlab_model_bundle.mat
+        matlab_model_bundle_manifest.json
     evaluations/
       <timestamp>_<scope>/
         evaluation_results.json
         evaluation_results.npy
         plots/
           ...png
-        onnx_exports/
-            <run_name>/
-                <run_name>.onnx
-                export_manifest.json
-        TRAINING_REPORT.md
+    TRAINING_REPORT.md
 ```
 
 ## Notes

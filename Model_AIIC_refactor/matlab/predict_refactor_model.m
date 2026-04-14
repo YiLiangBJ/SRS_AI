@@ -2,8 +2,8 @@ function [outputData, debug, modelHandle] = predict_refactor_model(modelOrDir, i
 %PREDICT_REFACTOR_MODEL Unified API entry for ONNX or Matlab bundle inference.
 %
 % Usage:
-%   outputData = predict_refactor_model(".../onnx_exports/my_run")
-%   outputData = predict_refactor_model(".../matlab_exports/my_run", [], "bundle")
+%   outputData = predict_refactor_model(".../<run_name>/onnx_exports")
+%   outputData = predict_refactor_model(".../<run_name>/matlab_exports", [], "bundle")
 %   [outputData, debug, modelHandle] = predict_refactor_model(modelHandle, inputData)
 
 if nargin < 2

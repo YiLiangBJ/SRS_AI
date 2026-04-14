@@ -2,8 +2,8 @@ function [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(e
 %DEMO_REFACTOR_ONNX_INFERENCE End-to-end Matlab example for refactor ONNX inference.
 %
 % Usage:
-%   [net, inputData, outputData, manifest] = demo_refactor_onnx_inference("onnx_exports/my_run")
-%   [net, inputData, outputData, manifest] = demo_refactor_onnx_inference("onnx_exports/my_run", 4)
+%   [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(".../<run_name>/onnx_exports")
+%   [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(".../<run_name>/onnx_exports", 4)
 %
 % This helper is a thin demo wrapper around:
 %   - import_refactor_model
