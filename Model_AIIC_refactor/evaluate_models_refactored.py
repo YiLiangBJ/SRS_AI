@@ -8,10 +8,9 @@ from workflows.evaluation_workflow import (
     parse_snr_range,
     resolve_device,
     resolve_evaluation_output_dir,
-    evaluate_at_snr,
-    save_evaluation_results,
     evaluate_models_programmatic,
 )
+from workflows.plotting_workflow import generate_plots_programmatic
 
 
 def build_parser():
@@ -22,8 +21,7 @@ def build_parser():
     parser.add_argument('--run_dirs', type=str, default=None, help='Multiple trained run directories, comma-separated')
     parser.add_argument('--runs', type=str, default=None, help='Run names inside --exp_dir, comma-separated')
     parser.add_argument('--list_runs', action='store_true', help='List evaluable runs inside --exp_dir and exit')
-    parser.add_argument('--snr_range', type=str, default='30:-3:0', help='SNR range such as 30:-3:0')
-    parser.add_argument('--snr_values', type=str, default=None, help='Explicit SNR list such as 30,25,20,15,10,5,0. Overrides --snr_range')
+    parser.add_argument('--snr_range', type=str, default='30:-3:0', help='SNR setting, supports 30:-3:0 or 30,25,20,15,10,5,0')
     parser.add_argument('--tdl', type=str, default='A-30,B-100,C-300', help='TDL configurations, comma-separated')
     parser.add_argument('--num_batches', type=int, default=100, help='Evaluation batches per SNR point')
     parser.add_argument('--batches_per_snr', type=int, default=None, help='Friendly alias for --num_batches')
@@ -31,7 +29,10 @@ def build_parser():
     parser.add_argument('--device', type=str, default='auto', help='auto, cpu, cuda, cuda:0, ...')
     parser.add_argument('--no-amp', dest='use_amp', action='store_false', help='Disable AMP on GPU during evaluation')
     parser.add_argument('--no-compile', dest='compile', action='store_false', help='Disable torch.compile on GPU')
-    parser.set_defaults(use_amp=True, compile=True)
+    plot_group = parser.add_mutually_exclusive_group()
+    plot_group.add_argument('--plot_after_eval', dest='plot_after_eval', action='store_true', help='Generate plots after evaluation (default)')
+    plot_group.add_argument('--no-plot_after_eval', dest='plot_after_eval', action='store_false', help='Skip plot generation after evaluation')
+    parser.set_defaults(use_amp=True, compile=True, plot_after_eval=True)
     parser.add_argument('--output', type=str, default=None, help='Output directory for one evaluation run (default: <exp_dir>/evaluations/<timestamp>_<scope>)')
     return parser
 
@@ -64,7 +65,7 @@ def main():
         run_dirs=args.run_dirs,
         runs=args.runs,
     )
-    snr_values = [float(value) for value in split_csv_arg(args.snr_values)] if args.snr_values else parse_snr_range(args.snr_range)
+    snr_values = parse_snr_range(args.snr_range)
     tdl_configs = split_csv_arg(args.tdl)
     output_dir = resolve_evaluation_output_dir(
         explicit_output=args.output,
@@ -89,7 +90,6 @@ def main():
         exp_dir=Path(args.exp_dir) if args.exp_dir else target_dirs[0].parent,
         output_dir=output_dir,
         snr_range=args.snr_range,
-        snr_values=args.snr_values,
         tdl_list=tdl_configs,
         num_batches=args.num_batches,
         batch_size=args.batch_size,
@@ -98,6 +98,18 @@ def main():
         compile=args.compile,
         model_dirs=target_dirs,
     )
+
+    if args.plot_after_eval:
+        print('\n' + '=' * 80)
+        print('Generating Evaluation Plots')
+        print('=' * 80)
+        plot_output_dir = output_dir / 'plots'
+        generated_files = generate_plots_programmatic(
+            eval_results_path=output_dir,
+            output_dir=plot_output_dir,
+        )
+        print(f'Generated {len(generated_files)} plot(s)')
+        print(f'Plot output: {plot_output_dir}')
 
 
 if __name__ == '__main__':

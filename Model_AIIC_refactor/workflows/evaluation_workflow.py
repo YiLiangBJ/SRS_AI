@@ -152,9 +152,11 @@ def resolve_evaluation_output_dir(explicit_output=None, exp_dir: Path | None = N
     if explicit_output:
         return Path(explicit_output)
 
-    evaluation_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_build_evaluation_scope_label(model_dirs)}"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    single_run = bool(model_dirs) and len(model_dirs) == 1
+    evaluation_name = timestamp if single_run else f'{timestamp}_{_build_evaluation_scope_label(model_dirs)}'
 
-    if model_dirs and len(model_dirs) == 1:
+    if single_run:
         return Path(model_dirs[0]) / 'evaluations' / evaluation_name
 
     if exp_dir is not None:
@@ -172,7 +174,6 @@ def evaluate_models_programmatic(
     exp_dir,
     output_dir=None,
     snr_range='30:-3:0',
-    snr_values=None,
     tdl_list=None,
     num_batches=100,
     batch_size=2048,
@@ -186,7 +187,7 @@ def evaluate_models_programmatic(
     device = resolve_device(device)
     exp_dir = Path(exp_dir) if exp_dir is not None else None
 
-    snr_list = [float(value) for value in split_csv_arg(snr_values)] if snr_values else parse_snr_range(snr_range)
+    snr_list = parse_snr_range(snr_range)
     tdl_list = split_csv_arg(tdl_list) if tdl_list is not None else ['A-30', 'B-100', 'C-300']
 
     if model_dirs:

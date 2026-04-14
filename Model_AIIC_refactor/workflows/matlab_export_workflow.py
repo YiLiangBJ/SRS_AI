@@ -82,7 +82,7 @@ def export_run_to_matlab_bundle(
         output_root = artifacts.run_dir / 'matlab_exports'
     else:
         output_root = Path(output_root)
-    run_output_dir = output_root / artifacts.run_dir.name
+    run_output_dir = output_root
     run_output_dir.mkdir(parents=True, exist_ok=True)
 
     sample_input = build_dummy_input(model_spec, batch_size=batch_size)
@@ -159,6 +159,8 @@ def export_runs_to_matlab_bundle(
         run_dirs=run_dirs,
         runs=runs,
     )
+    if output_root is not None and len(target_dirs) > 1:
+        raise ValueError('Shared output_root is only supported for a single run. For multiple runs, omit --output so each run writes to its own matlab_exports directory.')
     return [
         export_run_to_matlab_bundle(
             run_dir=target_dir,

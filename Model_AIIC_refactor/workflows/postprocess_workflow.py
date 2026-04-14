@@ -56,7 +56,7 @@ def run_post_training_pipeline(training_summary):
         )
         print(f"✓ Matlab bundle export completed")
         for manifest in summary.matlab_manifests:
-            manifest_dir = Path(manifest['run_dir']) / 'matlab_exports' / manifest['run_name'] if not request.matlab_output_dir else Path(request.matlab_output_dir) / manifest['run_name']
+            manifest_dir = Path(manifest['mat_path']).parent
             print(f"  - {manifest['run_name']}: {manifest_dir}")
 
     if request.eval_after_train:

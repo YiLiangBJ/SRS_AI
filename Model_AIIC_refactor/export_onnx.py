@@ -14,7 +14,7 @@ def build_parser():
     parser.add_argument('--run_dirs', type=str, default=None, help='Multiple trained run directories, comma-separated')
     parser.add_argument('--runs', type=str, default=None, help='Run names inside --exp_dir, comma-separated')
     parser.add_argument('--list_runs', action='store_true', help='List exportable runs inside --exp_dir and exit')
-    parser.add_argument('--output', type=str, default=None, help='Directory where exported ONNX artifacts are written (default: each run directory under onnx_exports/)')
+    parser.add_argument('--output', type=str, default=None, help='Directory where ONNX artifacts are written for a single run (default: each run directory under onnx_exports/)')
     parser.add_argument('--opset', type=int, default=13, help='ONNX opset version (13 is a Matlab-friendly default)')
     parser.add_argument('--batch_size', type=int, default=1, help='Dummy batch size used for export tracing')
     dynamic_group = parser.add_mutually_exclusive_group()
