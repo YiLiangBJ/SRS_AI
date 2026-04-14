@@ -58,15 +58,27 @@
             "name": "Python: evaluate_models_refactored.py",
             "type": "debugpy",
             "request": "launch",
+            "python": "${command:python.interpreterPath}",
             "program": "${workspaceFolder}/Model_AIIC_refactor/evaluate_models_refactored.py",
             "cwd": "${workspaceFolder}/Model_AIIC_refactor",
             "console": "integratedTerminal",
             "justMyCode": true,
+            "windows": {
+                "console": "internalConsole",
+                "redirectOutput": true,
+                "env": {
+                    "PYTHONSTARTUP": "",
+                    "PYTHON_BASIC_REPL": ""
+                }
+            },
+            "linux": {
+                "console": "integratedTerminal"
+            },
             "args": [
                 "--exp_dir",
-                "./experiments_refactored/20260409_033734_default_6port_separator1",
-                "--runs",
-                "separator1_grid_search_6ports_hd128_stages2_depth3_share0",
+                "./experiments_refactored/20260414_051822_default_6port_separator1",
+                // "--runs",
+                // "separator1_grid_search_6ports_hd128_stages2_depth3_share0",
                 "--snr_range",
                 "30:-3:0",
                 "--tdl",
