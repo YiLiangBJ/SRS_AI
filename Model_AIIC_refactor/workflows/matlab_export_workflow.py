@@ -65,7 +65,6 @@ def _export_separator1_weights(model: torch.nn.Module, num_ports: int, num_stage
 def export_run_to_matlab_bundle(
     run_dir,
     output_root=None,
-    batch_size: int = 2,
 ) -> Dict[str, object]:
     """Export a single trained run into a Matlab-friendly explicit-weight bundle."""
     model, artifacts = load_trained_model_from_run(run_dir, device='cpu')
@@ -85,7 +84,7 @@ def export_run_to_matlab_bundle(
     run_output_dir = output_root
     run_output_dir.mkdir(parents=True, exist_ok=True)
 
-    sample_input = build_dummy_input(model_spec, batch_size=batch_size)
+    sample_input = build_dummy_input(model_spec, batch_size=1)
     with torch.no_grad():
         reference_output = model(sample_input)
 
@@ -120,6 +119,7 @@ def export_run_to_matlab_bundle(
         'output_layout': 'N x num_ports x (2*seq_len) real-stacked float32',
         'sample_input_shape': list(sample_input.shape),
         'reference_output_shape': list(reference_output.shape),
+        'reference_sample_rule': 'sample_input/reference_output are always exported with batch size 1; Matlab inference accepts arbitrary batch size N.',
         'materialization_rule': 'Every effective port-stage MLP is materialized explicitly, even when training used shared stage weights.',
         'matlab_entrypoints': [
             'import_refactor_matlab_bundle',
@@ -154,7 +154,6 @@ def export_runs_to_matlab_bundle(
     run_dir=None,
     run_dirs=None,
     runs=None,
-    batch_size: int = 2,
 ) -> List[Dict[str, object]]:
     """Programmatic multi-run Matlab bundle export entry point."""
     target_dirs = resolve_run_selection(
@@ -169,7 +168,6 @@ def export_runs_to_matlab_bundle(
         export_run_to_matlab_bundle(
             run_dir=target_dir,
             output_root=output_root,
-            batch_size=batch_size,
         )
         for target_dir in target_dirs
     ]

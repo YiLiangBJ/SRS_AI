@@ -125,6 +125,8 @@ The unified function entry is:
 [modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/onnx_exports", "onnx", 2);
 ```
 
+The third argument is the runtime batch size used to generate demo input in Matlab. It is independent of how the model was exported.
+
 ### ONNX Matlab Inputs And Outputs
 
 - Input shape: `N x (2*seq_len)`
@@ -149,9 +151,10 @@ This is the recommended path if the Matlab implementation team wants to see the 
 
 ```bash
 python ./Model_AIIC_refactor/export_matlab_bundle.py \
-  --run_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name> \
-  --batch_size 2
+  --run_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>
 ```
+
+The exporter always stores one reference sample. This only affects the bundled sample_input/reference_output example tensors; actual Matlab inference can still use any batch size N.
 
 This writes:
 
@@ -183,6 +186,8 @@ The MAT file always contains:
 - `sample_input`: reference input with shape `N x (2*seq_len)`
 - `reference_output`: PyTorch output for that input with shape `N x num_ports x (2*seq_len)`
 - `pos_values`: port positions
+
+For current exports, that reference `N` is always `1`. On the Matlab side, `prepare_refactor_input(bundle, batchSize, "bundle")` can generate a fresh `batchSize x (2*seq_len)` input matrix directly from the imported model metadata.
 
 For `separator2`, the MAT file also contains one fully materialized effective MLP per port and stage:
 
@@ -219,11 +224,14 @@ The unified function entry is:
 [modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/matlab_exports", "bundle", 2);
 ```
 
+Again, that third argument only controls the Matlab-side runtime input shape. The exported bundle itself always stores one reference sample.
+
 If you want the lower-level explicit API, keep using:
 
 ```matlab
 bundle = import_refactor_matlab_bundle(".../<run_name>/matlab_exports");
-[outputData, debug] = predict_refactor_matlab_bundle(bundle, bundle.weights.sample_input);
+inputData = prepare_refactor_input(bundle, 8, "bundle");
+[outputData, debug] = predict_refactor_matlab_bundle(bundle, inputData);
 ```
 
 If you pass a relative path manually, it is resolved in this order:
@@ -255,8 +263,8 @@ Example:
 ```matlab
 modelHandle = import_refactor_model(".../<run_name>/onnx_exports", "auto");
 ioSpec = describe_refactor_model_io(modelHandle, [], true);
-inputData = prepare_refactor_input(modelHandle, randn(3, 24, "single"));
-[outputData, debug, modelHandle] = predict_refactor_model(modelHandle, inputData);
+inputData = prepare_refactor_input(modelHandle, 8, modelHandle.mode);
+[outputData, debug, modelHandle] = predict_refactor_model(modelHandle, inputData, modelHandle.mode);
 ```
 
 The printed shape spec uses `-1` for dynamic dimensions.

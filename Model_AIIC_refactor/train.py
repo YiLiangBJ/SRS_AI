@@ -39,7 +39,6 @@ def build_parser():
     parser.add_argument('--export_matlab_after_train', action='store_true', help='训练完成后导出 Matlab 显式权重 bundle')
     parser.add_argument('--matlab_export_selection', type=str, default='best', choices=['best', 'all'], help='导出最佳 run 或全部 run 的 Matlab bundle')
     parser.add_argument('--matlab_output_dir', type=str, default=None, help='Matlab bundle 导出目录（仅单 run 自定义导出时使用；多 run 默认各自写入 run/matlab_exports）')
-    parser.add_argument('--matlab_batch_size', type=int, default=2, help='Matlab bundle 中 sample_input/reference_output 的 batch size')
     parser.add_argument('--plan_only', action='store_true', help='仅解析并打印实验计划，不执行训练')
     return parser
 

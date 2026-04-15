@@ -115,7 +115,6 @@ Model_AIIC_refactor/
 | --export_matlab_after_train | Export trained runs to Matlab explicit-weight bundles after training |
 | --matlab_export_selection | Export `best` or `all` runs as Matlab bundles |
 | --matlab_output_dir | Single-run Matlab bundle directory override |
-| --matlab_batch_size | Reference batch size stored in Matlab bundle sample_input/reference_output |
 | --plan_only | Print the run plan and exit |
 
 ## Benchmark CLI
@@ -217,8 +216,7 @@ If the Matlab side needs explicit matrices and activations rather than an ONNX g
 
 ```bash
 python ./Model_AIIC_refactor/export_matlab_bundle.py \
-  --run_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name> \
-  --batch_size 2
+  --run_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>
 ```
 
 This writes:

@@ -52,7 +52,6 @@ def run_post_training_pipeline(training_summary):
             output_root=Path(request.matlab_output_dir) if request.matlab_output_dir else None,
             exp_dir=training_summary.experiment_output_dir,
             runs=','.join(export_run_names),
-            batch_size=request.matlab_batch_size,
         )
         print(f"✓ Matlab bundle export completed")
         for manifest in summary.matlab_manifests:

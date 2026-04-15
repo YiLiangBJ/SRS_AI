@@ -4,7 +4,7 @@ function [modelHandle, inputData, outputData, info] = demo_refactor_model_infere
 % Usage:
 %   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/export")
 %   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/export", "onnx", 2)
-%   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/export", "bundle", 2)
+%   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/export", "bundle", 8)
 %
 % This helper is a thin demo wrapper around:
 %   - import_refactor_model
@@ -24,10 +24,11 @@ info = struct();
 info.mode = modelHandle.mode;
 info.manifest = modelHandle.manifest;
 info.io_spec = describe_refactor_model_io(modelHandle, [], false);
+info.requested_batch_size = [];
 
 if nargin >= 3 && ~isempty(batchSize)
-    featureDim = double(info.io_spec.input.shape(end));
-    inputData = randn(batchSize, featureDim, "single");
+    info.requested_batch_size = double(batchSize);
+    inputData = batchSize;
 else
     inputData = [];
 end
@@ -46,4 +47,7 @@ disp("  Output shape spec: " + string(info.io_spec.output.shape_string));
 disp("  Input size: " + mat2str(size(inputData)));
 disp("  Output size: " + mat2str(size(outputData)));
 disp("  Run name: " + string(modelHandle.manifest.run_name));
+if ~isempty(info.requested_batch_size)
+    disp("  Requested batch size: " + string(info.requested_batch_size));
+end
 end

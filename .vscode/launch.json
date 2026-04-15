@@ -114,9 +114,7 @@
                 "./experiments_refactored/20260414_071319_default_6port_separator1",
                 "--runs", "separator1_grid_search_6ports_hd32_stages2_depth3_share0",
                 "--output",
-                "./matlab_exports",
-                "--batch_size",
-                "1"
+                "./matlab_exports"
             ]
         },
         {

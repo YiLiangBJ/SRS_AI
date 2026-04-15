@@ -14,7 +14,6 @@ def build_parser():
     parser.add_argument('--runs', type=str, default=None, help='Run names inside --exp_dir, comma-separated')
     parser.add_argument('--list_runs', action='store_true', help='List exportable runs inside --exp_dir and exit')
     parser.add_argument('--output', type=str, default=None, help='Directory where Matlab bundle artifacts are written for a single run (default: each run directory under matlab_exports/)')
-    parser.add_argument('--batch_size', type=int, default=2, help='Reference batch size stored in sample_input/reference_output')
     return parser
 
 
@@ -38,7 +37,6 @@ def main():
         run_dir=args.run_dir,
         run_dirs=args.run_dirs,
         runs=args.runs,
-        batch_size=args.batch_size,
     )
 
     if args.output:

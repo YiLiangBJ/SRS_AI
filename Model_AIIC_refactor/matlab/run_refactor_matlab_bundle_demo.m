@@ -12,14 +12,26 @@ exportDir = fullfile(repoRoot, "Model_AIIC_refactor", "experiments_refactored", 
     "matlab_exports");
 
 bundle = import_refactor_matlab_bundle(exportDir);
-inputData = single(bundle.weights.sample_input);
+useReferenceSample = false;
+requestedBatchSize = 4;
+
+if useReferenceSample && isfield(bundle.weights, "sample_input")
+    inputData = single(bundle.weights.sample_input);
+else
+    inputData = prepare_refactor_input(bundle, requestedBatchSize, "bundle");
+end
+
 [outputData, debug] = predict_refactor_matlab_bundle(bundle, inputData);
 
 disp("Matlab bundle demo finished.");
 disp("  Input size: " + mat2str(size(inputData)));
 disp("  Output size: " + mat2str(size(outputData)));
+if ~useReferenceSample
+    disp("  Generated input at runtime from model metadata.");
+    disp("  Requested batch size: " + string(requestedBatchSize));
+end
 
-if isfield(bundle.weights, "reference_output")
+if useReferenceSample && isfield(bundle.weights, "reference_output")
     referenceOutput = single(bundle.weights.reference_output);
     maxAbsDiff = max(abs(outputData(:) - referenceOutput(:)));
     disp("  Max abs diff vs exported reference_output: " + string(maxAbsDiff));

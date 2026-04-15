@@ -288,10 +288,7 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(manifest['matlab_notes']['normalize_energy'])
 
     def test_export_run_to_matlab_bundle_writes_into_run_matlab_exports(self):
-        manifest = export_run_to_matlab_bundle(
-            run_dir=self.run_dir,
-            batch_size=2,
-        )
+        manifest = export_run_to_matlab_bundle(run_dir=self.run_dir)
 
         mat_path = Path(manifest['mat_path'])
         manifest_path = Path(manifest['manifest_path'])
@@ -300,9 +297,10 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertEqual(mat_path.parent, self.run_dir / 'matlab_exports')
         self.assertTrue(manifest['model_spec']['normalize_energy'])
         self.assertTrue(manifest['input_normalization']['enabled'])
+        self.assertEqual(manifest['sample_input_shape'][0], 1)
 
     def test_separator1_matlab_bundle_matches_exported_reference_output(self):
-        manifest = export_run_to_matlab_bundle(run_dir=self.run_dir, batch_size=2)
+        manifest = export_run_to_matlab_bundle(run_dir=self.run_dir)
         mat_data = loadmat(manifest['mat_path'])
         sample_input = torch.from_numpy(mat_data['sample_input']).float()
         reference_output = torch.from_numpy(mat_data['reference_output']).float()
@@ -324,7 +322,7 @@ class TestEvaluationAndExport(unittest.TestCase):
                 'onnx_mode': False,
             },
         )
-        manifest = export_run_to_matlab_bundle(run_dir=run_dir, batch_size=2)
+        manifest = export_run_to_matlab_bundle(run_dir=run_dir)
         mat_data = loadmat(manifest['mat_path'])
         sample_input = torch.from_numpy(mat_data['sample_input']).float()
         reference_output = torch.from_numpy(mat_data['reference_output']).float()
@@ -357,7 +355,6 @@ class TestEvaluationAndExport(unittest.TestCase):
             export_runs_to_matlab_bundle(
                 output_root=self.root / 'shared_matlab_exports',
                 exp_dir=self.root,
-                batch_size=2,
             )
 
 

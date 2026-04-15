@@ -4,6 +4,7 @@ function [inputData, ioSpec] = prepare_refactor_input(modelOrBundleOrManifest, i
 % Usage:
 %   inputData = prepare_refactor_input(modelHandle)
 %   inputData = prepare_refactor_input(bundle, [], "bundle")
+%   inputData = prepare_refactor_input(bundle, 8, "bundle")
 %   inputData = prepare_refactor_input(manifest, randn(2, 24), "onnx")
 
 if nargin < 2
@@ -15,6 +16,12 @@ end
 
 [manifest, weights, ioSpec] = local_extract_context(modelOrBundleOrManifest, mode);
 featureDim = local_feature_dim(ioSpec);
+
+if nargin >= 2 && isnumeric(inputData) && isscalar(inputData) && ~isempty(inputData)
+    validateattributes(inputData, {"numeric"}, {"integer", "positive"}, ...
+        mfilename, "inputData");
+    inputData = randn(double(inputData), featureDim, "single");
+end
 
 if nargin < 2 || isempty(inputData)
     if ~isempty(weights) && isfield(weights, "sample_input")

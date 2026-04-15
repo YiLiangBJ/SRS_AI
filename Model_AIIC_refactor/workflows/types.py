@@ -33,7 +33,6 @@ class TrainRequest:
     export_matlab_after_train: bool = False
     matlab_export_selection: str = 'best'
     matlab_output_dir: Optional[str] = None
-    matlab_batch_size: int = 2
     plan_only: bool = False
 
     @classmethod
