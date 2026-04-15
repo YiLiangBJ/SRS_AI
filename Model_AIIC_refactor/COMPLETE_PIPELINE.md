@@ -267,7 +267,37 @@ python ./Model_AIIC_refactor/export_onnx.py \
 
 You can also point to an intermediate checkpoint such as `checkpoint_batch_87000.pth`.
 
+For the single-checkpoint CLI, the default output is written next to the selected checkpoint:
+
+- `model.pth` -> `model.onnx`
+- `checkpoint_batch_87000.pth` -> `checkpoint_batch_87000.onnx`
+
+The matching manifest is written alongside it as:
+
+- `model.export_manifest.json`
+- `checkpoint_batch_87000.export_manifest.json`
+
 ### 8.2 ONNX output layout
+
+Manual single-checkpoint export default:
+
+```text
+<run_dir>/
+  model.pth
+  model.onnx
+  model.export_manifest.json
+```
+
+or:
+
+```text
+<run_dir>/
+  checkpoint_batch_87000.pth
+  checkpoint_batch_87000.onnx
+  checkpoint_batch_87000.export_manifest.json
+```
+
+Post-training multi-run export still uses the per-run artifact directory:
 
 ```text
 <run_dir>/onnx_exports/
@@ -331,7 +361,7 @@ Even when training used `share_weights_across_stages=True`, the exporter writes 
 
 ### 10.1 Export paths Matlab expects
 
-- ONNX path: `<run_dir>/onnx_exports`
+- ONNX path: either `<run_dir>/onnx_exports`, a checkpoint-adjacent `.onnx` file, or a checkpoint-adjacent `.export_manifest.json`
 - Matlab bundle path: `<run_dir>/matlab_exports`
 
 The helper scripts build these paths from the script location, so they do not depend on your Matlab current working directory.
@@ -369,6 +399,12 @@ inputData = prepare_refactor_input(bundle, 8, "bundle");
 
 ```matlab
 [modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/onnx_exports", "onnx", 8);
+```
+
+Checkpoint-adjacent exports are also supported:
+
+```matlab
+[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/checkpoint_batch_87000.onnx", "onnx", 8);
 ```
 
 If the ONNX export used fixed batch size instead of dynamic batch, the helper will chunk or pad requests on the Matlab side as needed.

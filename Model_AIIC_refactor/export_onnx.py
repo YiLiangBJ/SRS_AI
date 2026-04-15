@@ -9,7 +9,7 @@ def build_parser():
     """Build the export CLI parser."""
     parser = argparse.ArgumentParser(description='Export one trained refactored checkpoint to ONNX')
     parser.add_argument('--checkpoint', type=str, required=True, help='Path to a specific checkpoint file, e.g. model.pth or checkpoint_batch_87000.pth')
-    parser.add_argument('--output', type=str, default=None, help='Directory where ONNX artifacts are written for a single run (default: each run directory under onnx_exports/)')
+    parser.add_argument('--output', type=str, default=None, help='Optional ONNX file path or output directory (default: next to the checkpoint, named <checkpoint_stem>.onnx)')
     parser.add_argument('--opset', type=int, default=13, help='ONNX opset version (13 is a Matlab-friendly default)')
     parser.add_argument('--batch_size', type=int, default=1, help='Dummy batch size used for export tracing')
     dynamic_group = parser.add_mutually_exclusive_group()
@@ -33,10 +33,11 @@ def main():
     )
 
     if args.output:
-        print(f'✓ Exported ONNX to {args.output}')
+        print(f'✓ Exported ONNX using custom output target {args.output}')
     else:
-        print('✓ Exported ONNX to the run-specific onnx_exports directory')
+        print('✓ Exported ONNX next to the selected checkpoint')
     print(f"  - {manifest['run_name']}: {manifest['onnx_path']}")
+    print(f"  - manifest: {manifest['manifest_path']}")
 
 
 if __name__ == '__main__':

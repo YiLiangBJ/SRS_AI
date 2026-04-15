@@ -19,6 +19,23 @@ def _prepare_model_for_export(model: torch.nn.Module) -> torch.nn.Module:
     return model
 
 
+def _resolve_checkpoint_export_paths(checkpoint_path, output_root=None) -> tuple[Path, Path]:
+    """Resolve ONNX and manifest paths for single-checkpoint export."""
+    checkpoint_path = Path(checkpoint_path)
+
+    if output_root is None:
+        onnx_path = checkpoint_path.with_suffix('.onnx')
+    else:
+        output_root = Path(output_root)
+        if output_root.suffix.lower() == '.onnx':
+            onnx_path = output_root
+        else:
+            onnx_path = output_root / f'{checkpoint_path.stem}.onnx'
+
+    manifest_path = onnx_path.with_suffix('.export_manifest.json')
+    return onnx_path, manifest_path
+
+
 def validate_exported_model(
     onnx_path: Path,
     model: torch.nn.Module,
@@ -124,6 +141,7 @@ def export_run_to_onnx(
     }
 
     manifest_path = run_output_dir / 'export_manifest.json'
+    manifest['manifest_path'] = str(manifest_path)
     with open(manifest_path, 'w', encoding='utf-8') as manifest_file:
         json.dump(manifest, manifest_file, indent=2, ensure_ascii=False)
 
@@ -143,12 +161,11 @@ def export_checkpoint_to_onnx(
     model, artifacts = load_trained_model_from_checkpoint(checkpoint_path, device='cpu')
     model = _prepare_model_for_export(model)
 
-    if output_root is None:
-        output_root = artifacts.run_dir / 'onnx_exports'
-    else:
-        output_root = Path(output_root)
-    run_output_dir = output_root
-    run_output_dir.mkdir(parents=True, exist_ok=True)
+    onnx_path, manifest_path = _resolve_checkpoint_export_paths(
+        checkpoint_path=artifacts.checkpoint_path,
+        output_root=output_root,
+    )
+    onnx_path.parent.mkdir(parents=True, exist_ok=True)
 
     dummy_input = build_dummy_input(artifacts.model_spec, batch_size=batch_size)
     input_names = ['mixed_signal']
@@ -160,7 +177,6 @@ def export_checkpoint_to_onnx(
             'separated_channels': {0: 'batch_size'},
         }
 
-    onnx_path = run_output_dir / f'{artifacts.run_dir.name}.onnx'
     with torch.no_grad():
         dummy_output = model(dummy_input)
         torch.onnx.export(
@@ -203,7 +219,7 @@ def export_checkpoint_to_onnx(
         },
     }
 
-    manifest_path = run_output_dir / 'export_manifest.json'
+    manifest['manifest_path'] = str(manifest_path)
     with open(manifest_path, 'w', encoding='utf-8') as manifest_file:
         json.dump(manifest, manifest_file, indent=2, ensure_ascii=False)
 

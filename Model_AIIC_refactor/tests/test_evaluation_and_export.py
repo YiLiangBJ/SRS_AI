@@ -305,7 +305,10 @@ class TestEvaluationAndExport(unittest.TestCase):
         )
 
         self.assertEqual(Path(manifest['checkpoint_path']), self.explicit_checkpoint_path)
+        self.assertEqual(Path(manifest['onnx_path']), self.explicit_checkpoint_path.with_suffix('.onnx'))
+        self.assertEqual(Path(manifest['manifest_path']), self.explicit_checkpoint_path.with_suffix('.export_manifest.json'))
         self.assertTrue(Path(manifest['onnx_path']).exists())
+        self.assertTrue(Path(manifest['manifest_path']).exists())
 
     def test_export_run_to_matlab_bundle_writes_into_run_matlab_exports(self):
         manifest = export_run_to_matlab_bundle(run_dir=self.run_dir)

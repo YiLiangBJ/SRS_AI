@@ -111,9 +111,7 @@
             "justMyCode": true,
             "args": [
                 "--checkpoint",
-                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/checkpoint_batch_87000.pth",
-                "--output",
-                "./matlab_exports"
+                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/checkpoint_batch_100000.pth"
             ]
         },
         {
@@ -126,9 +124,7 @@
             "justMyCode": true,
             "args": [
                 "--checkpoint",
-                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/checkpoint_batch_87000.pth",
-                "--output",
-                "./model.onnx",
+                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/checkpoint_batch_100000.pth",
                 "--opset",
                 "13"
             ]

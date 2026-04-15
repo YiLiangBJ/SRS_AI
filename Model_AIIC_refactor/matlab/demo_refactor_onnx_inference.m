@@ -4,6 +4,7 @@ function [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(e
 % Usage:
 %   [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(".../<run_name>/onnx_exports")
 %   [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(".../<run_name>/onnx_exports", 4)
+%   [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(".../<run_name>/checkpoint_batch_87000.onnx", 4)
 %
 % This helper is a thin demo wrapper around:
 %   - import_refactor_model
@@ -13,7 +14,7 @@ function [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(e
 
 if nargin < 1
     error("demo_refactor_onnx_inference:MissingExportDir", ...
-        "Provide the run export directory that contains export_manifest.json.");
+    "Provide an ONNX export directory, .onnx file, or matching manifest file.");
 end
 
 if nargin < 2 || isempty(batchSize)

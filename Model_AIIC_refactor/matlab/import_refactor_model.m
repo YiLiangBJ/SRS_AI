@@ -10,23 +10,24 @@ if nargin < 2 || isempty(mode)
     mode = "auto";
 end
 
-exportDir = resolve_refactor_export_dir(exportDir);
 mode = string(mode);
 
 resolvedMode = local_resolve_mode(exportDir, mode);
 modelHandle = struct();
 modelHandle.mode = resolvedMode;
-modelHandle.export_dir = exportDir;
 
 switch resolvedMode
     case "onnx"
         [net, manifest] = import_refactor_onnx(exportDir);
         modelHandle.model = net;
         modelHandle.manifest = manifest;
+        modelHandle.export_dir = string(fileparts(char(manifest.manifest_path)));
     case "bundle"
+        exportDir = resolve_refactor_export_dir(exportDir);
         bundle = import_refactor_matlab_bundle(exportDir);
         modelHandle.model = bundle;
         modelHandle.manifest = bundle.manifest;
+        modelHandle.export_dir = exportDir;
     otherwise
         error("import_refactor_model:UnsupportedMode", "Unsupported mode: %s", resolvedMode);
 end
@@ -42,10 +43,30 @@ if mode ~= "auto"
     return;
 end
 
+exportPath = string(exportDir);
+if isfile(char(exportPath))
+    [~, name, ext] = fileparts(char(exportPath));
+    ext = string(lower(ext));
+    if ext == ".onnx"
+        resolvedMode = "onnx";
+        return;
+    end
+    if ext == ".json"
+        if strcmpi(strcat(name, char(ext)), 'matlab_model_bundle_manifest.json')
+            resolvedMode = "bundle";
+        else
+            resolvedMode = "onnx";
+        end
+        return;
+    end
+end
+
+exportDir = resolve_refactor_export_dir(exportDir);
+
 onnxManifest = fullfile(char(exportDir), 'export_manifest.json');
 matlabManifest = fullfile(char(exportDir), 'matlab_model_bundle_manifest.json');
 
-if isfile(onnxManifest)
+if isfile(onnxManifest) || ~isempty(dir(fullfile(char(exportDir), '*.export_manifest.json')))
     resolvedMode = "onnx";
 elseif isfile(matlabManifest)
     resolvedMode = "bundle";

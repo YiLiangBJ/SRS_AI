@@ -1,24 +1,23 @@
-function [net, manifest] = import_refactor_onnx(exportDir)
+function [net, manifest] = import_refactor_onnx(exportPath)
 %IMPORT_REFACTOR_ONNX Import an exported refactor ONNX model into Matlab.
 %
 % Usage:
 %   net = import_refactor_onnx("experiments_refactored/.../<run_name>/onnx_exports")
-%   [net, manifest] = import_refactor_onnx("experiments_refactored/.../<run_name>/onnx_exports")
+%   net = import_refactor_onnx("experiments_refactored/.../<run_name>/checkpoint_batch_100000.onnx")
+%   [net, manifest] = import_refactor_onnx("experiments_refactored/.../<run_name>/checkpoint_batch_100000.export_manifest.json")
 %
-% The export directory must contain:
-%   - <run_name>.onnx
-%   - export_manifest.json
 
-exportDir = resolve_refactor_export_dir(exportDir);
-manifestPath = fullfile(char(exportDir), 'export_manifest.json');
+[exportDir, manifestPath, explicitOnnxPath] = local_resolve_export_targets(exportPath);
+
 if ~isfile(manifestPath)
     error("import_refactor_onnx:ManifestNotFound", ...
-    "export_manifest.json was not found under %s", char(exportDir));
+    "Could not find an ONNX export manifest for %s", char(string(exportPath)));
 end
 
 manifest = jsondecode(fileread(manifestPath));
+manifest.manifest_path = string(manifestPath);
 
-onnxPath = local_resolve_onnx_path(exportDir, manifest);
+onnxPath = local_resolve_onnx_path(exportDir, manifest, explicitOnnxPath);
 if ~isfile(onnxPath)
     error("import_refactor_onnx:OnnxNotFound", ...
         "ONNX file referenced by the manifest was not found: %s", char(onnxPath));
@@ -46,7 +45,74 @@ disp("  Input dynamic dims: " + local_format_dim_indices(ioSpec.input.dynamic_ma
 disp("  Output dynamic dims: " + local_format_dim_indices(ioSpec.output.dynamic_mask));
 end
 
-function onnxPath = local_resolve_onnx_path(exportDir, manifest)
+function [exportDir, manifestPath, explicitOnnxPath] = local_resolve_export_targets(exportPath)
+explicitOnnxPath = "";
+exportPath = string(exportPath);
+exportPath = strip(exportPath);
+
+if strlength(exportPath) == 0
+    error("import_refactor_onnx:EmptyPath", "exportPath must not be empty.");
+end
+
+if isfile(char(exportPath))
+    [parentDir, ~, ext] = fileparts(char(exportPath));
+    exportDir = string(char(java.io.File(parentDir).getCanonicalPath()));
+    ext = string(lower(ext));
+
+    if ext == ".onnx"
+        explicitOnnxPath = string(char(java.io.File(char(exportPath)).getCanonicalPath()));
+        manifestPath = local_manifest_for_onnx_path(explicitOnnxPath);
+        return;
+    end
+
+    if ext == ".json"
+        manifestPath = string(char(java.io.File(char(exportPath)).getCanonicalPath()));
+        return;
+    end
+
+    error("import_refactor_onnx:UnsupportedFilePath", ...
+        "Unsupported file input: %s", char(exportPath));
+end
+
+exportDir = resolve_refactor_export_dir(exportPath);
+legacyManifest = fullfile(char(exportDir), 'export_manifest.json');
+if isfile(legacyManifest)
+    manifestPath = string(legacyManifest);
+    return;
+end
+
+manifestFiles = dir(fullfile(char(exportDir), '*.export_manifest.json'));
+if numel(manifestFiles) == 1
+    manifestPath = string(fullfile(manifestFiles(1).folder, manifestFiles(1).name));
+    return;
+end
+if numel(manifestFiles) > 1
+    error("import_refactor_onnx:AmbiguousManifest", ...
+        "Multiple ONNX manifests were found under %s. Pass the specific .onnx or .export_manifest.json file.", ...
+        char(exportDir));
+end
+
+manifestPath = string(legacyManifest);
+end
+
+function manifestPath = local_manifest_for_onnx_path(onnxPath)
+[parentDir, baseName] = fileparts(char(onnxPath));
+preferred = fullfile(parentDir, strcat(baseName, '.export_manifest.json'));
+if isfile(preferred)
+    manifestPath = string(preferred);
+    return;
+end
+
+legacy = fullfile(parentDir, 'export_manifest.json');
+manifestPath = string(legacy);
+end
+
+function onnxPath = local_resolve_onnx_path(exportDir, manifest, explicitOnnxPath)
+if nargin >= 3 && strlength(explicitOnnxPath) > 0 && isfile(char(explicitOnnxPath))
+    onnxPath = explicitOnnxPath;
+    return;
+end
+
 if isfield(manifest, "onnx_path")
     candidate = string(manifest.onnx_path);
     if isfile(candidate)
@@ -73,6 +139,19 @@ for idx = 1:numel(fallbackNames)
     if isfile(candidate)
         onnxPath = candidate;
         return;
+    end
+end
+
+resolvedManifestPath = local_get_manifest_field(manifest, "manifest_path", "");
+if strlength(string(resolvedManifestPath)) > 0
+    [manifestDir, manifestName] = fileparts(char(string(resolvedManifestPath)));
+    if endsWith(string(manifestName), ".export_manifest")
+        stem = extractBefore(string(manifestName), strlength(string(manifestName)) - strlength(".export_manifest") + 1);
+        candidate = string(fullfile(manifestDir, [char(stem) '.onnx']));
+        if isfile(candidate)
+            onnxPath = candidate;
+            return;
+        end
     end
 end
 
