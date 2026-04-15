@@ -1,20 +1,124 @@
-# Complete Pipeline
+# Model_AIIC_refactor Unified Guide
 
-This project now uses an experiment-first workflow.
+This is the single canonical help document for `Model_AIIC_refactor`.
 
-## Core Idea
+It replaces the old split documentation that used to live in:
 
-You do not launch training by manually pairing model and training configs on the CLI.
-You launch a named experiment from experiments.yaml, and the code resolves:
+- `CONFIG_GUIDE.md`
+- `STANDALONE_EVAL_PLOT.md`
+- `CHECKPOINT_FORMAT_SPEC.md`
+- `matlab/README.md`
+- `matlab/SEPARATOR1_IMPLEMENTATION.md`
+
+Generated files such as `TRAINING_REPORT.md` are not part of this guide. They remain per experiment as run artifacts.
+
+## 1. Core Idea
+
+The project is experiment-first.
+
+You do not manually pair model config and training config on the CLI. You launch a named experiment from `configs/experiments.yaml`, and the workflow resolves:
 
 1. model recipes
 2. training recipe
-3. expanded variants
-4. final run plan
+3. expanded search-space variants
+4. the final executable run plan
 
-## Common Commands
+## 2. Important Terms
 
-### Preview a plan
+- `experiment`: a named workflow preset from `experiments.yaml`
+- `model recipe`: one entry from `model_configs.yaml`
+- `training recipe`: one entry from `training_configs.yaml`
+- `model label`: the expanded model variant name after search-space resolution
+- `training label`: the expanded training variant name after search-space resolution
+- `run_name`: the final unique executable run identifier
+- `model_spec`: the resolved model schema saved with the run
+- `training_spec`: the resolved training schema saved with the run
+
+Use these names consistently in code, reports, checkpoints, and exports.
+
+## 3. Repository Workflow Architecture
+
+The project uses thin CLI entrypoints plus shared workflow modules.
+
+Thin CLIs:
+
+- `train.py`
+- `evaluate_models_refactored.py`
+- `export_onnx.py`
+- `export_matlab_bundle.py`
+- `plot.py`
+
+Shared workflow modules:
+
+- `workflows/train_workflow.py`
+- `workflows/postprocess_workflow.py`
+- `workflows/evaluation_workflow.py`
+- `workflows/export_workflow.py`
+- `workflows/matlab_export_workflow.py`
+- `workflows/plotting_workflow.py`
+- `workflows/reporting.py`
+
+This layout keeps research iteration practical:
+
+- CLI usage stays simple
+- notebook or benchmark code can call workflow APIs directly
+- artifact schemas are shared across training, evaluation, and export
+- logic changes happen once in the workflow layer instead of being duplicated in scripts
+
+## 4. Configuration Model
+
+### 4.1 Recommended split
+
+- `configs/model_configs.yaml`: architecture, port layout, ONNX-related model options, and model-side search spaces
+- `configs/training_configs.yaml`: optimization, data sampling, loss, validation cadence, scheduler settings, and checkpoint cadence
+- `configs/experiments.yaml`: reusable workflow presets binding model recipes to one training recipe
+
+### 4.2 Supported config patterns
+
+Single model config:
+
+```yaml
+separator1_default:
+  model_type: separator1
+  pos_values: [0, 3, 6, 9]
+  hidden_dim: 64
+  num_stages: 3
+```
+
+Fixed params plus search space:
+
+```yaml
+separator1_grid_search:
+  model_type: separator1
+  fixed_params:
+    pos_values: [0, 3, 6, 9]
+    mlp_depth: 3
+  search_space:
+    hidden_dim: [32, 64, 128]
+    num_stages: [2, 3]
+```
+
+Experiment preset:
+
+```yaml
+experiments:
+  compare_default_models:
+    model_configs:
+      - separator1_default
+      - separator2_default
+    training_config: snr_range_0_30_perSample
+```
+
+### 4.3 Practical conventions
+
+- Keep `pos_values`, `seq_len`, width/depth, activation, ONNX compatibility, and model-side normalization on the model side.
+- Keep SNR policy, TDL policy, loss, LR, validation cadence, scheduler policy, and checkpoint cadence on the training side.
+- Put workflow intent in `experiments.yaml`: smoke tests, architecture comparisons, benchmark presets, export candidates, and sweeps.
+- If a field is a deliberate scientific sweep, put it in `search_space`.
+- If a field is constant, keep it flat or place it in `fixed_params`.
+- Prefer narrow sweeps aligned to one question instead of one large unfocused Cartesian product.
+
+### 4.4 Inspect plans before launch
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -23,7 +127,11 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
-### Train a named experiment
+## 5. Training
+
+### 5.1 Common commands
+
+Train one named experiment:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -31,7 +139,7 @@ python ./Model_AIIC_refactor/train.py \
   --device cuda
 ```
 
-### Train, evaluate, and plot
+Train, then evaluate and plot:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -41,7 +149,7 @@ python ./Model_AIIC_refactor/train.py \
   --plot_after_eval
 ```
 
-### Override batch count for a benchmark preset
+Benchmark preset with batch-count override:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -50,12 +158,50 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
-## Output Layout
+### 5.2 Train CLI summary
+
+| Argument | Meaning |
+|---|---|
+| `--experiment` | Required experiment name from `experiments.yaml` |
+| `--batch_size` | Optional override applied after recipe resolution |
+| `--num_batches` | Optional override applied after recipe resolution |
+| `--device` | `auto`, `cpu`, `cuda`, `cuda:0`, ... |
+| `--save_dir` | Parent output directory |
+| `--no-amp` | Disable mixed precision |
+| `--no-compile` | Disable `torch.compile` |
+| `--eval_after_train` | Run evaluation after training |
+| `--eval_snr_range` | SNR setting for evaluation |
+| `--eval_tdl` | Comma-separated TDL list for evaluation |
+| `--eval_num_batches` | Number of evaluation batches |
+| `--eval_batch_size` | Evaluation batch size |
+| `--plot_after_eval` | Generate plots after evaluation |
+| `--export_onnx_after_train` | Export ONNX after training |
+| `--onnx_export_selection` | Export `best` or `all` runs |
+| `--onnx_output_dir` | Single-run ONNX output override |
+| `--onnx_opset` | ONNX opset version |
+| `--onnx_batch_size` | Dummy tracing batch size for ONNX export |
+| `--onnx_dynamic_batch` | Export ONNX with a dynamic batch axis |
+| `--onnx_validate` | Run ONNX checker and ORT validation |
+| `--export_matlab_after_train` | Export Matlab bundle after training |
+| `--matlab_export_selection` | Export `best` or `all` runs as Matlab bundles |
+| `--matlab_output_dir` | Single-run Matlab bundle directory override |
+| `--plan_only` | Print the run plan and exit |
+
+### 5.3 Current training behavior worth knowing
+
+- `loss_type=log` now means mean log-NMSE, not raw log-MSE.
+- `loss_type=normalized` now means mean per-sample NMSE.
+- validation averages multiple batches drawn from the same SNR distribution as training.
+- the default LR scheduler is intentionally smoother than before.
+- model-side energy normalization is inside the model when `model_spec.normalize_energy=true`.
+
+## 6. Artifact Layout
 
 ```text
 Model_AIIC_refactor/
   experiments_refactored/
     <timestamp>_<experiment_name>/
+      TRAINING_REPORT.md
       <run_name>/
         model.pth
         config.yaml
@@ -76,112 +222,52 @@ Model_AIIC_refactor/
         evaluation_results.json
         evaluation_results.npy
         plots/
-      TRAINING_REPORT.md
 ```
 
-## Runtime Terms
+## 7. Evaluation And Plotting
 
-- experiment: a workflow preset from experiments.yaml
-- model recipe: one model entry from model_configs.yaml
-- training recipe: one training entry from training_configs.yaml
-- model label: expanded model variant name
-- training label: expanded training variant name
-- run_name: final unique executable run identifier
+Evaluation and plotting are independent from training. You can run them later on saved experiment outputs.
 
-## Train CLI
-
-| Argument | Meaning |
-|---|---|
-| --experiment | Required experiment name from experiments.yaml |
-| --batch_size | Optional override applied after recipe resolution |
-| --num_batches | Optional override applied after recipe resolution |
-| --device | auto, cpu, cuda, cuda:0, ... |
-| --save_dir | Parent output directory |
-| --no-amp | Disable mixed precision |
-| --no-compile | Disable torch.compile |
-| --eval_after_train | Run evaluation after training |
-| --eval_snr_range | SNR setting for evaluation, supports range or comma-separated values |
-| --eval_tdl | TDL list for evaluation |
-| --eval_num_batches | Number of evaluation batches |
-| --eval_batch_size | Evaluation batch size |
-| --plot_after_eval | Generate plots after evaluation |
-| --export_onnx_after_train | Export trained runs to ONNX after training |
-| --onnx_export_selection | Export `best` or `all` runs |
-| --onnx_output_dir | Single-run ONNX artifact directory override |
-| --onnx_opset | ONNX opset version |
-| --onnx_batch_size | Dummy batch size used for tracing |
-| --onnx_dynamic_batch | Export a dynamic batch dimension |
-| --onnx_validate | Run ONNX checker and ORT smoke validation |
-| --export_matlab_after_train | Export trained runs to Matlab explicit-weight bundles after training |
-| --matlab_export_selection | Export `best` or `all` runs as Matlab bundles |
-| --matlab_output_dir | Single-run Matlab bundle directory override |
-| --plan_only | Print the run plan and exit |
-
-## Benchmark CLI
-
-Benchmark scripts also use experiment-first entry points:
+Evaluate an existing experiment:
 
 ```bash
-python ./Model_AIIC_refactor/compare_cpu_gpu.py --experiment perf_quick --skip_gpu
-python ./Model_AIIC_refactor/compare_optimizations.py --experiment perf_quick --skip_gpu
-```
-
-## Typical Flow
-
-1. Define recipes in model_configs.yaml and training_configs.yaml.
-2. Define a workflow preset in experiments.yaml.
-3. Preview with --plan_only.
-4. Train the experiment.
-5. Optionally evaluate, plot, and export ONNX artifacts.
-
-## Example Summary Output
-
-```text
-Training Summary
-
-Total runs trained: 1
-Start time: 2026-04-08 14:00:00
-End time: 2026-04-08 14:05:30
-Total duration: 0.09 hours (330.0s)
-
-1. separator1_default_hd64_stages2_depth3:
-   Final loss: 0.123456
-   Min loss: 0.123456
-   Eval NMSE: -5.23 dB
-   Parameters: 156,032
-   Duration: 330.0s
-
-Best run: separator1_default_hd64_stages2_depth3
-```
-
-## Policy
-
-The old model_config plus training_config CLI pairing is intentionally removed. experiments.yaml is the supported workflow entry point.
-
-## ONNX Export for Matlab
-
-### Export the best trained run after training
-
-```bash
-python ./Model_AIIC_refactor/train.py \
-  --experiment compare_default_models \
+python ./Model_AIIC_refactor/evaluate_models_refactored.py \
+  --exp_dir "./Model_AIIC_refactor/experiments_refactored/20260409_000000_compare_default_models" \
   --device cuda \
-  --export_onnx_after_train \
-  --onnx_export_selection best \
-  --onnx_validate
+  --snr_range "30:-3:0" \
+  --tdl "A-30,B-100,C-300" \
+  --num_batches 100 \
+  --batch_size 2048
 ```
 
-### Export one checkpoint later
+Plot later from an experiment or evaluation directory:
+
+```bash
+python ./Model_AIIC_refactor/plot.py \
+  --input "./Model_AIIC_refactor/experiments_refactored/20260409_000000_compare_default_models"
+```
+
+`plot.py` accepts:
+
+- an experiment directory
+- an evaluation directory
+- an `evaluation_results.json` file directly
+
+## 8. ONNX Export
+
+### 8.1 Export one checkpoint
 
 ```bash
 python ./Model_AIIC_refactor/export_onnx.py \
-  --checkpoint Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/model.pth \
+  --checkpoint ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/model.pth \
   --opset 13 \
   --dynamic_batch \
   --validate
 ```
 
-### Export output layout
+You can also point to an intermediate checkpoint such as `checkpoint_batch_87000.pth`.
+
+### 8.2 ONNX output layout
 
 ```text
 <run_dir>/onnx_exports/
@@ -189,36 +275,27 @@ python ./Model_AIIC_refactor/export_onnx.py \
   export_manifest.json
 ```
 
-`export_manifest.json` stores the resolved model spec, training metadata, input/output names, dummy tensor shapes, and validation summary. This is the handoff file for Matlab or deployment tooling.
+`export_manifest.json` stores resolved model metadata, training metadata, tensor shapes, names, and validation results.
 
-### Matlab import helper
+### 8.3 ONNX I/O contract
 
-Use `matlab/import_refactor_onnx.m`:
+- input: `N x (2*seq_len)` real-stacked `single`
+- output: `N x num_ports x (2*seq_len)` real-stacked `single`
 
-```matlab
-net = import_refactor_onnx(".../<run_name>/onnx_exports");
-```
+When `model_spec.normalize_energy=true`, the ONNX graph already includes per-sample RMS normalization and output rescaling.
 
-For a complete import plus inference example, use `matlab/demo_refactor_onnx_inference.m`:
+## 9. Matlab Bundle Export
 
-```matlab
-[net, inputData, outputData, manifest] = demo_refactor_onnx_inference(".../<run_name>/onnx_exports", 2);
-```
-
-For a script-style demo, edit and run `matlab/run_refactor_onnx_demo.m`.
-
-For one unified Matlab entry that works for both ONNX and non-ONNX bundle imports, use `matlab/import_refactor_model.m`, `matlab/demo_refactor_model_inference.m`, and `matlab/run_refactor_model_demo.m`.
-
-### Direct Matlab bundle export without ONNX
-
-If the Matlab side needs explicit matrices and activations rather than an ONNX graph, export a Matlab bundle from an existing trained run:
+### 9.1 Export one checkpoint
 
 ```bash
 python ./Model_AIIC_refactor/export_matlab_bundle.py \
   --checkpoint ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/model.pth
 ```
 
-This writes:
+The exporter always stores one reference sample. That only affects the bundled `sample_input` and `reference_output`; Matlab inference still accepts arbitrary batch size `N`.
+
+### 9.2 Matlab bundle output layout
 
 ```text
 <run_dir>/matlab_exports/
@@ -226,321 +303,247 @@ This writes:
   matlab_model_bundle_manifest.json
 ```
 
-In Matlab, use:
+### 9.3 What the bundle contains
+
+Always present:
+
+- `sample_input`: `1 x (2*seq_len)`
+- `reference_output`: `1 x num_ports x (2*seq_len)`
+- `pos_values`
+
+For `separator2`, the bundle also contains fully materialized effective MLP weights per port, stage, and layer:
+
+- `p01_s01_l01_weight_real`
+- `p01_s01_l01_weight_imag`
+- `p01_s01_l01_bias_real`
+- `p01_s01_l01_bias_imag`
+
+For `separator1`, it contains separate real and imaginary branch weights:
+
+- `p01_s01_real_l01_weight`
+- `p01_s01_real_l01_bias`
+- `p01_s01_imag_l01_weight`
+- `p01_s01_imag_l01_bias`
+
+Even when training used `share_weights_across_stages=True`, the exporter writes every effective port-stage block explicitly.
+
+## 10. Matlab Integration
+
+### 10.1 Export paths Matlab expects
+
+- ONNX path: `<run_dir>/onnx_exports`
+- Matlab bundle path: `<run_dir>/matlab_exports`
+
+The helper scripts build these paths from the script location, so they do not depend on your Matlab current working directory.
+
+### 10.2 Unified Matlab entry
+
+Use:
+
+- `matlab/import_refactor_model.m`
+- `matlab/describe_refactor_model_io.m`
+- `matlab/prepare_refactor_input.m`
+- `matlab/predict_refactor_model.m`
+- `matlab/demo_refactor_model_inference.m`
+- `matlab/run_refactor_model_demo.m`
+
+Example:
 
 ```matlab
-[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/matlab_exports", "bundle", 2);
+[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/matlab_exports", "bundle", 8);
 ```
 
-For a script-style demo, edit and run `matlab/run_refactor_model_demo.m` or `matlab/run_refactor_matlab_bundle_demo.m`.
+The third argument is the Matlab-side runtime batch size. It is not tied to any export-time batch setting.
 
-For the full handoff guide, including how to start from a run directory when you only know where the model is stored, see `matlab/README.md`.
+### 10.3 Lower-level Matlab bundle usage
 
-The exported ONNX model uses:
-
-- input: `N x (2*seq_len)` real-stacked `single`
-- output: `N x num_ports x (2*seq_len)` real-stacked `single`
-
-This matches the refactored project’s main real-stacked inference path and avoids custom complex-tensor handling during export.
- 
-## Architecture Note
-
-The project now uses a lightweight workflow architecture:
-
-- thin CLI entrypoints:
-  - `train.py`
-  - `evaluate_models_refactored.py`
-  - `export_onnx.py`
-  - `plot.py`
-- shared orchestration modules:
-  - `workflows/train_workflow.py`
-  - `workflows/postprocess_workflow.py`
-  - `workflows/evaluation_workflow.py`
-  - `workflows/export_workflow.py`
-  - `workflows/plotting_workflow.py`
-  - `workflows/reporting.py`
-
-This is a practical research-friendly structure:
-
-- scripts stay easy to use from the command line
-- notebook or benchmark code can call workflow APIs directly
-- training, evaluation, export, and plotting share one artifact schema
-- future experiment logic changes happen in one workflow layer instead of being duplicated across scripts
-
-  TDL: C-300
-    C-300: 100%|███████████████████| 11/11 [00:05<00:00,  2.01it/s]
-    ✓ 完成 C-300
-
-✓ 模型 separator1_default_hd64_stages2_depth3 评估完成
-
-✓ Evaluation completed!
-  Results saved to: experiments_refactored/evaluation_results
+```matlab
+bundle = import_refactor_matlab_bundle(".../<run_name>/matlab_exports");
+inputData = prepare_refactor_input(bundle, 8, "bundle");
+[outputData, debug] = predict_refactor_matlab_bundle(bundle, inputData);
 ```
 
----
+`prepare_refactor_input` can generate `batchSize x (2*seq_len)` inputs directly from imported metadata.
 
-### 绘图阶段
+### 10.4 ONNX Matlab usage
 
-```
-================================================================================
-📈 Generating Plots
-================================================================================
-
-  ✓ Generated: nmse_vs_snr_TDL_A_30.png
-  ✓ Generated: nmse_vs_snr_TDL_B_100.png
-  ✓ Generated: nmse_vs_snr_TDL_C_300.png
-  ✓ Generated: nmse_vs_snr_combined.png
-
-✓ Plots generated!
-  Saved to: experiments_refactored/plots
+```matlab
+[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/onnx_exports", "onnx", 8);
 ```
 
----
+If the ONNX export used fixed batch size instead of dynamic batch, the helper will chunk or pad requests on the Matlab side as needed.
 
-### 最终总结
+### 10.5 Shape conventions in Matlab
 
-```
-================================================================================
-🎉 Complete Pipeline Finished!
-================================================================================
-  Training:   experiments_refactored/separator1_default_training
-  Evaluation: experiments_refactored/separator1_default_training/evaluation_results
-  Plots:      experiments_refactored/separator1_default_training/plots
-================================================================================
-```
+- input shape: `N x (2*seq_len)`
+- output shape: `N x num_ports x (2*seq_len)`
+- real-stacked layout: `[real_part, imag_part]`
 
----
+The printed shape spec uses `-1` for dynamic dimensions.
 
-## 🔧 独立使用各模块
+Examples:
 
-### 只评估（不训练）
+- dynamic ONNX input: `[-1, 24]`
+- dynamic ONNX output: `[-1, 6, 24]`
+- bundle output: `[-1, 4, 24]`
 
-```bash
-python ./Model_AIIC_refactor/evaluate_models_refactored.py \
-    --exp_dir "./Model_AIIC_refactor/experiments_refactored/separator1_default_training" \
-  --device cuda
-```
+## 11. Separator1 Explicit Matlab Notes
 
-如果一次实验里训练了很多 run，只评估其中一部分可以直接加：
+If the Matlab implementation team mainly cares about `separator1`, the explicit bundle path is the clearest reference.
 
-```bash
-python ./Model_AIIC_refactor/evaluate_models_refactored.py \
-  --exp_dir "./Model_AIIC_refactor/experiments_refactored/separator1_default_training" \
-    --runs "separator1_default_hd64_stages2_depth3,separator2_default_hd64_stages3_depth3" \
-    --device cuda
-```
+`separator1` uses two ordinary real-valued MLP branches per port-stage block:
 
-这样只会评估你点名的 run，不会把这个实验目录下所有超参数组合都跑一遍。
+- one branch predicts the real part
+- one branch predicts the imaginary part
 
-默认会写到：
+Both branches take the same real-stacked input:
 
 ```text
-单 run: ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/evaluations/<timestamp>/
-多 run: ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/evaluations/<timestamp>_<scope>/
+input = [real_part, imag_part]
+shape = N x (2*seq_len)
 ```
 
-这样重复评估不同模型组合、不同 SNR 范围、不同 TDL 配置时不会互相覆盖。
+### 11.1 Separator1 field naming
 
-### 只绘图（不训练/评估）
+- `p01_s01_real_l01_weight`
+- `p01_s01_real_l01_bias`
+- `p01_s01_imag_l01_weight`
+- `p01_s01_imag_l01_bias`
+
+Meaning:
+
+- `p01`: port 1
+- `s01`: stage 1
+- `real` or `imag`: branch
+- `l01`: layer 1 inside that branch MLP
+
+### 11.2 Separator1 tensor shapes
+
+- mixed input: `N x (2*seq_len)`
+- one branch hidden layer: `N x hidden_dim`
+- one branch final layer: `N x seq_len`
+- one port output: `N x (2*seq_len)`
+- one stage output: `N x num_ports x (2*seq_len)`
+
+For the common 6-port setup in this repo:
+
+- `seq_len = 12`
+- input width = `24`
+- output width per port = `24`
+
+### 11.3 Separator1 forward structure
+
+For one port in one stage:
+
+```text
+real_1 = ReLU(input * W_real_1^T + b_real_1)
+real_2 = ReLU(real_1 * W_real_2^T + b_real_2)
+real_out = real_2 * W_real_3^T + b_real_3
+
+imag_1 = ReLU(input * W_imag_1^T + b_imag_1)
+imag_2 = ReLU(imag_1 * W_imag_2^T + b_imag_2)
+imag_out = imag_2 * W_imag_3^T + b_imag_3
+
+port_output = [real_out, imag_out]
+```
+
+Residual refinement then applies:
+
+```text
+y_recon = sum(port_output over all ports)
+residual = input_mixed - y_recon
+refined_port_output = port_output + residual
+```
+
+### 11.4 Recommended Matlab files for separator1 review
+
+- `matlab/import_refactor_matlab_bundle.m`
+- `matlab/predict_refactor_separator1_bundle_explicit.m`
+- `matlab/run_refactor_separator1_demo.m`
+
+The explicit helper keeps the following loops visible:
+
+- stage loop
+- port loop
+- layer loop
+- branch split into real and imag
+
+It also records detailed traces in:
+
+- `debug.stage_outputs`
+- `debug.stage_port_layer_traces`
+- `debug.port_layer_outputs`
+
+## 12. Checkpoint And Config Schema
+
+### 12.1 Standard checkpoint structure
+
+```python
+checkpoint = {
+    'model_state_dict': model.state_dict(),
+    'model_info': model.get_model_info(),
+    'model_spec': {...},
+    'training_spec': {...},
+    'optimizer_state_dict': optimizer.state_dict(),
+    'losses': [...],
+    'val_losses': [...],
+    'loss_type': 'nmse',
+    'metadata': {...},
+    'eval_results': {...},
+}
+```
+
+Expected schema for new code:
+
+- `model_spec`
+- `training_spec`
+- `metadata`
+- `model_state_dict`
+
+### 12.2 Human-readable companion
+
+Each run directory should contain:
+
+```text
+<run_dir>/
+  model.pth
+  config.yaml
+  tensorboard/
+```
+
+`config.yaml` mirrors:
+
+```yaml
+model_spec:
+  ...
+training_spec:
+  ...
+metadata:
+  ...
+```
+
+### 12.3 Load expectation
+
+New evaluators and exporters load from `model_spec`.
+
+```python
+checkpoint = torch.load(model_path, map_location=device)
+model_spec = checkpoint['model_spec']
+model = create_model(model_name=model_spec['model_type'], config=model_spec)
+```
+
+If a historical checkpoint does not contain `model_spec`, treat it as legacy and rely on the compatibility loader in the utilities layer.
+
+## 13. Benchmark Entry Points
 
 ```bash
-python ./Model_AIIC_refactor/plot.py \
-  --input "./Model_AIIC_refactor/experiments_refactored/separator1_default_training"
+python ./Model_AIIC_refactor/compare_cpu_gpu.py --experiment perf_quick --skip_gpu
+python ./Model_AIIC_refactor/compare_optimizations.py --experiment perf_quick --skip_gpu
 ```
 
-`plot.py` 的 `--input` 支持三种形式：
+## 14. Policy
 
-- 实验目录：自动选择最新一次评估目录
-- 评估目录：读取其中的 `evaluation_results.json`
-- 结果 JSON 文件本身
-
-默认绘图输出到该次评估目录下的 `plots/`。
-
----
-
-## 📈 典型工作流
-
-### 工作流1：快速实验
-
-```bash
-# 训练 + 快速评估
-python ./Model_AIIC_refactor/train.py \
-  --experiment quick_separator1 \
-    --num_batches 1000 \
-    --device cuda \
-    --eval_after_train \
-    --eval_snr_range "20:-5:0" \
-    --eval_num_batches 50 \
-    --plot_after_eval
-```
-
-**时间**：~5 分钟
-**用途**：快速验证想法
-
----
-
-### 工作流2：完整训练
-
-```bash
-# 完整训练 + 完整评估
-python ./Model_AIIC_refactor/train.py \
-  --experiment compare_default_models \
-    --device cuda \
-    --eval_after_train \
-    --eval_snr_range "30:-3:0" \
-    --eval_num_batches 100 \
-    --plot_after_eval
-```
-
-**时间**：~30 分钟
-**用途**：正式实验
-
----
-
-### 工作流3：Grid Search
-
-```bash
-# 网格搜索 + 评估 + 对比图
-python ./Model_AIIC_refactor/train.py \
-  --experiment compare_default_models \
-    --device cuda \
-    --eval_after_train \
-    --eval_num_batches 200 \
-    --plot_after_eval
-```
-
-**时间**：~2-4 小时
-**用途**：找到最佳配置
-
----
-
-## 💡 最佳实践
-
-### 1. GPU训练 + 完整流程
-
-```bash
-# 推荐：GPU + 自动优化 + 完整流程
-python ./Model_AIIC_refactor/train.py \
-  --experiment compare_default_models \
-    --device cuda \
-    --eval_after_train \
-    --plot_after_eval
-```
-
-**优点**：
-- ✅ 自动启用 torch.compile（训练加速）
-- ✅ 评估禁用编译（避免首次开销）
-- ✅ 一次运行获得所有结果
-
----
-
-### 2. 调试模式
-
-```bash
-# CPU + 不编译 + 小数据集
-python ./Model_AIIC_refactor/train.py \
-  --experiment quick_separator1 \
-    --num_batches 100 \
-    --device cpu \
-    --no-compile \
-    --eval_after_train \
-    --eval_num_batches 10
-```
-
-**优点**：
-- ✅ 快速验证代码逻辑
-- ✅ 不需要GPU
-- ✅ 错误信息清晰
-
----
-
-### 3. 后期补充评估/绘图
-
-```bash
-# 如果忘了加 --eval_after_train，后期补充：
-
-# 1. 评估已训练的模型
-python ./Model_AIIC_refactor/evaluate_models_refactored.py \
-  --exp_dir "./Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1" \
-    --device cuda
-
-# 2. 生成图表
-python ./Model_AIIC_refactor/plot.py \
-  --input "./Model_AIIC_refactor/experiments_refactored/20260409_033734_default_6port_separator1/evaluations/20260409_063011_4-runs__migrated_from_experiment"
-```
-
----
-
-## ⚙️ 技术细节
-
-### 实现方式
-
-1. **train.py** 添加参数控制
-   - `--eval_after_train`: 触发评估
-   - `--plot_after_eval`: 触发绘图
-
-2. **evaluate_models_refactored.py** 添加程序化接口
-   - `evaluate_models_programmatic()`: 供其他脚本调用
-   - 保持 `main()` 用于命令行调用
-
-3. **plot.py** 简化绘图接口
-   - `generate_plots_programmatic()`: 自动生成所有图表
-   - 非交互式后端（Agg）
-
-### 数据流
-
-```
-train.py
-  ↓ (训练)
-  → 保存模型到 save_dir/
-  ↓ (if --eval_after_train)
-  → evaluate_models_programmatic()
-      → 评估所有模型
-      → 单 run 保存到 run_dir/evaluations/<timestamp>/
-      → 多 run 保存到 save_dir/evaluations/<timestamp>_<scope>/
-  ↓ (if --plot_after_eval)
-  → generate_plots_programmatic()
-      → 读取该次评估目录下的 evaluation_results.json
-      → 在对应评估目录下生成 plots/
-  ↓
-✓ 完成！
-```
-
----
-
-## ✅ 优势总结
-
-### vs Bash 脚本
-
-| 方面 | 方案A (train.py参数) | Bash脚本 |
-|------|---------------------|----------|
-| **易用性** | ✅ 一个命令 | ❌ 需要维护脚本 |
-| **跨平台** | ✅ 纯Python | ❌ 需要bash+bat |
-| **参数传递** | ✅ 统一参数 | ❌ 需要硬编码 |
-| **错误处理** | ✅ 清晰 | ❌ 分散 |
-| **调试** | ✅ 单进程 | ❌ 多进程 |
-| **灵活性** | ✅ 高（可选启用） | ⚠️ 中 |
-
-### 关键优势
-
-1. ✅ **一个命令完成所有**
-2. ✅ **参数统一管理**
-3. ✅ **模块化设计**（可独立使用）
-4. ✅ **错误处理完善**
-5. ✅ **跨平台**（纯Python）
-6. ✅ **易于维护**
-
----
-
-## 🎉 开始使用
-
-```bash
-# 最简单的完整流程
-python ./Model_AIIC_refactor/train.py \
-  --experiment compare_default_models \
-    --device cuda \
-    --eval_after_train \
-    --plot_after_eval
-```
-
-**一行命令，完成所有工作！** 🚀
+- The old `model_config + training_config` CLI pairing is intentionally removed for training.
+- `experiments.yaml` is the supported workflow interface for training and benchmark launches.
+- For manual export, the project standardizes on single-checkpoint export CLIs.
+- This file is the only maintained help-style guide for `Model_AIIC_refactor`.

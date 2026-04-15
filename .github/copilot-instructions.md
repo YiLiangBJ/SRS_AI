@@ -1,0 +1,6 @@
+# Copilot Instructions
+- 我现在只关心文件夹Model_AIIC_refactor中的实现
+- 不要问我要不要把什么地方也顺手改了，直接改了再说
+- 你可以直接改Model_AIIC_refactor中的任何文件
+- 不要在文件夹Model_AIIC_refactor下面添加多份帮助型的markdown文件
+- 我只希望你维护文件夹Model_AIIC_refactor下的COMPLETE_PIPELINE.md这一份markdown文件
