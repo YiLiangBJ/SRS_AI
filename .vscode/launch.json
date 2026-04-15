@@ -76,7 +76,7 @@
             },
             "args": [
                 "--exp_dir",
-                "./experiments_refactored/20260414_051822_default_6port_separator1",
+                "./experiments_refactored/20260414_071319_default_6port_separator1",
                 // "--runs",
                 // "separator1_grid_search_6ports_hd128_stages2_depth3_share0",
                 "--snr_range",
@@ -95,8 +95,8 @@
                 // ,"--run_dirs", "./run_a,./run_b"
                 // ,"--batches_per_snr", "50"
                 // ,"--output", "./evaluations/custom_eval"
-                ,"--no-amp"
-                ,"--no-compile"
+                // ,"--no-amp"
+                // ,"--no-compile"
                 // ,"--list_runs"
             ]
         }
