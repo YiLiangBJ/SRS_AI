@@ -68,6 +68,53 @@ def find_checkpoint_path(run_dir: Union[str, Path]) -> Optional[Path]:
     return None
 
 
+def _load_run_artifacts_from_paths(
+    run_dir: Path,
+    checkpoint_path: Path,
+    device: Union[str, torch.device] = 'cpu',
+) -> RunArtifacts:
+    """Load config/checkpoint metadata from an explicit run/checkpoint pair."""
+    config_path = run_dir / 'config.yaml'
+    config_data: Dict[str, Any] = {}
+    if config_path.exists():
+        with open(config_path, 'r', encoding='utf-8') as config_file:
+            config_data = yaml.safe_load(config_file) or {}
+
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    model_spec = _first_non_empty(config_data, 'model_spec', 'model_config') or checkpoint.get('model_spec') or {}
+    if not model_spec:
+        raise KeyError(
+            f"Checkpoint missing 'model_spec' in {checkpoint_path}. Retrain with the current training pipeline."
+        )
+
+    missing_fields = [field for field in REQUIRED_MODEL_SPEC_FIELDS if field not in model_spec]
+    if missing_fields:
+        raise KeyError(f'Model spec missing required fields: {missing_fields}')
+
+    model_spec = normalize_model_spec(
+        model_spec,
+        num_params=checkpoint.get('model_info', {}).get('num_params') or model_spec.get('num_params'),
+    )
+    training_spec = _first_non_empty(config_data, 'training_spec', 'training_config') or checkpoint.get('training_spec') or {}
+    metadata = _normalize_legacy_metadata(
+        _first_non_empty(config_data, 'metadata') or checkpoint.get('metadata') or {},
+        run_dir=run_dir,
+    )
+    eval_results = checkpoint.get('eval_results', {})
+
+    return RunArtifacts(
+        run_dir=run_dir,
+        checkpoint_path=checkpoint_path,
+        config_path=config_path if config_path.exists() else None,
+        checkpoint=checkpoint,
+        model_spec=model_spec,
+        training_spec=training_spec,
+        metadata=metadata,
+        eval_results=eval_results,
+    )
+
+
 def normalize_model_spec(model_spec: Dict[str, Any], num_params: Optional[int] = None) -> Dict[str, Any]:
     """Fill derived/default fields so all downstream workflows see one schema."""
     resolved = dict(model_spec or {})
@@ -157,45 +204,22 @@ def load_run_artifacts(
     if checkpoint_path is None:
         raise FileNotFoundError(f'No checkpoint found in {run_dir}')
 
-    config_path = run_dir / 'config.yaml'
-    config_data: Dict[str, Any] = {}
-    if config_path.exists():
-        with open(config_path, 'r', encoding='utf-8') as config_file:
-            config_data = yaml.safe_load(config_file) or {}
+    return _load_run_artifacts_from_paths(run_dir=run_dir, checkpoint_path=checkpoint_path, device=device)
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    model_spec = _first_non_empty(config_data, 'model_spec', 'model_config') or checkpoint.get('model_spec') or {}
-    if not model_spec:
-        raise KeyError(
-            f"Checkpoint missing 'model_spec' in {checkpoint_path}. Retrain with the current training pipeline."
-        )
+def load_run_artifacts_from_checkpoint(
+    checkpoint_path: Union[str, Path],
+    device: Union[str, torch.device] = 'cpu',
+) -> RunArtifacts:
+    """Load config/checkpoint metadata from an explicit checkpoint file path."""
+    checkpoint_path = Path(checkpoint_path)
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f'Checkpoint not found: {checkpoint_path}')
+    if checkpoint_path.is_dir():
+        raise IsADirectoryError(f'Expected checkpoint file, got directory: {checkpoint_path}')
 
-    missing_fields = [field for field in REQUIRED_MODEL_SPEC_FIELDS if field not in model_spec]
-    if missing_fields:
-        raise KeyError(f'Model spec missing required fields: {missing_fields}')
-
-    model_spec = normalize_model_spec(
-        model_spec,
-        num_params=checkpoint.get('model_info', {}).get('num_params') or model_spec.get('num_params'),
-    )
-    training_spec = _first_non_empty(config_data, 'training_spec', 'training_config') or checkpoint.get('training_spec') or {}
-    metadata = _normalize_legacy_metadata(
-        _first_non_empty(config_data, 'metadata') or checkpoint.get('metadata') or {},
-        run_dir=run_dir,
-    )
-    eval_results = checkpoint.get('eval_results', {})
-
-    return RunArtifacts(
-        run_dir=run_dir,
-        checkpoint_path=checkpoint_path,
-        config_path=config_path if config_path.exists() else None,
-        checkpoint=checkpoint,
-        model_spec=model_spec,
-        training_spec=training_spec,
-        metadata=metadata,
-        eval_results=eval_results,
-    )
+    run_dir = checkpoint_path.parent
+    return _load_run_artifacts_from_paths(run_dir=run_dir, checkpoint_path=checkpoint_path, device=device)
 
 
 def load_trained_model_from_run(
@@ -204,6 +228,25 @@ def load_trained_model_from_run(
 ) -> Tuple[torch.nn.Module, RunArtifacts]:
     """Load a trained model and its resolved run artifacts."""
     artifacts = load_run_artifacts(run_dir, device=device)
+    model_type = artifacts.model_spec.get('model_type', 'separator1')
+    model = create_model(model_name=model_type, config=artifacts.model_spec)
+
+    state_dict = artifacts.checkpoint['model_state_dict']
+    if any(key.startswith('_orig_mod.') for key in state_dict.keys()):
+        state_dict = {key.replace('_orig_mod.', ''): value for key, value in state_dict.items()}
+
+    model.load_state_dict(state_dict)
+    model.to(device)
+    model.eval()
+    return model, artifacts
+
+
+def load_trained_model_from_checkpoint(
+    checkpoint_path: Union[str, Path],
+    device: Union[str, torch.device] = 'cpu',
+) -> Tuple[torch.nn.Module, RunArtifacts]:
+    """Load a trained model and its resolved artifacts from an explicit checkpoint path."""
+    artifacts = load_run_artifacts_from_checkpoint(checkpoint_path, device=device)
     model_type = artifacts.model_spec.get('model_type', 'separator1')
     model = create_model(model_name=model_type, config=artifacts.model_spec)
 

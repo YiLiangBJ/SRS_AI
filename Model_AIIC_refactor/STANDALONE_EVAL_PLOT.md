@@ -60,8 +60,7 @@ You can also export ONNX after training:
 
 ```bash
 python ./Model_AIIC_refactor/export_onnx.py \
-  --exp_dir "./Model_AIIC_refactor/experiments_refactored/20260409_000000_compare_default_models" \
-  --runs separator2_default_hd64_stages3_depth3 \
+  --checkpoint "./Model_AIIC_refactor/experiments_refactored/20260409_000000_compare_default_models/separator2_default_hd64_stages3_depth3/model.pth" \
   --dynamic_batch \
   --validate
 ```

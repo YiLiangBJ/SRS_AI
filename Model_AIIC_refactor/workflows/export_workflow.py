@@ -7,7 +7,7 @@ from typing import Dict, List
 
 import torch
 
-from utils import discover_run_dirs, resolve_run_selection, load_trained_model_from_run, build_dummy_input
+from utils import load_trained_model_from_checkpoint, load_trained_model_from_run, resolve_run_selection, build_dummy_input
 
 
 def _prepare_model_for_export(model: torch.nn.Module) -> torch.nn.Module:
@@ -61,6 +61,86 @@ def export_run_to_onnx(
 ) -> Dict[str, object]:
     """Export a single trained run directory to ONNX."""
     model, artifacts = load_trained_model_from_run(run_dir, device='cpu')
+    model = _prepare_model_for_export(model)
+
+    if output_root is None:
+        output_root = artifacts.run_dir / 'onnx_exports'
+    else:
+        output_root = Path(output_root)
+    run_output_dir = output_root
+    run_output_dir.mkdir(parents=True, exist_ok=True)
+
+    dummy_input = build_dummy_input(artifacts.model_spec, batch_size=batch_size)
+    input_names = ['mixed_signal']
+    output_names = ['separated_channels']
+    dynamic_axes = None
+    if dynamic_batch:
+        dynamic_axes = {
+            'mixed_signal': {0: 'batch_size'},
+            'separated_channels': {0: 'batch_size'},
+        }
+
+    onnx_path = run_output_dir / f'{artifacts.run_dir.name}.onnx'
+    with torch.no_grad():
+        dummy_output = model(dummy_input)
+        torch.onnx.export(
+            model,
+            dummy_input,
+            str(onnx_path),
+            export_params=export_params,
+            opset_version=opset_version,
+            do_constant_folding=True,
+            input_names=input_names,
+            output_names=output_names,
+            dynamic_axes=dynamic_axes,
+        )
+
+    validation = validate_exported_model(onnx_path, model, dummy_input) if validate else {}
+    manifest = {
+        'timestamp': datetime.now().isoformat(),
+        'run_name': artifacts.run_dir.name,
+        'run_dir': str(artifacts.run_dir),
+        'checkpoint_path': str(artifacts.checkpoint_path),
+        'onnx_path': str(onnx_path),
+        'model_spec': artifacts.model_spec,
+        'training_spec': artifacts.training_spec,
+        'metadata': artifacts.metadata,
+        'input_names': input_names,
+        'output_names': output_names,
+        'dummy_input_shape': list(dummy_input.shape),
+        'dummy_output_shape': list(dummy_output.shape),
+        'opset_version': opset_version,
+        'dynamic_batch': dynamic_batch,
+        'validation': validation,
+        'matlab_notes': {
+            'recommended_import': 'importNetworkFromONNX',
+            'input_name': input_names[0],
+            'output_name': output_names[0],
+            'input_layout': 'N x (2*seq_len) real-stacked float32',
+            'output_layout': 'N x num_ports x (2*seq_len) real-stacked float32',
+            'normalize_energy': bool(artifacts.model_spec.get('normalize_energy', False)),
+            'preprocessing': 'Per-sample RMS normalization is inside the exported model when normalize_energy=true.',
+        },
+    }
+
+    manifest_path = run_output_dir / 'export_manifest.json'
+    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:
+        json.dump(manifest, manifest_file, indent=2, ensure_ascii=False)
+
+    return manifest
+
+
+def export_checkpoint_to_onnx(
+    checkpoint_path,
+    output_root=None,
+    opset_version: int = 13,
+    batch_size: int = 1,
+    dynamic_batch: bool = True,
+    validate: bool = False,
+    export_params: bool = True,
+) -> Dict[str, object]:
+    """Export a single explicit checkpoint file to ONNX."""
+    model, artifacts = load_trained_model_from_checkpoint(checkpoint_path, device='cpu')
     model = _prepare_model_for_export(model)
 
     if output_root is None:

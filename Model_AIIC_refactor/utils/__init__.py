@@ -40,7 +40,9 @@ from .run_artifacts import (
     build_run_metadata,
     save_run_config,
     load_run_artifacts,
+    load_run_artifacts_from_checkpoint,
     load_trained_model_from_run,
+    load_trained_model_from_checkpoint,
     build_dummy_input,
 )
 from .run_selection import (
@@ -87,7 +89,9 @@ __all__ = [
     'build_run_metadata',
     'save_run_config',
     'load_run_artifacts',
+    'load_run_artifacts_from_checkpoint',
     'load_trained_model_from_run',
+    'load_trained_model_from_checkpoint',
     'build_dummy_input',
     'split_csv_arg',
     'resolve_existing_path',

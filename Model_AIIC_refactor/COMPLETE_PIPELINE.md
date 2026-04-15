@@ -171,12 +171,11 @@ python ./Model_AIIC_refactor/train.py \
   --onnx_validate
 ```
 
-### Export runs later from an experiment directory
+### Export one checkpoint later
 
 ```bash
 python ./Model_AIIC_refactor/export_onnx.py \
-  --exp_dir Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name> \
-  --runs separator2_default_hd64_stages3_depth3 \
+  --checkpoint Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/model.pth \
   --opset 13 \
   --dynamic_batch \
   --validate
@@ -216,7 +215,7 @@ If the Matlab side needs explicit matrices and activations rather than an ONNX g
 
 ```bash
 python ./Model_AIIC_refactor/export_matlab_bundle.py \
-  --run_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>
+  --checkpoint ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/model.pth
 ```
 
 This writes:

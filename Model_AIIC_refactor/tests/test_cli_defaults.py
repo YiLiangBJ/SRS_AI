@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 import evaluate_models_refactored
+import export_matlab_bundle
+import export_onnx
 import train
 from workflows.evaluation_workflow import resolve_evaluation_output_dir
 from workflows.types import TrainRequest
@@ -38,6 +40,18 @@ class TestCliDefaults(unittest.TestCase):
             '--no-plot_after_eval',
         ])
         self.assertFalse(args.plot_after_eval)
+
+    def test_export_onnx_cli_uses_explicit_checkpoint(self):
+        parser = export_onnx.build_parser()
+        args = parser.parse_args(['--checkpoint', './experiments_refactored/demo/model.pth'])
+        self.assertEqual(args.checkpoint, './experiments_refactored/demo/model.pth')
+        self.assertTrue(args.dynamic_batch)
+
+    def test_export_matlab_bundle_cli_uses_explicit_checkpoint(self):
+        parser = export_matlab_bundle.build_parser()
+        args = parser.parse_args(['--checkpoint', './experiments_refactored/demo/model.pth'])
+        self.assertEqual(args.checkpoint, './experiments_refactored/demo/model.pth')
+        self.assertIsNone(args.output)
 
     def test_resolve_evaluation_output_dir_prefers_experiment_dir(self):
         output_dir = resolve_evaluation_output_dir(exp_dir=Path('/tmp/demo_exp'))

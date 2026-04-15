@@ -50,20 +50,10 @@ The exporters also accept both schemas below:
 - current refactor schema: `model_spec`, `training_spec`, `metadata`
 - older schema still present in historical results: `model_config`, `training_config`, `metadata`
 
-If you only know an experiment directory, not the exact run name, list its runs first:
+If you only know an experiment directory, not the exact run name, list its run folders first:
 
 ```bash
-python ./Model_AIIC_refactor/export_onnx.py \
-  --exp_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name> \
-  --list_runs
-```
-
-The same run-selection logic also works for the Matlab bundle exporter:
-
-```bash
-python ./Model_AIIC_refactor/export_matlab_bundle.py \
-  --exp_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name> \
-  --list_runs
+find ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name> -mindepth 1 -maxdepth 1 -type d | sort
 ```
 
 By default, new training outputs are created under:
@@ -74,15 +64,17 @@ By default, new training outputs are created under:
 
 ## Path A: Existing Run To ONNX To Matlab
 
-If you already have a trained run directory, export it from the SRS_AI root:
+If you already have a trained checkpoint, export it from the SRS_AI root:
 
 ```bash
 python ./Model_AIIC_refactor/export_onnx.py \
-  --run_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name> \
+  --checkpoint ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/model.pth \
   --opset 13 \
   --dynamic_batch \
   --validate
 ```
+
+You can also point to an intermediate checkpoint such as `checkpoint_batch_87000.pth`. The exporter will read `config.yaml` from the same run directory when needed.
 
 This writes:
 
@@ -151,7 +143,7 @@ This is the recommended path if the Matlab implementation team wants to see the 
 
 ```bash
 python ./Model_AIIC_refactor/export_matlab_bundle.py \
-  --run_dir ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>
+  --checkpoint ./Model_AIIC_refactor/experiments_refactored/<timestamp>_<experiment_name>/<run_name>/model.pth
 ```
 
 The exporter always stores one reference sample. This only affects the bundled sample_input/reference_output example tensors; actual Matlab inference can still use any batch size N.

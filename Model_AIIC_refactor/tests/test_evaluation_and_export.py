@@ -15,8 +15,8 @@ from scipy.io import loadmat
 from models import create_model
 from utils import find_checkpoint_path, load_run_artifacts
 from workflows.evaluation_workflow import evaluate_models_programmatic, resolve_evaluation_output_dir
-from workflows.export_workflow import export_run_to_onnx, export_runs_to_onnx
-from workflows.matlab_export_workflow import export_run_to_matlab_bundle, export_runs_to_matlab_bundle
+from workflows.export_workflow import export_checkpoint_to_onnx, export_run_to_onnx, export_runs_to_onnx
+from workflows.matlab_export_workflow import export_checkpoint_to_matlab_bundle, export_run_to_matlab_bundle, export_runs_to_matlab_bundle
 from workflows.plotting_workflow import resolve_plot_inputs
 
 
@@ -165,6 +165,15 @@ class TestEvaluationAndExport(unittest.TestCase):
             'model_info': {'num_params': sum(param.numel() for param in model.parameters())},
         }
         torch.save(checkpoint, self.run_dir / 'model.pth')
+        self.explicit_checkpoint_path = self.run_dir / 'checkpoint_batch_0001.pth'
+        torch.save(
+            {
+                'model_state_dict': model.state_dict(),
+                'model_info': {'num_params': sum(param.numel() for param in model.parameters())},
+                'batch_idx': 1,
+            },
+            self.explicit_checkpoint_path,
+        )
         with open(self.run_dir / 'config.yaml', 'w', encoding='utf-8') as config_file:
             yaml.safe_dump(
                 {
@@ -287,6 +296,17 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(manifest['model_spec']['normalize_energy'])
         self.assertTrue(manifest['matlab_notes']['normalize_energy'])
 
+    def test_export_checkpoint_to_onnx_respects_explicit_checkpoint(self):
+        manifest = export_checkpoint_to_onnx(
+            checkpoint_path=self.explicit_checkpoint_path,
+            batch_size=1,
+            dynamic_batch=True,
+            validate=False,
+        )
+
+        self.assertEqual(Path(manifest['checkpoint_path']), self.explicit_checkpoint_path)
+        self.assertTrue(Path(manifest['onnx_path']).exists())
+
     def test_export_run_to_matlab_bundle_writes_into_run_matlab_exports(self):
         manifest = export_run_to_matlab_bundle(run_dir=self.run_dir)
 
@@ -298,6 +318,12 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(manifest['model_spec']['normalize_energy'])
         self.assertTrue(manifest['input_normalization']['enabled'])
         self.assertEqual(manifest['sample_input_shape'][0], 1)
+
+    def test_export_checkpoint_to_matlab_bundle_respects_explicit_checkpoint(self):
+        manifest = export_checkpoint_to_matlab_bundle(checkpoint_path=self.explicit_checkpoint_path)
+
+        self.assertEqual(Path(manifest['checkpoint_path']), self.explicit_checkpoint_path)
+        self.assertTrue(Path(manifest['mat_path']).exists())
 
     def test_separator1_matlab_bundle_matches_exported_reference_output(self):
         manifest = export_run_to_matlab_bundle(run_dir=self.run_dir)
