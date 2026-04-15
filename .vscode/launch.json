@@ -19,7 +19,7 @@
             "justMyCode": true,
             "args": [
                 "--experiment",
-                "your_experiment_name",
+                "default_6port_separator1",
                 "--batch_size",
                 "32",
                 "--num_batches",
@@ -95,9 +95,45 @@
                 // ,"--run_dirs", "./run_a,./run_b"
                 // ,"--batches_per_snr", "50"
                 // ,"--output", "./evaluations/custom_eval"
-                // ,"--no-amp"
-                // ,"--no-compile"
+                ,"--no-amp"
+                ,"--no-compile"
                 // ,"--list_runs"
+            ]
+        }
+        ,
+        {
+            "name": "Python: export_matlab_bundle.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/export_matlab_bundle.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--exp_dir",
+                "./experiments_refactored/20260414_071319_default_6port_separator1",
+                "--runs", "separator1_grid_search_6ports_hd32_stages2_depth3_share0",
+                "--output",
+                "./matlab_exports",
+                "--batch_size",
+                "1"
+            ]
+        },
+        {
+            "name": "Python: export_onnx.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Model_AIIC_onnx/export_onnx.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_onnx",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--checkpoint",
+                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/checkpoint_batch_87000.pth",
+                "--output",
+                "./model.onnx",
+                "--opset",
+                "13"
             ]
         }
     ]
