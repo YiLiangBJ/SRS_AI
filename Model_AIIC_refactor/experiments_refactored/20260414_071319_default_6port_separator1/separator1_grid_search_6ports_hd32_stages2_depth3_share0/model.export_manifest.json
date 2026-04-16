@@ -1,0 +1,105 @@
+{
+  "timestamp": "2026-04-16T02:30:36.368169",
+  "run_name": "separator1_grid_search_6ports_hd32_stages2_depth3_share0",
+  "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0",
+  "checkpoint_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/model.pth",
+  "onnx_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/model.onnx",
+  "model_spec": {
+    "seq_len": 12,
+    "model_type": "separator1",
+    "pos_values": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "mlp_depth": 3,
+    "share_weights_across_stages": false,
+    "hidden_dim": 32,
+    "num_stages": 2,
+    "num_ports": 6,
+    "normalize_energy": true,
+    "activation_type": "relu",
+    "onnx_mode": false,
+    "num_params": 54048
+  },
+  "training_spec": {
+    "loss_type": "log",
+    "learning_rate": 0.01,
+    "num_batches": 100000,
+    "batch_size": 4096,
+    "snr_config": {
+      "type": "range",
+      "min": 0,
+      "max": 30,
+      "per_sample": true,
+      "sampling": "stratified",
+      "num_bins": 10
+    },
+    "tdl_config": [
+      "A-30",
+      "B-100",
+      "C-300"
+    ],
+    "print_interval": 100,
+    "validation_interval": 100,
+    "validation_batches": 4,
+    "early_stop_loss": null,
+    "patience": 5,
+    "keep_last_n_checkpoints": 2,
+    "save_interval": 1000,
+    "lr_scheduler": {
+      "enabled": true,
+      "factor": 0.8,
+      "patience": 30,
+      "threshold": 0.005,
+      "threshold_mode": "abs",
+      "cooldown": 10,
+      "min_lr": 1e-06
+    }
+  },
+  "metadata": {
+    "experiment_name": "default_6port_separator1",
+    "model_recipe_name": "separator1_grid_search_6ports",
+    "model_label": "separator1_grid_search_6ports_hd32_stages2_depth3_share0",
+    "run_name": "separator1_grid_search_6ports_hd32_stages2_depth3_share0",
+    "training_recipe_name": "snr_range_0_30_perSample",
+    "training_label": "snr_range_0_30_perSample",
+    "training_duration": 1329.6150014400482,
+    "timestamp": "2026-04-14T07:57:44.191120"
+  },
+  "input_names": [
+    "mixed_signal"
+  ],
+  "output_names": [
+    "separated_channels"
+  ],
+  "dummy_input_shape": [
+    1,
+    24
+  ],
+  "dummy_output_shape": [
+    1,
+    6,
+    24
+  ],
+  "opset_version": 13,
+  "dynamic_batch": true,
+  "validation": {
+    "checker": true,
+    "onnxruntime": true,
+    "max_abs_diff": 5.550682544708252e-07
+  },
+  "matlab_notes": {
+    "recommended_import": "importNetworkFromONNX",
+    "input_name": "mixed_signal",
+    "output_name": "separated_channels",
+    "input_layout": "N x (2*seq_len) real-stacked float32",
+    "output_layout": "N x num_ports x (2*seq_len) real-stacked float32",
+    "normalize_energy": true,
+    "preprocessing": "Per-sample RMS normalization is inside the exported model when normalize_energy=true."
+  },
+  "manifest_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/model.export_manifest.json"
+}
