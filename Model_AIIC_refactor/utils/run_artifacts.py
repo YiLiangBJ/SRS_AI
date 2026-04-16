@@ -40,6 +40,30 @@ def _normalize_legacy_metadata(metadata: Dict[str, Any], run_dir: Path) -> Dict[
     return resolved
 
 
+def _infer_separator1_architecture_flags(model_spec: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]:
+    """Infer missing separator1 architecture flags from checkpoint contents."""
+    resolved = dict(model_spec or {})
+    if resolved.get('model_type') != 'separator1':
+        return resolved
+
+    state_dict = checkpoint.get('model_state_dict', {}) or {}
+
+    if 'use_hidden_relu' not in resolved:
+        # Historical separator1 checkpoints already used hidden ReLU.
+        resolved['use_hidden_relu'] = True
+
+    if 'use_hidden_layer_norm' not in resolved:
+        has_layer_norm = any(
+            key.endswith('.weight')
+            and ('mlp_real.' in key or 'mlp_imag.' in key)
+            and getattr(value, 'ndim', None) == 1
+            for key, value in state_dict.items()
+        )
+        resolved['use_hidden_layer_norm'] = bool(has_layer_norm)
+
+    return resolved
+
+
 @dataclass(frozen=True)
 class RunArtifacts:
     """Resolved metadata and checkpoint assets for a trained run."""
@@ -88,6 +112,8 @@ def _load_run_artifacts_from_paths(
             f"Checkpoint missing 'model_spec' in {checkpoint_path}. Retrain with the current training pipeline."
         )
 
+    model_spec = _infer_separator1_architecture_flags(model_spec, checkpoint)
+
     missing_fields = [field for field in REQUIRED_MODEL_SPEC_FIELDS if field not in model_spec]
     if missing_fields:
         raise KeyError(f'Model spec missing required fields: {missing_fields}')
@@ -125,6 +151,7 @@ def normalize_model_spec(model_spec: Dict[str, Any], num_params: Optional[int] =
     resolved.setdefault('num_stages', 2)
     resolved.setdefault('mlp_depth', 3)
     resolved.setdefault('share_weights_across_stages', False)
+    resolved.setdefault('use_hidden_relu', True)
     resolved.setdefault('activation_type', 'relu')
     resolved.setdefault('onnx_mode', False)
     resolved.setdefault('normalize_energy', False)

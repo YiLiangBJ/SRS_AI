@@ -41,11 +41,21 @@ def _restore_real_stacked_output(output_data, input_rms, model_spec):
     return output_data * input_rms.unsqueeze(1)
 
 
+def _apply_layer_norm(input_data, weight, bias, eps):
+    mean_value = input_data.mean(dim=1, keepdim=True)
+    centered = input_data - mean_value
+    variance = centered.pow(2).mean(dim=1, keepdim=True)
+    normalized = centered / torch.sqrt(variance + float(eps))
+    return normalized * weight.view(1, -1) + bias.view(1, -1)
+
+
 def _python_bundle_forward_separator1(weights, model_spec, input_data):
     seq_len = int(model_spec['seq_len'])
     num_ports = int(model_spec['num_ports'])
     num_stages = int(model_spec['num_stages'])
     num_layers = int(model_spec['mlp_depth'])
+    use_hidden_layer_norm = _manifest_bool(model_spec, 'use_hidden_layer_norm', False)
+    use_hidden_relu = _manifest_bool(model_spec, 'use_hidden_relu', True)
 
     normalized_input, input_rms = _normalize_real_stacked_input(input_data, model_spec)
     features = normalized_input.unsqueeze(1).repeat(1, num_ports, 1)
@@ -66,8 +76,22 @@ def _python_bundle_forward_separator1(weights, model_spec, input_data):
                 real_branch = real_branch @ real_weight.t() + real_bias
                 imag_branch = imag_branch @ imag_weight.t() + imag_bias
                 if layer_idx < num_layers:
-                    real_branch = torch.relu(real_branch)
-                    imag_branch = torch.relu(imag_branch)
+                    if use_hidden_layer_norm:
+                        real_branch = _apply_layer_norm(
+                            real_branch,
+                            weights[f'{real_prefix}_ln_weight'],
+                            weights[f'{real_prefix}_ln_bias'],
+                            weights[f'{real_prefix}_ln_eps'],
+                        )
+                        imag_branch = _apply_layer_norm(
+                            imag_branch,
+                            weights[f'{imag_prefix}_ln_weight'],
+                            weights[f'{imag_prefix}_ln_bias'],
+                            weights[f'{imag_prefix}_ln_eps'],
+                        )
+                    if use_hidden_relu:
+                        real_branch = torch.relu(real_branch)
+                        imag_branch = torch.relu(imag_branch)
             new_features.append(torch.cat([real_branch, imag_branch], dim=-1))
 
         features = torch.stack(new_features, dim=1)
@@ -226,6 +250,51 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertEqual(artifacts.model_spec['model_type'], 'separator1')
         self.assertEqual(artifacts.metadata['run_name'], self.run_dir.name)
         self.assertEqual(find_checkpoint_path(self.run_dir).name, 'model.pth')
+
+    def test_load_run_artifacts_infers_legacy_separator1_without_layer_norm(self):
+        legacy_run_dir = self.root / 'legacy_separator1_run'
+        legacy_run_dir.mkdir(parents=True, exist_ok=True)
+        legacy_model_spec = {
+            'model_type': 'separator1',
+            'seq_len': 12,
+            'pos_values': [0, 3, 6, 9],
+            'num_ports': 4,
+            'hidden_dim': 8,
+            'num_stages': 1,
+            'mlp_depth': 3,
+            'share_weights_across_stages': False,
+            'use_hidden_layer_norm': False,
+            'use_hidden_relu': True,
+            'normalize_energy': True,
+        }
+        legacy_model = create_model('separator1', legacy_model_spec)
+        legacy_checkpoint_model_spec = {
+            key: value
+            for key, value in legacy_model_spec.items()
+            if key not in {'use_hidden_layer_norm', 'use_hidden_relu'}
+        }
+        legacy_checkpoint = {
+            'model_state_dict': legacy_model.state_dict(),
+            'model_spec': legacy_checkpoint_model_spec,
+            'training_spec': self.training_spec,
+            'metadata': {**self.metadata, 'run_name': legacy_run_dir.name},
+            'model_info': {'num_params': sum(param.numel() for param in legacy_model.parameters())},
+        }
+        torch.save(legacy_checkpoint, legacy_run_dir / 'model.pth')
+        with open(legacy_run_dir / 'config.yaml', 'w', encoding='utf-8') as config_file:
+            yaml.safe_dump(
+                {
+                    'model_spec': legacy_checkpoint_model_spec,
+                    'training_spec': self.training_spec,
+                    'metadata': {**self.metadata, 'run_name': legacy_run_dir.name},
+                },
+                config_file,
+                sort_keys=False,
+            )
+
+        artifacts = load_run_artifacts(legacy_run_dir)
+        self.assertFalse(artifacts.model_spec['use_hidden_layer_norm'])
+        self.assertTrue(artifacts.model_spec['use_hidden_relu'])
 
     def test_evaluate_models_programmatic_aggregates_dict_results(self):
         fake_eval_result = {

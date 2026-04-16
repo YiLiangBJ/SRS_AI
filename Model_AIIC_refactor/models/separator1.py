@@ -7,6 +7,8 @@ but cleaner implementation.
 
 Key features:
 - Two independent MLPs (one for real, one for imaginary)
+- Optional hidden LayerNorm before activation
+- Optional hidden ReLU activation
 - PyTorch native complex tensor support
 - Per-port residual refinement
 - Optional per-sample RMS normalization inside the model
@@ -38,6 +40,8 @@ class Separator1(BaseSeparatorModel):
                    - 3: Input -> Hidden -> Output (1 hidden layer, default)
                    - 4: Input -> Hidden1 -> Hidden2 -> Output (2 hidden layers)
         share_weights_across_stages: If True, same port uses same MLP across stages (default: False)
+        use_hidden_layer_norm: Apply LayerNorm after each hidden linear layer (default: True)
+        use_hidden_relu: Apply ReLU after each hidden normalization step (default: True)
     
     Input/Output:
         Input:  y (B, L) complex tensor or (B, 2L) real stacked mixed signal
@@ -45,13 +49,17 @@ class Separator1(BaseSeparatorModel):
     """
     
     def __init__(self, seq_len=12, num_ports=4, hidden_dim=64, num_stages=3,
-                 mlp_depth=3, share_weights_across_stages=False, normalize_energy=True):
+                 mlp_depth=3, share_weights_across_stages=False,
+                 use_hidden_layer_norm=True, use_hidden_relu=True,
+                 normalize_energy=True):
         super().__init__(seq_len, num_ports, normalize_energy=normalize_energy)
         
         self.hidden_dim = hidden_dim
         self.num_stages = num_stages
         self.mlp_depth = mlp_depth
         self.share_weights_across_stages = share_weights_across_stages
+        self.use_hidden_layer_norm = use_hidden_layer_norm
+        self.use_hidden_relu = use_hidden_relu
         
         if share_weights_across_stages:
             # Mode A: Same port shares weights across stages
@@ -84,7 +92,7 @@ class Separator1(BaseSeparatorModel):
             DualPathMLP module
         """
         class DualPathMLP(nn.Module):
-            def __init__(self, seq_len, hidden_dim, mlp_depth):
+            def __init__(self, seq_len, hidden_dim, mlp_depth, use_hidden_layer_norm, use_hidden_relu):
                 super().__init__()
                 
                 if mlp_depth < 2:
@@ -92,19 +100,26 @@ class Separator1(BaseSeparatorModel):
                 
                 num_hidden = mlp_depth - 2
                 
-                # Real part MLP
-                real_layers = [nn.Linear(seq_len * 2, hidden_dim), nn.ReLU()]
-                for _ in range(num_hidden):
-                    real_layers.extend([nn.Linear(hidden_dim, hidden_dim), nn.ReLU()])
-                real_layers.append(nn.Linear(hidden_dim, seq_len))
-                self.mlp_real = nn.Sequential(*real_layers)
-                
-                # Imaginary part MLP
-                imag_layers = [nn.Linear(seq_len * 2, hidden_dim), nn.ReLU()]
-                for _ in range(num_hidden):
-                    imag_layers.extend([nn.Linear(hidden_dim, hidden_dim), nn.ReLU()])
-                imag_layers.append(nn.Linear(hidden_dim, seq_len))
-                self.mlp_imag = nn.Sequential(*imag_layers)
+                self.use_hidden_layer_norm = use_hidden_layer_norm
+                self.use_hidden_relu = use_hidden_relu
+                self.mlp_real = self._build_branch(seq_len, hidden_dim, num_hidden)
+                self.mlp_imag = self._build_branch(seq_len, hidden_dim, num_hidden)
+
+            def _build_branch(self, seq_len, hidden_dim, num_hidden):
+                layers = []
+                input_dim = seq_len * 2
+                hidden_layers = num_hidden + 1
+
+                for hidden_idx in range(hidden_layers):
+                    in_features = input_dim if hidden_idx == 0 else hidden_dim
+                    layers.append(nn.Linear(in_features, hidden_dim))
+                    if self.use_hidden_layer_norm:
+                        layers.append(nn.LayerNorm(hidden_dim))
+                    if self.use_hidden_relu:
+                        layers.append(nn.ReLU())
+
+                layers.append(nn.Linear(hidden_dim, seq_len))
+                return nn.Sequential(*layers)
             
             def forward(self, x):
                 # x: (B, L*2) real-stacked in block format [real_part, imag_part]
@@ -114,7 +129,13 @@ class Separator1(BaseSeparatorModel):
                 # Return in the same block-stacked format [real_part, imag_part]
                 return torch.cat([out_real, out_imag], dim=-1)  # (B, L*2)
         
-        return DualPathMLP(seq_len, hidden_dim, mlp_depth)
+        return DualPathMLP(
+            seq_len,
+            hidden_dim,
+            mlp_depth,
+            self.use_hidden_layer_norm,
+            self.use_hidden_relu,
+        )
     
     def forward(self, y):
         """
@@ -180,6 +201,8 @@ class Separator1(BaseSeparatorModel):
                    - num_stages (optional, default: 3)
                    - mlp_depth (optional, default: 3)
                    - share_weights_across_stages (optional, default: False)
+                   - use_hidden_layer_norm (optional, default: True)
+                   - use_hidden_relu (optional, default: True)
         
         Returns:
             model: Separator1 instance
@@ -191,5 +214,7 @@ class Separator1(BaseSeparatorModel):
             num_stages=config.get('num_stages', 3),
             mlp_depth=config.get('mlp_depth', 3),
             share_weights_across_stages=config.get('share_weights_across_stages', False),
+            use_hidden_layer_norm=config.get('use_hidden_layer_norm', True),
+            use_hidden_relu=config.get('use_hidden_relu', True),
             normalize_energy=config.get('normalize_energy', True),
         )

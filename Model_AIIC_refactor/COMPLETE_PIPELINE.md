@@ -355,6 +355,15 @@ For `separator1`, it contains separate real and imaginary branch weights:
 - `p01_s01_imag_l01_weight`
 - `p01_s01_imag_l01_bias`
 
+If `use_hidden_layer_norm=true`, hidden layers also include per-branch LayerNorm parameters:
+
+- `p01_s01_real_l01_ln_weight`
+- `p01_s01_real_l01_ln_bias`
+- `p01_s01_real_l01_ln_eps`
+- `p01_s01_imag_l01_ln_weight`
+- `p01_s01_imag_l01_ln_bias`
+- `p01_s01_imag_l01_ln_eps`
+
 Even when training used `share_weights_across_stages=True`, the exporter writes every effective port-stage block explicitly.
 
 ## 10. Matlab Integration
@@ -504,6 +513,15 @@ shape = N x (2*seq_len)
 - `p01_s01_imag_l01_weight`
 - `p01_s01_imag_l01_bias`
 
+If hidden LayerNorm is enabled, the same hidden layer also has:
+
+- `p01_s01_real_l01_ln_weight`
+- `p01_s01_real_l01_ln_bias`
+- `p01_s01_real_l01_ln_eps`
+- `p01_s01_imag_l01_ln_weight`
+- `p01_s01_imag_l01_ln_bias`
+- `p01_s01_imag_l01_ln_eps`
+
 Meaning:
 
 - `p01`: port 1
@@ -527,19 +545,28 @@ For the common 6-port setup in this repo:
 
 ### 11.3 Separator1 forward structure
 
-For one port in one stage:
+For one hidden layer in one port and one stage, the current refactor implementation is:
 
 ```text
-real_1 = ReLU(input * W_real_1^T + b_real_1)
-real_2 = ReLU(real_1 * W_real_2^T + b_real_2)
-real_out = real_2 * W_real_3^T + b_real_3
+real_hidden = input * W_real^T + b_real
+real_hidden = LayerNorm(real_hidden)        # if use_hidden_layer_norm=true
+real_hidden = ReLU(real_hidden)             # if use_hidden_relu=true
 
-imag_1 = ReLU(input * W_imag_1^T + b_imag_1)
-imag_2 = ReLU(imag_1 * W_imag_2^T + b_imag_2)
-imag_out = imag_2 * W_imag_3^T + b_imag_3
+imag_hidden = input * W_imag^T + b_imag
+imag_hidden = LayerNorm(imag_hidden)        # if use_hidden_layer_norm=true
+imag_hidden = ReLU(imag_hidden)             # if use_hidden_relu=true
+```
+
+The final output layer is linear only:
+
+```text
+real_out = real_hidden * W_real_out^T + b_real_out
+imag_out = imag_hidden * W_imag_out^T + b_imag_out
 
 port_output = [real_out, imag_out]
 ```
+
+Legacy separator1 checkpoints that were trained before LayerNorm support do not contain these LayerNorm parameters. The artifact loader treats missing `use_hidden_layer_norm` as `false` for such legacy checkpoints.
 
 Residual refinement then applies:
 

@@ -15,6 +15,8 @@ models:
     num_stages: 2
     mlp_depth: 3
     share_weights_across_stages: false
+    use_hidden_layer_norm: true
+    use_hidden_relu: true
     
   separator1_default:
     model_type: separator1
@@ -23,6 +25,8 @@ models:
     num_stages: 3
     mlp_depth: 3
     share_weights_across_stages: false
+    use_hidden_layer_norm: true
+    use_hidden_relu: true
     
   separator1_large:
     model_type: separator1
@@ -31,6 +35,8 @@ models:
     num_stages: 4
     mlp_depth: 4
     share_weights_across_stages: false
+    use_hidden_layer_norm: true
+    use_hidden_relu: true
     
   separator1_shared:
     model_type: separator1
@@ -39,6 +45,8 @@ models:
     num_stages: 3
     mlp_depth: 3
     share_weights_across_stages: true
+    use_hidden_layer_norm: true
+    use_hidden_relu: true
   
   # Separator2 (ComplexLinear) configurations  
   separator2_small:
@@ -102,6 +110,8 @@ models:
       pos_values: [0, 3, 6, 9]  # ⭐ 4-port model (fixed)
       mlp_depth: 3
       share_weights_across_stages: false
+      use_hidden_layer_norm: true
+      use_hidden_relu: true
     search_space:              # Search parameters (generate combinations)
       hidden_dim: [16,32,64,128]
       num_stages: [2]
@@ -114,6 +124,8 @@ models:
       pos_values: [0, 2, 4, 6, 8, 10]  # ⭐ 4-port model (fixed)
       mlp_depth: 3             # Keep depth fixed
       share_weights_across_stages: false
+      use_hidden_layer_norm: true
+      use_hidden_relu: true
     search_space:
       hidden_dim: [16,32,64,128]
       num_stages: [2]
@@ -151,6 +163,8 @@ models:
       mlp_depth: 3
       num_stages: 3
       share_weights_across_stages: false
+      use_hidden_layer_norm: true
+      use_hidden_relu: true
     search_space:
       hidden_dim: [32, 64]
     # Generates: 2 configurations
@@ -175,6 +189,8 @@ models:
     fixed_params:
       pos_values: [0, 3, 6, 9]  # ⭐ 4-port model (fixed)
       share_weights_across_stages: false
+      use_hidden_layer_norm: true
+      use_hidden_relu: true
     search_space:
       hidden_dim: [32, 64, 128]
       num_stages: [2, 3]
@@ -188,6 +204,8 @@ models:
       pos_values: [0, 3, 6, 9]  # ⭐ 4-port model (fixed)
       mlp_depth: 3
       share_weights_across_stages: false
+      use_hidden_layer_norm: true
+      use_hidden_relu: true
     search_space:
       hidden_dim:
         type: choice
@@ -207,6 +225,8 @@ models:
     num_stages: 3
     mlp_depth: 3
     share_weights_across_stages: false
+    use_hidden_layer_norm: true
+    use_hidden_relu: true
   
   # Example 8: Grid search for 6-port
   separator1_6ports_search:
@@ -215,6 +235,8 @@ models:
       pos_values: [0, 2, 4, 6, 8, 10]  # ⭐ 6-port model (fixed)
       mlp_depth: 3
       share_weights_across_stages: false
+      use_hidden_layer_norm: true
+      use_hidden_relu: true
     search_space:
       hidden_dim: [32, 64]
       num_stages: [2, 3]

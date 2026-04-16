@@ -38,6 +38,8 @@ seqLen = double(modelSpec.seq_len);
 numPorts = double(modelSpec.num_ports);
 numStages = double(modelSpec.num_stages);
 numLayers = double(modelSpec.mlp_depth);
+useHiddenLayerNorm = local_manifest_bool(modelSpec, "use_hidden_layer_norm", false);
+useHiddenReLU = local_manifest_bool(modelSpec, "use_hidden_relu", true);
 batchSize = size(inputData, 1);
 
 if size(inputData, 2) ~= seqLen * 2
@@ -81,8 +83,35 @@ for stageIdx = 1:numStages
             imagBranch = imagAffine;
 
             if layerIdx < numLayers
-                realBranch = max(realBranch, 0);
-                imagBranch = max(imagBranch, 0);
+                if useHiddenLayerNorm
+                    realLnWeight = single(weights.([realPrefix '_ln_weight']));
+                    realLnBias = single(weights.([realPrefix '_ln_bias']));
+                    realLnEps = single(weights.([realPrefix '_ln_eps']));
+                    imagLnWeight = single(weights.([imagPrefix '_ln_weight']));
+                    imagLnBias = single(weights.([imagPrefix '_ln_bias']));
+                    imagLnEps = single(weights.([imagPrefix '_ln_eps']));
+                    realBranch = local_apply_layer_norm(realBranch, realLnWeight, realLnBias, realLnEps);
+                    imagBranch = local_apply_layer_norm(imagBranch, imagLnWeight, imagLnBias, imagLnEps);
+                else
+                    realLnWeight = [];
+                    realLnBias = [];
+                    realLnEps = [];
+                    imagLnWeight = [];
+                    imagLnBias = [];
+                    imagLnEps = [];
+                end
+
+                if useHiddenReLU
+                    realBranch = max(realBranch, 0);
+                    imagBranch = max(imagBranch, 0);
+                end
+            else
+                realLnWeight = [];
+                realLnBias = [];
+                realLnEps = [];
+                imagLnWeight = [];
+                imagLnBias = [];
+                imagLnEps = [];
             end
 
             layerTrace{layerIdx} = struct( ...
@@ -97,6 +126,12 @@ for stageIdx = 1:numStages
                 'imag_bias', imagBias, ...
                 'real_affine', realAffine, ...
                 'imag_affine', imagAffine, ...
+                'real_layer_norm_weight', realLnWeight, ...
+                'real_layer_norm_bias', realLnBias, ...
+                'real_layer_norm_eps', realLnEps, ...
+                'imag_layer_norm_weight', imagLnWeight, ...
+                'imag_layer_norm_bias', imagLnBias, ...
+                'imag_layer_norm_eps', imagLnEps, ...
                 'real_post_activation', realBranch, ...
                 'imag_post_activation', imagBranch ...
                 );
@@ -147,6 +182,14 @@ end
 
 scale = reshape(inputRms, [size(inputRms, 1), 1, 1]);
 outputData = outputData .* scale;
+end
+
+function outputData = local_apply_layer_norm(inputData, layerNormWeight, layerNormBias, layerNormEps)
+meanValue = mean(inputData, 2);
+centered = inputData - meanValue;
+variance = mean(centered .^ 2, 2);
+normalized = centered ./ sqrt(variance + double(layerNormEps));
+outputData = normalized .* reshape(layerNormWeight, 1, []) + reshape(layerNormBias, 1, []);
 end
 
 function value = local_manifest_bool(structValue, fieldName, defaultValue)

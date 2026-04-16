@@ -41,6 +41,10 @@ def _linear_layers(sequence: nn.Sequential) -> List[nn.Linear]:
     return [layer for layer in sequence if isinstance(layer, nn.Linear)]
 
 
+def _layer_norm_layers(sequence: nn.Sequential) -> List[nn.LayerNorm]:
+    return [layer for layer in sequence if isinstance(layer, nn.LayerNorm)]
+
+
 def _export_separator1_weights(model: torch.nn.Module, num_ports: int, num_stages: int) -> Dict[str, np.ndarray]:
     mat_data: Dict[str, np.ndarray] = {}
     for port_idx in range(num_ports):
@@ -48,16 +52,28 @@ def _export_separator1_weights(model: torch.nn.Module, num_ports: int, num_stage
             mlp = _resolve_port_stage_module(model, port_idx, stage_idx)
             real_layers = _linear_layers(mlp.mlp_real)
             imag_layers = _linear_layers(mlp.mlp_imag)
+            real_norm_layers = _layer_norm_layers(mlp.mlp_real)
+            imag_norm_layers = _layer_norm_layers(mlp.mlp_imag)
 
             for layer_idx, layer in enumerate(real_layers, start=1):
                 prefix = f'p{port_idx + 1:02d}_s{stage_idx + 1:02d}_real_l{layer_idx:02d}'
                 mat_data[f'{prefix}_weight'] = _to_numpy(layer.weight)
                 mat_data[f'{prefix}_bias'] = _to_numpy(layer.bias)
+                if layer_idx < len(real_layers) and layer_idx <= len(real_norm_layers):
+                    layer_norm = real_norm_layers[layer_idx - 1]
+                    mat_data[f'{prefix}_ln_weight'] = _to_numpy(layer_norm.weight)
+                    mat_data[f'{prefix}_ln_bias'] = _to_numpy(layer_norm.bias)
+                    mat_data[f'{prefix}_ln_eps'] = np.asarray(layer_norm.eps, dtype=np.float32)
 
             for layer_idx, layer in enumerate(imag_layers, start=1):
                 prefix = f'p{port_idx + 1:02d}_s{stage_idx + 1:02d}_imag_l{layer_idx:02d}'
                 mat_data[f'{prefix}_weight'] = _to_numpy(layer.weight)
                 mat_data[f'{prefix}_bias'] = _to_numpy(layer.bias)
+                if layer_idx < len(imag_layers) and layer_idx <= len(imag_norm_layers):
+                    layer_norm = imag_norm_layers[layer_idx - 1]
+                    mat_data[f'{prefix}_ln_weight'] = _to_numpy(layer_norm.weight)
+                    mat_data[f'{prefix}_ln_bias'] = _to_numpy(layer_norm.bias)
+                    mat_data[f'{prefix}_ln_eps'] = np.asarray(layer_norm.eps, dtype=np.float32)
 
     return mat_data
 
@@ -132,7 +148,7 @@ def export_run_to_matlab_bundle(
             'pos_values_field': 'pos_values',
             'linear_layers_per_mlp': mlp_depth,
             'separator2_field_pattern': 'p##_s##_l##_weight_real/weight_imag/bias_real/bias_imag',
-            'separator1_field_pattern': 'p##_s##_real_l##_weight/bias and p##_s##_imag_l##_weight/bias',
+            'separator1_field_pattern': 'p##_s##_real_l##_weight/bias[/ln_weight/ln_bias/ln_eps] and p##_s##_imag_l##_weight/bias[/ln_weight/ln_bias/ln_eps]',
         },
         'input_normalization': {
             'enabled': bool(model_spec.get('normalize_energy', False)),

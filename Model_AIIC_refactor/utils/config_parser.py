@@ -252,6 +252,8 @@ def generate_config_name(config: Dict[str, Any], base_name: str = None) -> str:
         'num_stages': 'stages',
         'mlp_depth': 'depth',
         'share_weights_across_stages': 'share',
+        'use_hidden_layer_norm': 'ln',
+        'use_hidden_relu': 'relu',
         'activation_type': 'act',
     }
     
@@ -259,6 +261,9 @@ def generate_config_name(config: Dict[str, Any], base_name: str = None) -> str:
     for key, abbrev in key_params.items():
         if key in config:
             value = config[key]
+
+            if key in {'use_hidden_layer_norm', 'use_hidden_relu'} and value is True:
+                continue
             
             # Format value
             if isinstance(value, bool):
