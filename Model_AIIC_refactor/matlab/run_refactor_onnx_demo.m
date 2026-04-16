@@ -1,21 +1,23 @@
 clear;
 clc;
 
+% ADVANCED ONNX-ONLY DEMO.
+% Most users should start from run_refactor_model_demo.m instead.
+
 thisDir = fileparts(mfilename('fullpath'));
 addpath(thisDir);
 repoRoot = fileparts(fileparts(thisDir));
 
-% Edit this path to your exported ONNX run directory, .onnx file, or manifest file.
-exportDir = fullfile(repoRoot, "Model_AIIC_refactor", "experiments_refactored", ...
+% Edit this path to your exported ONNX directory, .onnx file, or manifest file.
+exportPath = fullfile(repoRoot, "Model_AIIC_refactor", "experiments_refactored", ...
 	"20260409_033734_default_6port_separator1", ...
 	"separator1_grid_search_6ports_hd16_stages2_depth3_share0", ...
 	"onnx_exports");
 batchSize = 2;
 
-modelHandle = import_refactor_model(exportDir, "onnx");
+modelHandle = import_refactor_model(exportPath, "onnx");
 ioSpec = describe_refactor_model_io(modelHandle, [], true);
-inputData = randn(batchSize, double(ioSpec.input.shape(end)), "single");
-[inputData, preparedIoSpec] = prepare_refactor_input(modelHandle, inputData, "onnx");
+[inputData, preparedIoSpec] = prepare_refactor_input(modelHandle, batchSize, "onnx");
 [outputData, debug, modelHandle] = predict_refactor_model(modelHandle, inputData, "onnx");
 
 disp("ONNX demo finished.");

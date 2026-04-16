@@ -359,16 +359,43 @@ Even when training used `share_weights_across_stages=True`, the exporter writes 
 
 ## 10. Matlab Integration
 
-### 10.1 Export paths Matlab expects
+### 10.1 Recommended way to start
 
-- ONNX path: either `<run_dir>/onnx_exports`, a checkpoint-adjacent `.onnx` file, or a checkpoint-adjacent `.export_manifest.json`
-- Matlab bundle path: `<run_dir>/matlab_exports`
+If you already have one exported artifact and just want to try it in Matlab, start from exactly one file or export directory and use only this entrypoint first:
 
-The helper scripts build these paths from the script location, so they do not depend on your Matlab current working directory.
+- `matlab/run_refactor_model_demo.m`
 
-### 10.2 Unified Matlab entry
+That script is the recommended quick start.
 
-Use:
+You should edit only one variable in it:
+
+- `exportPath`
+
+Do not start from the lower-level run scripts unless you specifically need ONNX-only debugging or explicit separator1 traces.
+
+### 10.2 What path can I pass into Matlab?
+
+You can now point Matlab directly to the artifact you actually want to test.
+
+Supported ONNX inputs:
+
+- `<run_dir>/onnx_exports`
+- `<run_dir>/checkpoint_batch_100000.onnx`
+- `<run_dir>/checkpoint_batch_100000.export_manifest.json`
+- `<run_dir>/model.onnx`
+- `<run_dir>/model.export_manifest.json`
+
+Supported Matlab bundle inputs:
+
+- `<run_dir>/matlab_exports`
+- `<run_dir>/matlab_model_bundle.mat`
+- `<run_dir>/matlab_model_bundle_manifest.json`
+
+This means that if you already know which `.onnx` or `.mat` file you want, you do not need to think in terms of “which run directory should I pass”. You can just pass that file directly.
+
+### 10.3 Main Matlab API path
+
+The main Matlab API path is:
 
 - `matlab/import_refactor_model.m`
 - `matlab/describe_refactor_model_io.m`
@@ -377,39 +404,65 @@ Use:
 - `matlab/demo_refactor_model_inference.m`
 - `matlab/run_refactor_model_demo.m`
 
-Example:
+Recommended example with ONNX:
 
 ```matlab
-[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/matlab_exports", "bundle", 8);
+[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/checkpoint_batch_100000.onnx", "auto", 8);
 ```
 
-The third argument is the Matlab-side runtime batch size. It is not tied to any export-time batch setting.
-
-### 10.3 Lower-level Matlab bundle usage
+Recommended example with Matlab bundle:
 
 ```matlab
-bundle = import_refactor_matlab_bundle(".../<run_name>/matlab_exports");
+[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/matlab_model_bundle.mat", "auto", 8);
+```
+
+The third argument is always the Matlab-side runtime batch size used to generate test input. It is not tied to export-time batch settings.
+
+### 10.4 What does Matlab use to determine input/output dimensions?
+
+For normal repo exports, Matlab gets the I/O contract from the exported manifest that sits next to the `.onnx` or `.mat` artifact.
+
+That metadata drives:
+
+- input feature width
+- output tensor width
+- batch-dimension behavior
+- input and output layout strings
+
+You therefore do not need to manually construct widths like `24` or `48` in the common workflow. Use:
+
+```matlab
+modelHandle = import_refactor_model(exportPath, "auto");
+[inputData, ioSpec] = prepare_refactor_input(modelHandle, 8, modelHandle.mode);
+[outputData, debug, modelHandle] = predict_refactor_model(modelHandle, inputData, modelHandle.mode);
+```
+
+### 10.5 Lower-level bundle usage
+
+```matlab
+bundle = import_refactor_matlab_bundle(".../<run_name>/matlab_model_bundle.mat");
 inputData = prepare_refactor_input(bundle, 8, "bundle");
 [outputData, debug] = predict_refactor_matlab_bundle(bundle, inputData);
 ```
 
-`prepare_refactor_input` can generate `batchSize x (2*seq_len)` inputs directly from imported metadata.
+`prepare_refactor_input` generates `batchSize x (2*seq_len)` input automatically from the imported metadata.
 
-### 10.4 ONNX Matlab usage
-
-```matlab
-[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/onnx_exports", "onnx", 8);
-```
-
-Checkpoint-adjacent exports are also supported:
-
-```matlab
-[modelHandle, inputData, outputData, info] = demo_refactor_model_inference(".../<run_name>/checkpoint_batch_87000.onnx", "onnx", 8);
-```
+### 10.6 ONNX-specific note
 
 If the ONNX export used fixed batch size instead of dynamic batch, the helper will chunk or pad requests on the Matlab side as needed.
 
-### 10.5 Shape conventions in Matlab
+### 10.7 Which Matlab script should I use?
+
+Use this mapping:
+
+- `run_refactor_model_demo.m`: recommended quick start for almost everything
+- `run_refactor_onnx_demo.m`: ONNX-only debugging when you know you only want the ONNX backend
+- `run_refactor_matlab_bundle_demo.m`: bundle-only debugging when you know you only want explicit Matlab weights
+- `run_refactor_separator1_demo.m`: advanced separator1 explicit layer-trace debugging
+
+If you are unsure, use only `run_refactor_model_demo.m`.
+
+### 10.8 Shape conventions in Matlab
 
 - input shape: `N x (2*seq_len)`
 - output shape: `N x num_ports x (2*seq_len)`

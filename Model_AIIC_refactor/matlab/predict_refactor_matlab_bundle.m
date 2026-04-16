@@ -4,7 +4,7 @@ function [outputData, debug] = predict_refactor_matlab_bundle(bundleOrDir, input
 % Usage:
 %   outputData = predict_refactor_matlab_bundle(bundle, inputData)
 %   outputData = predict_refactor_matlab_bundle(".../<run_name>/matlab_exports", inputData)
-%   outputData = predict_refactor_matlab_bundle(".../<run_name>/matlab_exports")
+%   outputData = predict_refactor_matlab_bundle(".../<run_name>/matlab_model_bundle.mat")
 
 if ischar(bundleOrDir) || isstring(bundleOrDir)
     bundle = import_refactor_matlab_bundle(bundleOrDir);

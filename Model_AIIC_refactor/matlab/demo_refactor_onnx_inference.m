@@ -1,6 +1,9 @@
 function [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(exportDir, batchSize)
 %DEMO_REFACTOR_ONNX_INFERENCE End-to-end Matlab example for refactor ONNX inference.
 %
+% Advanced ONNX-only helper. Most users should start from
+% demo_refactor_model_inference or run_refactor_model_demo.
+%
 % Usage:
 %   [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(".../<run_name>/onnx_exports")
 %   [net, inputData, outputData, manifest] = demo_refactor_onnx_inference(".../<run_name>/onnx_exports", 4)
@@ -37,9 +40,7 @@ end
 validateattributes(batchSize, {"numeric"}, {"scalar", "integer", "positive"}, ...
     mfilename, "batchSize");
 
-featureDim = double(ioSpec.input.shape(end));
-inputData = randn(batchSize, featureDim, "single");
-[inputData, ioSpec] = prepare_refactor_input(modelHandle, inputData, "onnx");
+[inputData, ioSpec] = prepare_refactor_input(modelHandle, batchSize, "onnx");
 [outputData, debug] = predict_refactor_model(modelHandle, inputData, "onnx");
 
 disp("Prepared Matlab inference example:");

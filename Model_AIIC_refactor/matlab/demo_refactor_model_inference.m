@@ -1,10 +1,12 @@
-function [modelHandle, inputData, outputData, info] = demo_refactor_model_inference(exportDir, mode, batchSize)
+function [modelHandle, inputData, outputData, info] = demo_refactor_model_inference(exportPath, mode, batchSize)
 %DEMO_REFACTOR_MODEL_INFERENCE Unified inference demo for ONNX or Matlab bundle.
 %
+% Recommended main Matlab entrypoint for this repo.
+%
 % Usage:
-%   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/export")
-%   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/export", "onnx", 2)
-%   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/export", "bundle", 8)
+%   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/artifact")
+%   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/checkpoint_batch_100000.onnx", "onnx", 2)
+%   [modelHandle, inputData, outputData, info] = demo_refactor_model_inference("path/to/matlab_model_bundle.mat", "bundle", 8)
 %
 % This helper is a thin demo wrapper around:
 %   - import_refactor_model
@@ -19,7 +21,7 @@ if nargin < 3
     batchSize = [];
 end
 
-modelHandle = import_refactor_model(exportDir, mode);
+modelHandle = import_refactor_model(exportPath, mode);
 info = struct();
 info.mode = modelHandle.mode;
 info.manifest = modelHandle.manifest;

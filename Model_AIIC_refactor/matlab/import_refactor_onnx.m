@@ -6,6 +6,8 @@ function [net, manifest] = import_refactor_onnx(exportPath)
 %   net = import_refactor_onnx("experiments_refactored/.../<run_name>/checkpoint_batch_100000.onnx")
 %   [net, manifest] = import_refactor_onnx("experiments_refactored/.../<run_name>/checkpoint_batch_100000.export_manifest.json")
 %
+% For direct .onnx file input, this helper looks for a sibling manifest first.
+%
 
 [exportDir, manifestPath, explicitOnnxPath] = local_resolve_export_targets(exportPath);
 

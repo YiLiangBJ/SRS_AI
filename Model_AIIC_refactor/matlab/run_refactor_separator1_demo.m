@@ -1,17 +1,20 @@
 clear;
 clc;
 
+% ADVANCED SEPARATOR1 EXPLICIT DEBUG DEMO.
+% Use this only when you specifically want the explicit separator1 layer traces.
+
 thisDir = fileparts(mfilename('fullpath'));
 addpath(thisDir);
 repoRoot = fileparts(fileparts(thisDir));
 
-% Point this to a separator1 Matlab bundle export directory.
-exportDir = fullfile(repoRoot, "Model_AIIC_refactor", "experiments_refactored", ...
+% Point this to a separator1 bundle directory, .mat file, or manifest file.
+exportPath = fullfile(repoRoot, "Model_AIIC_refactor", "experiments_refactored", ...
     "20260409_033734_default_6port_separator1", ...
     "separator1_grid_search_6ports_hd16_stages2_depth3_share0", ...
     "matlab_exports");
 
-bundle = import_refactor_matlab_bundle(exportDir);
+bundle = import_refactor_matlab_bundle(exportPath);
 useReferenceSample = false;
 requestedBatchSize = 4;
 
@@ -24,6 +27,7 @@ end
 [outputData, debug] = predict_refactor_separator1_bundle_explicit(bundle, inputData);
 
 disp("separator1 explicit Matlab demo finished.");
+disp("  Artifact path: " + string(exportPath));
 disp("  Input size: " + mat2str(size(inputData)));
 disp("  Output size: " + mat2str(size(outputData)));
 if ~useReferenceSample

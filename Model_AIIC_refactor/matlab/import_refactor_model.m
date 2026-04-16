@@ -2,9 +2,9 @@ function modelHandle = import_refactor_model(exportDir, mode)
 %IMPORT_REFACTOR_MODEL Unified Matlab import entry for ONNX or Matlab bundle.
 %
 % Usage:
-%   modelHandle = import_refactor_model("path/to/export")
-%   modelHandle = import_refactor_model("path/to/export", "onnx")
-%   modelHandle = import_refactor_model("path/to/export", "bundle")
+%   modelHandle = import_refactor_model("path/to/artifact")
+%   modelHandle = import_refactor_model("path/to/artifact", "onnx")
+%   modelHandle = import_refactor_model("path/to/artifact", "bundle")
 
 if nargin < 2 || isempty(mode)
     mode = "auto";
@@ -23,11 +23,10 @@ switch resolvedMode
         modelHandle.manifest = manifest;
         modelHandle.export_dir = string(fileparts(char(manifest.manifest_path)));
     case "bundle"
-        exportDir = resolve_refactor_export_dir(exportDir);
         bundle = import_refactor_matlab_bundle(exportDir);
         modelHandle.model = bundle;
         modelHandle.manifest = bundle.manifest;
-        modelHandle.export_dir = exportDir;
+            modelHandle.export_dir = bundle.export_dir;
     otherwise
         error("import_refactor_model:UnsupportedMode", "Unsupported mode: %s", resolvedMode);
 end
@@ -49,6 +48,10 @@ if isfile(char(exportPath))
     ext = string(lower(ext));
     if ext == ".onnx"
         resolvedMode = "onnx";
+        return;
+    end
+    if ext == ".mat"
+        resolvedMode = "bundle";
         return;
     end
     if ext == ".json"
