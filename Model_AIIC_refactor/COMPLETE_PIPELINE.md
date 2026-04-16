@@ -449,6 +449,11 @@ inputData = prepare_refactor_input(bundle, 8, "bundle");
 
 ### 10.6 ONNX-specific note
 
+The Matlab helper now uses a version-compatible ONNX import path:
+
+- it first tries `importNetworkFromONNX` without `OutputLayerType`
+- if needed, it falls back to `importONNXNetwork`
+
 If the ONNX export used fixed batch size instead of dynamic batch, the helper will chunk or pad requests on the Matlab side as needed.
 
 ### 10.7 Which Matlab script should I use?

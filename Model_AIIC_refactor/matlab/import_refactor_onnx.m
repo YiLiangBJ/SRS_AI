@@ -25,7 +25,7 @@ if ~isfile(onnxPath)
         "ONNX file referenced by the manifest was not found: %s", char(onnxPath));
 end
 
-net = importNetworkFromONNX(char(onnxPath), OutputLayerType="regression");
+net = local_import_onnx_network(onnxPath);
 
 inputLayout = local_get_matlab_note(manifest, "input_layout", "N x (2*seq_len) real-stacked float32");
 outputLayout = local_get_matlab_note(manifest, "output_layout", "N x num_ports x (2*seq_len) real-stacked float32");
@@ -181,4 +181,54 @@ if isempty(idx)
 else
     text = "[" + join(string(idx), ", ") + "]";
 end
+end
+
+function net = local_import_onnx_network(onnxPath)
+importNetworkError = [];
+importOnnxError = [];
+
+if local_function_exists('importNetworkFromONNX')
+    try
+        net = importNetworkFromONNX(char(onnxPath));
+        return;
+    catch currentError
+        importNetworkError = currentError;
+    end
+end
+
+if local_function_exists('importONNXNetwork')
+    try
+        net = importONNXNetwork(char(onnxPath), 'OutputLayerType', 'regression');
+        return;
+    catch currentError
+        importOnnxError = currentError;
+        try
+            net = importONNXNetwork(char(onnxPath));
+            return;
+        catch currentErrorNoOutputLayer
+            importOnnxError = currentErrorNoOutputLayer;
+        end
+    end
+end
+
+if ~isempty(importNetworkError)
+    if ~isempty(importOnnxError)
+        error("import_refactor_onnx:ImportFailed", ...
+            "Failed to import %s using both importNetworkFromONNX and importONNXNetwork.\nimportNetworkFromONNX: %s\nimportONNXNetwork: %s", ...
+            char(onnxPath), importNetworkError.message, importOnnxError.message);
+    end
+
+    rethrow(importNetworkError);
+end
+
+if ~isempty(importOnnxError)
+    rethrow(importOnnxError);
+end
+
+error("import_refactor_onnx:NoImporterFound", ...
+    "Neither importNetworkFromONNX nor importONNXNetwork is available in this MATLAB installation.");
+end
+
+function tf = local_function_exists(functionName)
+tf = exist(functionName, 'file') == 2 || exist(functionName, 'builtin') == 5;
 end
