@@ -37,7 +37,7 @@ if isempty(batchSize)
     end
 end
 
-validateattributes(batchSize, {"numeric"}, {"scalar", "integer", "positive"}, ...
+validateattributes(batchSize, {'numeric'}, {'scalar', 'integer', 'positive'}, ...
     mfilename, "batchSize");
 
 [inputData, ioSpec] = prepare_refactor_input(modelHandle, batchSize, "onnx");

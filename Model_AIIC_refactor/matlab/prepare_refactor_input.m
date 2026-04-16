@@ -18,7 +18,7 @@ end
 featureDim = local_feature_dim(ioSpec);
 
 if nargin >= 2 && isnumeric(inputData) && isscalar(inputData) && ~isempty(inputData)
-    validateattributes(inputData, {"numeric"}, {"integer", "positive"}, ...
+    validateattributes(inputData, {'numeric'}, {'integer', 'positive'}, ...
         mfilename, "inputData");
     inputData = randn(double(inputData), featureDim, "single");
 end
