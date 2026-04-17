@@ -38,6 +38,17 @@ class TestModels(unittest.TestCase):
         # Test parameter count
         num_params = sum(p.numel() for p in model.parameters())
         self.assertGreater(num_params, 0)
+
+    def test_separator1_layer_norm_defaults_disabled(self):
+        """Test Separator1 disables hidden LayerNorm unless explicitly enabled."""
+        model = create_model('separator1', self.config)
+        self.assertFalse(model.use_hidden_layer_norm)
+
+        model_with_layer_norm = create_model(
+            'separator1',
+            {**self.config, 'use_hidden_layer_norm': True},
+        )
+        self.assertTrue(model_with_layer_norm.use_hidden_layer_norm)
     
     def test_create_separator2(self):
         """Test Separator2 creation"""

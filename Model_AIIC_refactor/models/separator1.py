@@ -40,7 +40,7 @@ class Separator1(BaseSeparatorModel):
                    - 3: Input -> Hidden -> Output (1 hidden layer, default)
                    - 4: Input -> Hidden1 -> Hidden2 -> Output (2 hidden layers)
         share_weights_across_stages: If True, same port uses same MLP across stages (default: False)
-        use_hidden_layer_norm: Apply LayerNorm after each hidden linear layer (default: True)
+        use_hidden_layer_norm: Apply LayerNorm after each hidden linear layer (default: False)
         use_hidden_relu: Apply ReLU after each hidden normalization step (default: True)
     
     Input/Output:
@@ -50,7 +50,7 @@ class Separator1(BaseSeparatorModel):
     
     def __init__(self, seq_len=12, num_ports=4, hidden_dim=64, num_stages=3,
                  mlp_depth=3, share_weights_across_stages=False,
-                 use_hidden_layer_norm=True, use_hidden_relu=True,
+                 use_hidden_layer_norm=False, use_hidden_relu=True,
                  normalize_energy=True):
         super().__init__(seq_len, num_ports, normalize_energy=normalize_energy)
         
@@ -201,7 +201,7 @@ class Separator1(BaseSeparatorModel):
                    - num_stages (optional, default: 3)
                    - mlp_depth (optional, default: 3)
                    - share_weights_across_stages (optional, default: False)
-                   - use_hidden_layer_norm (optional, default: True)
+                   - use_hidden_layer_norm (optional, default: False)
                    - use_hidden_relu (optional, default: True)
         
         Returns:
@@ -214,7 +214,7 @@ class Separator1(BaseSeparatorModel):
             num_stages=config.get('num_stages', 3),
             mlp_depth=config.get('mlp_depth', 3),
             share_weights_across_stages=config.get('share_weights_across_stages', False),
-            use_hidden_layer_norm=config.get('use_hidden_layer_norm', True),
+            use_hidden_layer_norm=config.get('use_hidden_layer_norm', False),
             use_hidden_relu=config.get('use_hidden_relu', True),
             normalize_energy=config.get('normalize_energy', True),
         )

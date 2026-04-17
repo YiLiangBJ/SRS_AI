@@ -15,7 +15,7 @@ models:
     num_stages: 2
     mlp_depth: 3
     share_weights_across_stages: false
-    use_hidden_layer_norm: true
+    use_hidden_layer_norm: false
     use_hidden_relu: true
     
   separator1_default:
@@ -25,7 +25,7 @@ models:
     num_stages: 3
     mlp_depth: 3
     share_weights_across_stages: false
-    use_hidden_layer_norm: true
+    use_hidden_layer_norm: false
     use_hidden_relu: true
     
   separator1_large:
@@ -35,7 +35,7 @@ models:
     num_stages: 4
     mlp_depth: 4
     share_weights_across_stages: false
-    use_hidden_layer_norm: true
+    use_hidden_layer_norm: false
     use_hidden_relu: true
     
   separator1_shared:
@@ -45,7 +45,7 @@ models:
     num_stages: 3
     mlp_depth: 3
     share_weights_across_stages: true
-    use_hidden_layer_norm: true
+    use_hidden_layer_norm: false
     use_hidden_relu: true
   
   # Separator2 (ComplexLinear) configurations  
@@ -110,7 +110,7 @@ models:
       pos_values: [0, 3, 6, 9]  # ⭐ 4-port model (fixed)
       mlp_depth: 3
       share_weights_across_stages: false
-      use_hidden_layer_norm: true
+      use_hidden_layer_norm: false
       use_hidden_relu: true
     search_space:              # Search parameters (generate combinations)
       hidden_dim: [16,32,64,128]
@@ -124,7 +124,7 @@ models:
       pos_values: [0, 2, 4, 6, 8, 10]  # ⭐ 4-port model (fixed)
       mlp_depth: 3             # Keep depth fixed
       share_weights_across_stages: false
-      use_hidden_layer_norm: true
+      use_hidden_layer_norm: false
       use_hidden_relu: true
     search_space:
       hidden_dim: [16,32,64,128]
@@ -163,7 +163,7 @@ models:
       mlp_depth: 3
       num_stages: 3
       share_weights_across_stages: false
-      use_hidden_layer_norm: true
+      use_hidden_layer_norm: false
       use_hidden_relu: true
     search_space:
       hidden_dim: [32, 64]
@@ -189,7 +189,7 @@ models:
     fixed_params:
       pos_values: [0, 3, 6, 9]  # ⭐ 4-port model (fixed)
       share_weights_across_stages: false
-      use_hidden_layer_norm: true
+      use_hidden_layer_norm: false
       use_hidden_relu: true
     search_space:
       hidden_dim: [32, 64, 128]
@@ -204,7 +204,7 @@ models:
       pos_values: [0, 3, 6, 9]  # ⭐ 4-port model (fixed)
       mlp_depth: 3
       share_weights_across_stages: false
-      use_hidden_layer_norm: true
+      use_hidden_layer_norm: false
       use_hidden_relu: true
     search_space:
       hidden_dim:
@@ -225,7 +225,7 @@ models:
     num_stages: 3
     mlp_depth: 3
     share_weights_across_stages: false
-    use_hidden_layer_norm: true
+    use_hidden_layer_norm: false
     use_hidden_relu: true
   
   # Example 8: Grid search for 6-port
@@ -235,7 +235,7 @@ models:
       pos_values: [0, 2, 4, 6, 8, 10]  # ⭐ 6-port model (fixed)
       mlp_depth: 3
       share_weights_across_stages: false
-      use_hidden_layer_norm: true
+      use_hidden_layer_norm: false
       use_hidden_relu: true
     search_space:
       hidden_dim: [32, 64]
