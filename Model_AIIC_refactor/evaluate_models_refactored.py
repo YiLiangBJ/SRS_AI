@@ -10,7 +10,7 @@ from workflows.evaluation_workflow import (
     resolve_evaluation_output_dir,
     evaluate_models_programmatic,
 )
-from workflows.plotting_workflow import generate_plots_programmatic
+from workflows.plotting_workflow import generate_plots_for_target_programmatic, generate_plots_programmatic
 
 
 def build_parser():
@@ -71,6 +71,7 @@ def main():
         explicit_output=args.output,
         exp_dir=Path(args.exp_dir) if args.exp_dir else None,
         model_dirs=target_dirs,
+        force_exp_dir=bool(args.exp_dir),
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -86,8 +87,8 @@ def main():
     print(f'Output: {output_dir}')
     print()
 
-    evaluate_models_programmatic(
-        exp_dir=Path(args.exp_dir) if args.exp_dir else target_dirs[0].parent,
+    results = evaluate_models_programmatic(
+        exp_dir=Path(args.exp_dir) if args.exp_dir else None,
         output_dir=output_dir,
         snr_range=args.snr_range,
         tdl_list=tdl_configs,
@@ -103,13 +104,24 @@ def main():
         print('\n' + '=' * 80)
         print('Generating Evaluation Plots')
         print('=' * 80)
-        plot_output_dir = output_dir / 'plots'
-        generated_files = generate_plots_programmatic(
-            eval_results_path=output_dir,
-            output_dir=plot_output_dir,
-        )
+        if args.exp_dir:
+            generated_files = generate_plots_for_target_programmatic(args.exp_dir, args.output and Path(args.output) / 'plots')
+        elif len(target_dirs) == 1:
+            run_eval_dir = Path(next(iter(results['artifacts']['per_run_output_dirs'].values())))
+            generated_files = generate_plots_programmatic(
+                eval_results_path=run_eval_dir,
+                output_dir=run_eval_dir / 'plots',
+            )
+        else:
+            generated_files = []
+            for run_eval_dir in results['artifacts']['per_run_output_dirs'].values():
+                generated_files.extend(generate_plots_programmatic(run_eval_dir, Path(run_eval_dir) / 'plots'))
+            aggregate_dir = results['artifacts']['aggregate_output_dir']
+            if aggregate_dir:
+                generated_files.extend(generate_plots_programmatic(aggregate_dir, Path(aggregate_dir) / 'plots'))
         print(f'Generated {len(generated_files)} plot(s)')
-        print(f'Plot output: {plot_output_dir}')
+        if args.exp_dir and results['artifacts']['aggregate_output_dir']:
+            print(f"Experiment comparison plots: {Path(results['artifacts']['aggregate_output_dir']) / 'plots'}")
 
 
 if __name__ == '__main__':

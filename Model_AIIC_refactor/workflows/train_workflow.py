@@ -18,6 +18,8 @@ from utils import (
     build_model_artifact_spec,
     build_training_artifact_spec,
     build_run_metadata,
+    load_initial_checkpoint_state,
+    save_model_flow_artifacts,
     save_run_config,
 )
 
@@ -186,6 +188,15 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
     print(f"  Parameters: {model_params}")
 
     model = create_model(model_type, model_spec)
+    init_checkpoint_artifacts = None
+    if request.init_checkpoint:
+        state_dict, init_checkpoint_artifacts = load_initial_checkpoint_state(
+            checkpoint_path=request.init_checkpoint,
+            expected_model_spec=model_spec,
+            device='cpu',
+        )
+        model.load_state_dict(state_dict)
+        print(f"  Initialized from checkpoint: {init_checkpoint_artifacts.checkpoint_path}")
     num_params = sum(parameter.numel() for parameter in model.parameters())
     print(f"  Total parameters: {num_params:,}")
     print()
@@ -222,6 +233,7 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         model_spec=model_spec,
         training_spec=training_spec,
     )
+    effective_trainer = getattr(training_strategy, '_final_trainer', None) or trainer
 
     print(f"  NMSE: {eval_results['nmse']:.6f} ({eval_results['nmse_db']:.2f} dB)")
     print(f"  Per-port NMSE (dB): {eval_results['per_port_nmse_db']}")
@@ -240,6 +252,7 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         task_recipe_name=experiment.task_recipe_name,
         task_label=task_label,
         schema_version=suite.schema_version,
+        init_checkpoint_path=str(init_checkpoint_artifacts.checkpoint_path) if init_checkpoint_artifacts else None,
     )
 
     additional_info = {
@@ -251,7 +264,7 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
     if experiment.component_specs:
         additional_info['component_specs'] = experiment.component_specs
 
-    trainer.save_checkpoint(
+    effective_trainer.save_checkpoint(
         experiment_dir / 'model.pth',
         additional_info=additional_info,
     )
@@ -262,11 +275,17 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         metadata=metadata_dict,
         component_specs=experiment.component_specs,
     )
+    flow_artifacts = save_model_flow_artifacts(
+        output_dir=experiment_dir,
+        model_spec=model_spec_dict,
+        component_specs=experiment.component_specs,
+    )
     print(f"✓ Model saved to: {experiment_dir}")
 
     result = {
         'task_label': task_label,
         'model_recipe_name': model_recipe_name,
+        'model_label': experiment.model_label,
         'run_name': run_name,
         'training_label': training_label,
         'batch_size': batch_size,
@@ -277,11 +296,14 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         'eval_nmse_db': eval_results['nmse_db'],
         'training_duration': training_duration,
         'num_params': num_params,
+        'init_checkpoint_path': str(init_checkpoint_artifacts.checkpoint_path) if init_checkpoint_artifacts else None,
+        'stage_summaries': getattr(training_strategy, '_stage_summaries', []),
+        'model_flow_markdown_path': flow_artifacts['markdown_path'],
         'avg_training_throughput': (batch_size * num_batches / training_duration) if training_duration > 0 else 0.0,
         'timing_breakdown': {
-            'data_gen_time': trainer.data_gen_time,
-            'forward_time': trainer.forward_time,
-            'backward_time': trainer.backward_time,
+            'data_gen_time': effective_trainer.data_gen_time,
+            'forward_time': effective_trainer.forward_time,
+            'backward_time': effective_trainer.backward_time,
         },
     }
     progress_tracker.complete_task(result)

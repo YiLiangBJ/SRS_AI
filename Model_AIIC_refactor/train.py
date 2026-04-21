@@ -15,6 +15,7 @@ def build_parser():
     parser.add_argument('--experiment', type=str, required=True, help='Experiment name from configs/v2/experiments.yaml')
     parser.add_argument('--batch_size', type=int, default=None, help='Override batch size')
     parser.add_argument('--num_batches', type=int, default=None, help='Override number of batches')
+    parser.add_argument('--init_checkpoint', type=str, default=None, help='Initialize model weights from one existing checkpoint before training; model config must match exactly')
     parser.add_argument('--device', type=str, default='auto', help='Device to use (auto, cpu, cuda, cuda:0, ...)')
     parser.add_argument('--save_dir', type=str, default=str(DEFAULT_SAVE_DIR), help='Parent directory where timestamped experiment directories are created')
     parser.add_argument('--no-amp', dest='use_amp', action='store_false', help='Disable mixed precision training (FP16)')

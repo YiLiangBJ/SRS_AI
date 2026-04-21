@@ -20,13 +20,15 @@ class TestExperimentPlan(unittest.TestCase):
         )
 
         self.assertEqual(suite.schema_version, 'v2')
-        self.assertEqual(suite.task_recipe_name, 'channel_separator_4port_quick')
+        self.assertEqual(suite.task_recipe_name, 'channel_separator_6port_quick')
         self.assertEqual(suite.training_recipe_name, 'quick_supervised')
         self.assertEqual(suite.model_recipe_names, ['separator1_small'])
         self.assertEqual(len(suite.plan), 1)
-        self.assertEqual(suite.plan[0].task_recipe_name, 'channel_separator_4port_quick')
+        self.assertEqual(suite.plan[0].task_recipe_name, 'channel_separator_6port_quick')
         self.assertEqual(suite.plan[0].model_spec['model_type'], 'separator1')
         self.assertEqual(suite.plan[0].model_spec['seq_len'], 12)
+        self.assertEqual(suite.plan[0].model_spec['num_ports'], 6)
+        self.assertTrue(suite.plan[0].model_spec['normalize_energy'])
         self.assertEqual(suite.plan[0].training_spec['loss_type'], 'nmse')
         self.assertEqual(suite.plan[0].training_spec['strategy_type'], 'standard_supervised')
         self.assertEqual(suite.plan[0].task_spec['params']['tdl_config'], 'A-30')
@@ -40,8 +42,25 @@ class TestExperimentPlan(unittest.TestCase):
 
         self.assertEqual(len(suite.plan), 1)
         self.assertEqual(suite.plan[0].model_spec['model_type'], 'full_mlp')
+        self.assertEqual(suite.plan[0].model_spec['num_ports'], 6)
         self.assertEqual(suite.plan[0].training_spec['loss_type'], 'nmse')
         self.assertEqual(suite.plan[0].model_spec['mlp_depth'], 3)
+        self.assertTrue(suite.plan[0].model_spec['normalize_energy'])
+
+    def test_compare_default_models_includes_three_models_on_6port(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='compare_default_models_v2',
+        )
+
+        self.assertEqual(suite.task_recipe_name, 'channel_separator_6port_standard')
+        self.assertEqual(len(suite.plan), 3)
+        self.assertEqual(
+            {item.model_spec['model_type'] for item in suite.plan},
+            {'full_mlp', 'separator1', 'separator2'},
+        )
+        self.assertTrue(all(item.model_spec['num_ports'] == 6 for item in suite.plan))
 
     def test_build_v2_experiment_suite_supports_nested_experiment_sweeps(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -68,6 +87,7 @@ class TestExperimentPlan(unittest.TestCase):
                         'full_mlp_base': {
                             'type': 'full_mlp',
                             'params': {
+                                'normalize_energy': True,
                                 'hidden_dim': 32,
                                 'mlp_depth': 3,
                             },
@@ -137,6 +157,35 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual({item.model_spec['hidden_dim'] for item in suite.plan}, {64, 128, 256})
         self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3, 4})
         self.assertTrue(all(item.training_spec['loss_type'] == 'nmse' for item in suite.plan))
+
+    def test_multi_stage_training_strategy_compiles(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='quick_full_mlp_two_stage_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 1)
+        training_spec = suite.plan[0].training_spec
+        self.assertEqual(training_spec['strategy_type'], 'multi_stage_supervised')
+        self.assertEqual(training_spec['num_stages'], 2)
+        self.assertEqual(training_spec['stage_names'], ['warmup_nmse', 'finetune_log'])
+        self.assertEqual(training_spec['stages'][0]['loss_type'], 'nmse')
+        self.assertEqual(training_spec['stages'][1]['loss_type'], 'log')
+
+    def test_three_stage_training_strategy_compiles(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='quick_full_mlp_three_stage_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 1)
+        training_spec = suite.plan[0].training_spec
+        self.assertEqual(training_spec['strategy_type'], 'multi_stage_supervised')
+        self.assertEqual(training_spec['num_stages'], 3)
+        self.assertEqual(training_spec['stage_names'], ['warmup_nmse', 'finetune_log', 'polish_weighted'])
+        self.assertEqual([stage['loss_type'] for stage in training_spec['stages']], ['nmse', 'log', 'weighted'])
 
 
 if __name__ == '__main__':

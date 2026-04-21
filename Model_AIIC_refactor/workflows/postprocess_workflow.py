@@ -6,7 +6,7 @@ from pathlib import Path
 from .evaluation_workflow import evaluate_models_programmatic, resolve_evaluation_output_dir
 from .export_workflow import export_runs_to_onnx
 from .matlab_export_workflow import export_runs_to_matlab_bundle
-from .plotting_workflow import generate_plots_programmatic
+from .plotting_workflow import generate_plots_for_target_programmatic, generate_plots_programmatic
 from .types import PostprocessSummary
 
 
@@ -78,6 +78,7 @@ def run_post_training_pipeline(training_summary):
             use_amp=False,
             compile=training_summary.device.type == 'cuda',
         )
+        summary.evaluation_summary_path = summary.evaluation_output_dir / 'EVALUATION_SUMMARY.md'
         print(f"\n✓ Evaluation completed!")
         print(f"  Results saved to: {summary.evaluation_output_dir}")
 
@@ -96,8 +97,8 @@ def run_post_training_pipeline(training_summary):
                     print("📈 Generating Plots")
                     print(f"{'='*80}")
                     summary.plot_output_dir = summary.evaluation_output_dir / 'plots'
-                    summary.generated_plots = generate_plots_programmatic(
-                        eval_results_path=summary.evaluation_output_dir,
+                    summary.generated_plots = generate_plots_for_target_programmatic(
+                        input_path=training_summary.experiment_output_dir,
                         output_dir=summary.plot_output_dir,
                     )
                     print(f"\n✓ Plots generated!")

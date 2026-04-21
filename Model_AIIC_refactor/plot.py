@@ -1,8 +1,9 @@
 """Thin CLI entrypoint for the plotting workflow."""
 
 import argparse
+from pathlib import Path
 
-from workflows.plotting_workflow import generate_plots_programmatic, resolve_plot_inputs
+from workflows.plotting_workflow import generate_plots_for_target_programmatic, generate_plots_programmatic, resolve_plot_inputs
 
 
 def build_parser():
@@ -16,14 +17,15 @@ def build_parser():
 def main():
     """Parse CLI args and dispatch to the plotting workflow."""
     args = build_parser().parse_args()
-    eval_results_path, output_dir = resolve_plot_inputs(args.input, args.output)
     print(f"📈 Generating plots...")
-    print(f"  Evaluation data: {eval_results_path}")
-    print(f"  Output: {output_dir}")
+    print(f"  Input: {args.input}")
+    if args.output:
+        print(f"  Aggregate output override: {args.output}")
     print()
-    generated_files = generate_plots_programmatic(eval_results_path=eval_results_path, output_dir=output_dir)
+    generated_files = generate_plots_for_target_programmatic(args.input, Path(args.output) if args.output else None)
     print(f"\n✓ Generated {len(generated_files)} plots")
-    print(f"  Saved to: {output_dir}")
+    if args.output:
+        print(f"  Aggregate plots saved to: {args.output}")
 
 
 if __name__ == '__main__':

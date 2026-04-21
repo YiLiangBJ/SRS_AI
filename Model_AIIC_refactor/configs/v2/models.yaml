@@ -2,12 +2,14 @@ models:
   full_mlp_default:
     type: full_mlp
     params:
+      normalize_energy: true
       hidden_dim: 128
       mlp_depth: 3
 
   full_mlp_arch_search:
     type: full_mlp
     params:
+      normalize_energy: true
       hidden_dim: 128
       mlp_depth: 3
     sweeps:
@@ -21,6 +23,7 @@ models:
   full_mlp_capacity_search:
     type: full_mlp
     params:
+      normalize_energy: true
       hidden_dim: 128
       mlp_depth: 3
     sweeps:
@@ -34,6 +37,7 @@ models:
   separator1_small:
     type: separator1
     params:
+      normalize_energy: true
       hidden_dim: 32
       num_stages: 2
       mlp_depth: 3
@@ -44,6 +48,7 @@ models:
   separator1_default:
     type: separator1
     params:
+      normalize_energy: true
       hidden_dim: 64
       num_stages: 3
       mlp_depth: 3
@@ -54,6 +59,7 @@ models:
   separator2_default:
     type: separator2
     params:
+      normalize_energy: true
       hidden_dim: 64
       num_stages: 3
       mlp_depth: 3
@@ -64,6 +70,7 @@ models:
   separator1_grid_search_6ports:
     type: separator1
     params:
+      normalize_energy: true
       mlp_depth: 3
       num_stages: 2
       share_weights_across_stages: false

@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Mapping
 
 from .base import BaseTrainingStrategy
+from .multi_stage_supervised import MultiStageSupervisedStrategy
 from .standard_supervised import StandardSupervisedStrategy
 
 
 TRAINING_STRATEGY_REGISTRY = {
+    MultiStageSupervisedStrategy.strategy_type: MultiStageSupervisedStrategy,
     StandardSupervisedStrategy.strategy_type: StandardSupervisedStrategy,
 }
 
@@ -36,6 +38,7 @@ def create_training_strategy(spec: Mapping[str, object]):
 
 __all__ = [
     'BaseTrainingStrategy',
+    'MultiStageSupervisedStrategy',
     'StandardSupervisedStrategy',
     'create_training_strategy',
     'get_training_strategy_class',

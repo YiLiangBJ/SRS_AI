@@ -39,6 +39,16 @@ from .run_artifacts import (
     load_trained_model_from_checkpoint,
     build_dummy_input,
 )
+from .model_flow import (
+    generate_model_flow_spec,
+    render_model_flow_markdown,
+    save_model_flow_artifacts,
+)
+from .checkpoint_resume import (
+    compare_model_specs,
+    format_model_spec_mismatches,
+    load_initial_checkpoint_state,
+)
 from .run_selection import (
     split_csv_arg,
     resolve_existing_path,
@@ -81,6 +91,12 @@ __all__ = [
     'load_trained_model_from_run',
     'load_trained_model_from_checkpoint',
     'build_dummy_input',
+    'generate_model_flow_spec',
+    'render_model_flow_markdown',
+    'save_model_flow_artifacts',
+    'compare_model_specs',
+    'format_model_spec_mismatches',
+    'load_initial_checkpoint_state',
     'split_csv_arg',
     'resolve_existing_path',
     'default_refactor_experiments_root',

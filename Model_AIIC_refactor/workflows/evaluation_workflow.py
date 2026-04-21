@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from tasks import create_task
 from utils import split_csv_arg, discover_run_dirs, load_trained_model_from_run
+from .reporting import generate_evaluation_summary
 
 
 def parse_snr_range(snr_str):
@@ -86,7 +87,9 @@ def save_evaluation_results(results, output_dir: Path):
 
     npy_path = output_dir / 'evaluation_results.npy'
     np.save(npy_path, numpy_data, allow_pickle=True)
-    return json_path, npy_path
+    summary_path = output_dir / 'EVALUATION_SUMMARY.md'
+    generate_evaluation_summary(summary_path, results)
+    return json_path, npy_path, summary_path
 
 
 def _slugify_label(value: str) -> str:
@@ -109,7 +112,7 @@ def _build_evaluation_scope_label(model_dirs) -> str:
     return f'{len(run_names)}-runs'
 
 
-def resolve_evaluation_output_dir(explicit_output=None, exp_dir: Path | None = None, model_dirs=None) -> Path:
+def resolve_evaluation_output_dir(explicit_output=None, exp_dir: Path | None = None, model_dirs=None, force_exp_dir: bool = False) -> Path:
     """Resolve the default output directory for evaluation artifacts."""
     if explicit_output:
         return Path(explicit_output)
@@ -117,6 +120,9 @@ def resolve_evaluation_output_dir(explicit_output=None, exp_dir: Path | None = N
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     single_run = bool(model_dirs) and len(model_dirs) == 1
     evaluation_name = timestamp if single_run else f'{timestamp}_{_build_evaluation_scope_label(model_dirs)}'
+
+    if force_exp_dir and exp_dir is not None:
+        return Path(exp_dir) / 'evaluations' / evaluation_name
 
     if single_run:
         return Path(model_dirs[0]) / 'evaluations' / evaluation_name
@@ -130,6 +136,28 @@ def resolve_evaluation_output_dir(explicit_output=None, exp_dir: Path | None = N
             return common_parent / 'evaluations' / evaluation_name
 
     return Path('evaluations') / evaluation_name
+
+
+def _build_results_payload(output_dir: Path, snr_list, explicit_tdl_list, num_batches, batch_size, target_dirs, models_payload):
+    return {
+        'timestamp': datetime.now().isoformat(),
+        'evaluation_name': output_dir.name,
+        'output_dir': str(output_dir),
+        'config': {
+            'snr_list': snr_list,
+            'tdl_list': explicit_tdl_list,
+            'num_batches': num_batches,
+            'batch_size': batch_size,
+            'total_samples_per_point': num_batches * batch_size,
+            'run_names': [run_dir.name for run_dir in target_dirs],
+            'run_count': len(target_dirs),
+        },
+        'models': models_payload,
+    }
+
+
+def _build_single_run_output_dir(run_dir: Path, timestamp: str) -> Path:
+    return run_dir / 'evaluations' / timestamp
 
 
 def evaluate_models_programmatic(
@@ -166,27 +194,19 @@ def evaluate_models_programmatic(
     if not target_dirs:
         raise ValueError('No trained runs found to evaluate')
 
-    output_dir = Path(output_dir) if output_dir is not None else resolve_evaluation_output_dir(
-        exp_dir=exp_dir,
-        model_dirs=target_dirs,
-    )
-    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    aggregate_requested = exp_dir is not None or len(target_dirs) > 1 or output_dir is not None
+    aggregate_output_dir = None
+    if aggregate_requested:
+        aggregate_output_dir = Path(output_dir) if output_dir is not None else resolve_evaluation_output_dir(
+            exp_dir=exp_dir,
+            model_dirs=target_dirs,
+            force_exp_dir=exp_dir is not None,
+        )
+        aggregate_output_dir.mkdir(parents=True, exist_ok=True)
 
-    results = {
-        'timestamp': datetime.now().isoformat(),
-        'evaluation_name': output_dir.name,
-        'output_dir': str(output_dir),
-        'config': {
-            'snr_list': snr_list,
-            'tdl_list': explicit_tdl_list,
-            'num_batches': num_batches,
-            'batch_size': batch_size,
-            'total_samples_per_point': num_batches * batch_size,
-            'run_names': [run_dir.name for run_dir in target_dirs],
-            'run_count': len(target_dirs),
-        },
-        'models': {},
-    }
+    aggregate_models = {}
+    per_run_output_dirs = {}
 
     for run_dir in target_dirs:
         run_name = run_dir.name
@@ -208,7 +228,7 @@ def evaluate_models_programmatic(
             model.eval()
             run_tdl_list = explicit_tdl_list or list(task.get_default_tdl_list()) or ['A-30', 'B-100', 'C-300']
 
-            results['models'][run_name] = {
+            run_model_results = {
                 'model_spec': model_spec,
                 'training_spec': artifacts.training_spec,
                 'metadata': artifacts.metadata,
@@ -245,17 +265,63 @@ def evaluate_models_programmatic(
                     tdl_results['port_nmse'].append(point_result['per_port_nmse'])
                     tdl_results['port_nmse_db'].append(point_result['per_port_nmse_db'])
 
-                results['models'][run_name]['tdl_results'][tdl_config] = tdl_results
+                run_model_results['tdl_results'][tdl_config] = tdl_results
+
+            aggregate_models[run_name] = run_model_results
+
+            run_output_dir = _build_single_run_output_dir(run_dir, timestamp)
+            run_output_dir.mkdir(parents=True, exist_ok=True)
+            per_run_output_dirs[run_name] = str(run_output_dir)
+            single_run_results = _build_results_payload(
+                output_dir=run_output_dir,
+                snr_list=snr_list,
+                explicit_tdl_list=explicit_tdl_list,
+                num_batches=num_batches,
+                batch_size=batch_size,
+                target_dirs=[run_dir],
+                models_payload={run_name: run_model_results},
+            )
+            save_evaluation_results(single_run_results, run_output_dir)
 
         except Exception as error:
             print(f'✗ Run {run_name} evaluation failed: {error}')
             continue
 
-    if not results['models']:
+    if not aggregate_models:
         raise RuntimeError(
             'No runs were evaluated successfully. If these are older checkpoints, retrain them with the current '
             'training pipeline so model_spec is saved.'
         )
 
-    save_evaluation_results(results, output_dir)
+    if aggregate_output_dir is not None:
+        results = _build_results_payload(
+            output_dir=aggregate_output_dir,
+            snr_list=snr_list,
+            explicit_tdl_list=explicit_tdl_list,
+            num_batches=num_batches,
+            batch_size=batch_size,
+            target_dirs=[run_dir for run_dir in target_dirs if run_dir.name in aggregate_models],
+            models_payload=aggregate_models,
+        )
+        results['artifacts'] = {
+            'aggregate_output_dir': str(aggregate_output_dir),
+            'per_run_output_dirs': per_run_output_dirs,
+        }
+        save_evaluation_results(results, aggregate_output_dir)
+        return results
+
+    run_name, run_output_dir = next(iter(per_run_output_dirs.items()))
+    results = _build_results_payload(
+        output_dir=Path(run_output_dir),
+        snr_list=snr_list,
+        explicit_tdl_list=explicit_tdl_list,
+        num_batches=num_batches,
+        batch_size=batch_size,
+        target_dirs=[next(run_dir for run_dir in target_dirs if run_dir.name == run_name)],
+        models_payload={run_name: aggregate_models[run_name]},
+    )
+    results['artifacts'] = {
+        'aggregate_output_dir': None,
+        'per_run_output_dirs': per_run_output_dirs,
+    }
     return results

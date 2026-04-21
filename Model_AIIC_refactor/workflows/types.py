@@ -13,6 +13,7 @@ class TrainRequest:
     experiment: str
     batch_size: Optional[int] = None
     num_batches: Optional[int] = None
+    init_checkpoint: Optional[str] = None
     device: str = 'auto'
     save_dir: str = ''
     use_amp: bool = True
@@ -49,6 +50,7 @@ class PostprocessSummary:
     matlab_manifests: List[Dict[str, Any]] = field(default_factory=list)
     evaluation_output_dir: Optional[Path] = None
     evaluation_results: Optional[Dict[str, Any]] = None
+    evaluation_summary_path: Optional[Path] = None
     plot_output_dir: Optional[Path] = None
     generated_plots: List[Path] = field(default_factory=list)
 

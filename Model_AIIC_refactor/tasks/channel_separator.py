@@ -22,7 +22,7 @@ class ChannelSeparatorTask(BaseTask):
         model_params = deepcopy(dict(model_spec or {}).get('params', {}))
 
         model_context = deepcopy(task_params.get('model_context', {}))
-        for key in ('seq_len', 'pos_values', 'normalize_energy'):
+        for key in ('seq_len', 'pos_values'):
             if key in task_params and key not in model_context:
                 model_context[key] = deepcopy(task_params[key])
 

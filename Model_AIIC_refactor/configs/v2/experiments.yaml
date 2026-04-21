@@ -1,31 +1,43 @@
 experiments:
   quick_full_mlp_v2:
-    description: Quick smoke test for the joint full-MLP baseline.
-    task: channel_separator_4port_quick
+    description: Quick 6-port smoke test for the joint full-MLP baseline.
+    task: channel_separator_6port_quick
     model: full_mlp_default
     training_strategy: quick_supervised
 
   full_mlp_nmse_v2:
-    description: Train the joint full-MLP baseline with plain NMSE loss.
-    task: channel_separator_4port_standard
+    description: Train the joint 6-port full-MLP baseline with plain NMSE loss.
+    task: channel_separator_6port_standard
     model: full_mlp_default
     training_strategy: supervised_nmse_plateau
 
   full_mlp_arch_search_v2:
-    description: Sweep hidden_dim and mlp_depth for the joint full-MLP baseline under NMSE training.
-    task: channel_separator_4port_standard
+    description: Sweep hidden_dim and mlp_depth for the joint 6-port full-MLP baseline under NMSE training.
+    task: channel_separator_6port_standard
     model: full_mlp_arch_search
     training_strategy: supervised_nmse_plateau
 
   full_mlp_capacity_search_v2:
-    description: Broader hidden_dim and mlp_depth sweep for the joint full-MLP baseline under NMSE training.
-    task: channel_separator_4port_standard
+    description: Default 6-port hidden_dim and mlp_depth sweep for the joint full-MLP baseline under NMSE training.
+    task: channel_separator_6port_standard
     model: full_mlp_capacity_search
     training_strategy: supervised_nmse_plateau
 
+  quick_full_mlp_two_stage_v2:
+    description: Quick 6-port two-stage training smoke test for the joint full-MLP baseline.
+    task: channel_separator_6port_quick
+    model: full_mlp_default
+    training_strategy: quick_two_stage_supervised
+
+  quick_full_mlp_three_stage_v2:
+    description: Quick 6-port three-stage training smoke test for the joint full-MLP baseline using nmse -> log -> weighted stages.
+    task: channel_separator_6port_quick
+    model: full_mlp_default
+    training_strategy: quick_three_stage_supervised
+
   quick_separator1_v2:
-    description: Quick smoke test using the component-based schema.
-    task: channel_separator_4port_quick
+    description: Quick 6-port smoke test for separator1.
+    task: channel_separator_6port_quick
     model: separator1_small
     training_strategy: quick_supervised
 
@@ -36,13 +48,13 @@ experiments:
     training_strategy: supervised_log_plateau
 
   compare_default_models_v2:
-    description: Compare the default separator1 and separator2 models under the same task and training strategy.
-    task: channel_separator_4port_standard
-    model: [separator1_default, separator2_default]
+    description: Compare the default full_mlp, separator1, and separator2 models under the same 6-port task and training strategy.
+    task: channel_separator_6port_standard
+    model: [full_mlp_default, separator1_default, separator2_default]
     training_strategy: supervised_log_plateau
 
   separator1_loss_search_v2:
-    description: Compare different supervised losses for separator1_default using the component-based schema.
-    task: channel_separator_4port_standard
+    description: Compare different supervised losses for 6-port separator1_default using the component-based schema.
+    task: channel_separator_6port_standard
     model: separator1_default
     training_strategy: loss_sweep_supervised

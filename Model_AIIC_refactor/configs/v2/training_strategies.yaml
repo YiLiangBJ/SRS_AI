@@ -114,3 +114,103 @@ training_strategies:
       - target: params.loss.type
         alias: loss
         values: [nmse, weighted, log, normalized]
+
+  quick_two_stage_supervised:
+    type: multi_stage_supervised
+    params:
+      stages:
+        - name: warmup_nmse
+          params:
+            batch_size: 32
+            num_batches: 60
+            optimizer:
+              type: adam
+              params:
+                learning_rate: 0.01
+            loss:
+              type: nmse
+            validation:
+              batches: 4
+            early_stop:
+              patience: 3
+            logging:
+              print_interval: 10
+            checkpoints:
+              keep_last_n: 2
+        - name: finetune_log
+          params:
+            batch_size: 32
+            num_batches: 40
+            optimizer:
+              type: adam
+              params:
+                learning_rate: 0.003
+            loss:
+              type: log
+            validation:
+              batches: 4
+            early_stop:
+              patience: 3
+            logging:
+              print_interval: 10
+            checkpoints:
+              keep_last_n: 2
+
+  quick_three_stage_supervised:
+    type: multi_stage_supervised
+    params:
+      stages:
+        - name: warmup_nmse
+          params:
+            batch_size: 32
+            num_batches: 60
+            optimizer:
+              type: adam
+              params:
+                learning_rate: 0.01
+            loss:
+              type: nmse
+            validation:
+              batches: 4
+            early_stop:
+              patience: 3
+            logging:
+              print_interval: 10
+            checkpoints:
+              keep_last_n: 2
+        - name: finetune_log
+          params:
+            batch_size: 32
+            num_batches: 40
+            optimizer:
+              type: adam
+              params:
+                learning_rate: 0.003
+            loss:
+              type: log
+            validation:
+              batches: 4
+            early_stop:
+              patience: 3
+            logging:
+              print_interval: 10
+            checkpoints:
+              keep_last_n: 2
+        - name: polish_weighted
+          params:
+            batch_size: 32
+            num_batches: 30
+            optimizer:
+              type: adam
+              params:
+                learning_rate: 0.001
+            loss:
+              type: weighted
+            validation:
+              batches: 4
+            early_stop:
+              patience: 3
+            logging:
+              print_interval: 10
+            checkpoints:
+              keep_last_n: 2

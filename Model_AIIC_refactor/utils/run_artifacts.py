@@ -160,6 +160,7 @@ def build_run_metadata(
     task_recipe_name: Optional[str] = None,
     task_label: Optional[str] = None,
     schema_version: str = 'v2',
+    init_checkpoint_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build the canonical run metadata payload."""
     from datetime import datetime
@@ -175,6 +176,7 @@ def build_run_metadata(
         'training_recipe_name': training_recipe_name,
         'training_label': training_label,
         'training_duration': training_duration,
+        'init_checkpoint_path': init_checkpoint_path,
         'timestamp': datetime.now().isoformat(),
     }
 

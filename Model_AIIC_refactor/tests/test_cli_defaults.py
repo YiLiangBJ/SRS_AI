@@ -19,11 +19,13 @@ class TestCliDefaults(unittest.TestCase):
         args = parser.parse_args(['--experiment', 'demo'])
         self.assertTrue(args.use_amp)
         self.assertIsNone(args.compile_model)
+        self.assertIsNone(args.init_checkpoint)
 
     def test_train_request_enables_amp_by_default(self):
         request = TrainRequest(experiment='demo')
         self.assertTrue(request.use_amp)
         self.assertIsNone(request.compile_model)
+        self.assertIsNone(request.init_checkpoint)
 
     def test_evaluation_cli_enables_amp_and_compile_by_default(self):
         parser = evaluate_models_refactored.build_parser()

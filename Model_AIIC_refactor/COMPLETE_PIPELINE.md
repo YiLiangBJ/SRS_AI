@@ -84,12 +84,11 @@ Task recipe:
 
 ```yaml
 tasks:
-  channel_separator_4port_standard:
+  channel_separator_6port_standard:
     type: channel_separator
     params:
       seq_len: 12
-      pos_values: [0, 3, 6, 9]
-      normalize_energy: true
+      pos_values: [0, 2, 4, 6, 8, 10]
       snr_config:
         type: range
         min: 0
@@ -107,6 +106,7 @@ models:
   full_mlp_capacity_search:
     type: full_mlp
     params:
+      normalize_energy: true
       hidden_dim: 128
       mlp_depth: 3
     sweeps:
@@ -152,8 +152,8 @@ experiments:
 
 ### 4.3 Practical conventions
 
-- Keep `seq_len`, `pos_values`, `normalize_energy`, `snr_config`, and `tdl_config` on the task side.
-- Keep width/depth/stage count, activation options, and model-family-specific architecture flags on the model side.
+- Keep `seq_len`, `pos_values`, `snr_config`, and `tdl_config` on the task side.
+- Keep width/depth/stage count, activation options, `normalize_energy`, and model-family-specific architecture flags on the model side.
 - Keep optimizer, loss, validation cadence, scheduler policy, and checkpoint cadence on the training-strategy side.
 - Put workflow intent in `configs/v2/experiments.yaml`: smoke tests, architecture comparisons, export candidates, and sweeps.
 - If a field is a deliberate scientific sweep, put it in `sweeps`.
@@ -164,27 +164,37 @@ experiments:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
-  --experiment quick_full_mlp_v2 \
+  --experiment full_mlp_capacity_search_v2 \
   --plan_only \
   --device cpu
 ```
 
 ### 4.5 Built-in experiment presets
 
-- `quick_full_mlp_v2`: one-run smoke test for the joint full-MLP baseline
-- `full_mlp_nmse_v2`: default full-MLP training with plain NMSE loss
-- `full_mlp_arch_search_v2`: 9-run width/depth search for full-MLP
-- `full_mlp_capacity_search_v2`: broader 16-run width/depth search for full-MLP
-- `quick_separator1_v2`: one-run smoke test for separator1
-- `compare_default_models_v2`: compare separator1_default and separator2_default on the same task
+- `quick_full_mlp_v2`: one-run 6-port smoke test for the joint full-MLP baseline
+- `quick_full_mlp_two_stage_v2`: one-run 6-port smoke test for staged full-MLP training
+- `quick_full_mlp_three_stage_v2`: one-run 6-port smoke test for `nmse -> log -> weighted` staged full-MLP training
+- `full_mlp_nmse_v2`: one-run 6-port full-MLP baseline with plain NMSE loss
+- `full_mlp_arch_search_v2`: 9-run 6-port width/depth search for full-MLP
+- `full_mlp_capacity_search_v2`: default 16-run 6-port hidden-dim/depth search for full-MLP
+- `quick_separator1_v2`: one-run 6-port smoke test for separator1
+- `compare_default_models_v2`: compare full_mlp_default, separator1_default, and separator2_default on the same 6-port task
 - `default_6port_separator1_v2`: default 6-port separator1 sweep
-- `separator1_loss_search_v2`: compare supervised loss choices for separator1_default
+- `separator1_loss_search_v2`: compare supervised loss choices for 6-port separator1_default
 
 ## 5. Training
 
 ### 5.1 Common commands
 
-Train one quick full-MLP smoke test:
+Train the default 6-port full-MLP hyperparameter scan:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment full_mlp_capacity_search_v2 \
+  --device cuda
+```
+
+Train one quick 6-port full-MLP smoke test:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -192,7 +202,7 @@ python ./Model_AIIC_refactor/train.py \
   --device cuda
 ```
 
-Inspect the broader full-MLP search without launching it:
+Inspect the default 6-port full-MLP search without launching it:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -201,7 +211,7 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
-Train, then evaluate and plot a cross-model comparison:
+Train, then evaluate and plot a 3-model 6-port comparison:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -211,13 +221,41 @@ python ./Model_AIIC_refactor/train.py \
   --plot_after_eval
 ```
 
-Quick CPU benchmark-style run with batch-count override:
+Quick CPU benchmark-style 6-port run with batch-count override:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
   --experiment quick_separator1_v2 \
   --num_batches 100 \
   --device cpu
+```
+
+Resume one model from a previous checkpoint but train with new training parameters:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment quick_full_mlp_v2 \
+  --init_checkpoint ./Model_AIIC_refactor/experiments_refactored/<old_experiment>/<run_name>/model.pth \
+  --num_batches 200 \
+  --device cuda
+```
+
+Quick staged-training smoke test:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment quick_full_mlp_two_stage_v2 \
+  --num_batches 20 \
+  --device cuda
+```
+
+Quick three-stage training smoke test:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment quick_full_mlp_three_stage_v2 \
+  --num_batches 20 \
+  --device cuda
 ```
 
 ### 5.2 Train CLI summary
@@ -227,6 +265,7 @@ python ./Model_AIIC_refactor/train.py \
 | `--experiment` | Required experiment name from `configs/v2/experiments.yaml` |
 | `--batch_size` | Optional override applied after recipe resolution |
 | `--num_batches` | Optional override applied after recipe resolution |
+| `--init_checkpoint` | Initialize weights from one existing checkpoint; model spec must match exactly |
 | `--device` | `auto`, `cpu`, `cuda`, `cuda:0`, ... |
 | `--save_dir` | Parent output directory |
 | `--no-amp` | Disable mixed precision |
@@ -255,10 +294,74 @@ python ./Model_AIIC_refactor/train.py \
 - `loss_type=normalized` now means mean per-sample NMSE.
 - validation averages multiple batches drawn from the same SNR distribution as training.
 - the default LR scheduler is intentionally smoother than before.
-- when the task resolves `normalize_energy=true`, `separator1`, `separator2`, and `full_mlp` all apply per-sample RMS normalization at model input and restore the same RMS on model output.
+- when the model recipe sets `normalize_energy=true`, `separator1`, `separator2`, and `full_mlp` all apply per-sample RMS normalization at model input and restore the same RMS on model output.
 - that normalization rule is preserved consistently in Python inference, ONNX export, and Matlab bundle inference.
+- every trained run now writes `MODEL_FLOW.md` and `model_flow.json`, showing human-readable node-by-node tensor shapes with dynamic dimensions written as `-1`.
+- `MODEL_FLOW.md` now also includes parameter counts per learned node and a plain-language explanation of why each node has that shape.
+- if `--init_checkpoint` is provided, the training workflow loads exactly one checkpoint and checks that the current compiled `model_spec` matches the checkpoint `model_spec` field-by-field before training starts.
+- `multi_stage_supervised` runs several supervised stages sequentially on the same model weights; each stage can use different loss, learning rate, batch count, and other training settings.
+
+### 5.4 Single-Inference Dimension Examples
+
+The examples below use one concrete 6-port configuration:
+
+- `seq_len = 12`
+- `num_ports = 6`
+- real-stacked input layout `[real_part, imag_part]`
+- batch size `N = 8`
+
+That means the mixed input width is always `2 * seq_len = 24`.
+
+Example A: `full_mlp_default`
+
+- input mixed signal: `8 x 24`
+- internal RMS normalization: still `8 x 24`
+- first linear layer with `hidden_dim=128`: `8 x 128`
+- hidden ReLU output: `8 x 128`
+- final linear layer to `num_ports * 2 * seq_len = 144`: `8 x 144`
+- reshape to separated channels: `8 x 6 x 24`
+- output RMS restoration: still `8 x 6 x 24`
+
+Example B: `separator1_default`
+
+- input mixed signal: `8 x 24`
+- internal RMS normalization: still `8 x 24`
+- initial replicated per-port features: `8 x 6 x 24`
+- one port entering one stage: `8 x 24`
+- real branch hidden layer with `hidden_dim=64`: `8 x 64`
+- imag branch hidden layer with `hidden_dim=64`: `8 x 64`
+- real branch output layer: `8 x 12`
+- imag branch output layer: `8 x 12`
+- concatenate one port output: `8 x 24`
+- stack all ports after one stage: `8 x 6 x 24`
+- residual correction: still `8 x 6 x 24`
+- final output RMS restoration: `8 x 6 x 24`
+
+Example C: `separator2_default`
+
+- input mixed signal: `8 x 24`
+- internal RMS normalization: still `8 x 24`
+- initial replicated per-port features: `8 x 6 x 24`
+- one port entering one stage: `8 x 24`
+- first complex-hidden affine block with `hidden_dim=64`: real and imag parts become `8 x 64` each, stored as one real-stacked tensor `8 x 128`
+- hidden activation output: still `8 x 128`
+- final complex output affine block: real and imag parts become `8 x 12` each, stored as one real-stacked tensor `8 x 24`
+- stack all ports after one stage: `8 x 6 x 24`
+- residual correction: still `8 x 6 x 24`
+- final output RMS restoration: `8 x 6 x 24`
+
+If you switch to complex input form for `separator1` or `full_mlp`, the user-facing input can be `8 x 12` complex and the final output can be `8 x 6 x 12` complex, but internally both models still convert to the same real-stacked width `24` before most of the learned layers run.
 
 ## 6. Artifact Layout
+
+One experiment directory can contain many concrete runs.
+
+- the experiment directory groups one launch of one named experiment preset
+- each immediate child run directory is one fully resolved task/model/training combination
+- the run directory name is `run_name`, and that name is where model/training/task sweep choices are encoded
+- `TRAINING_REPORT.md` summarizes all runs produced under that experiment directory
+
+So the current structure does represent hyperparameter combinations, but it represents them as multiple sibling run directories under one experiment directory, not as extra nested folders under one run.
 
 ```text
 Model_AIIC_refactor/
@@ -268,28 +371,90 @@ Model_AIIC_refactor/
       <run_name>/
         model.pth
         config.yaml
+        MODEL_FLOW.md
+        model_flow.json
         tensorboard/
+        stage_artifacts/
+          <stage_name>/
+            stage_summary.json
         evaluations/
           <timestamp>/
             evaluation_results.json
             evaluation_results.npy
+            EVALUATION_SUMMARY.md
             plots/
         onnx_exports/
           <run_name>.onnx
           export_manifest.json
+          MODEL_FLOW.md
+          model_flow.json
         matlab_exports/
           matlab_model_bundle.mat
           matlab_model_bundle_manifest.json
+          MODEL_FLOW.md
+          model_flow.json
     evaluations/
       <timestamp>_<scope>/
         evaluation_results.json
         evaluation_results.npy
+        EVALUATION_SUMMARY.md
         plots/
 ```
+
+Example for a multi-run experiment:
+
+```text
+Model_AIIC_refactor/
+  experiments_refactored/
+    20260421_130000_full_mlp_capacity_search_v2/
+      TRAINING_REPORT.md
+      full_mlp_capacity_search_hd64_depth2/
+        model.pth
+        config.yaml
+        ...
+      full_mlp_capacity_search_hd64_depth3/
+        model.pth
+        config.yaml
+        ...
+      full_mlp_capacity_search_hd128_depth2/
+        model.pth
+        config.yaml
+        ...
+      ... 13 more run directories ...
+```
+
+In other words:
+
+- experiment level: one training launch, one report, one shared container
+- run level: one concrete hyperparameter combination, one checkpoint set, one config, one flow description, and one export location
+
+Even when an experiment expands to only one concrete run, the layout still remains:
+
+```text
+<timestamp>_<experiment_name>/
+  TRAINING_REPORT.md
+  <run_name>/
+    model.pth
+    config.yaml
+    MODEL_FLOW.md
+    ...
+```
+
+So single-run and multi-run experiments use the same `experiment -> run` directory shape.
+
+If you later want a stronger visual separation, an alternative would be an extra level such as `task_label/model_label/training_label`, but that is not how the current workflow stores artifacts.
 
 ## 7. Evaluation And Plotting
 
 Evaluation and plotting are independent from training. You can run them later on saved experiment outputs.
+
+Current evaluation behavior follows the same two-level structure as training:
+
+- if you evaluate one run directory, results are saved only under that run directory
+- if you evaluate an experiment directory, every run gets its own evaluation result under its own run directory
+- in that experiment case, the experiment directory also gets one aggregate evaluation summary for cross-run comparison
+- per-run evaluation artifacts do not overwrite the experiment-level comparison summary
+- every evaluation directory now also writes `EVALUATION_SUMMARY.md` for human-readable ranking and quick inspection
 
 Evaluate an existing experiment:
 
@@ -315,6 +480,49 @@ python ./Model_AIIC_refactor/plot.py \
 - an experiment directory
 - an evaluation directory
 - an `evaluation_results.json` file directly
+
+Current plotting behavior mirrors evaluation:
+
+- if the input is one run directory, `plot.py` finds the latest evaluation under that run and writes plots into that run evaluation's `plots/`
+- if the input is one experiment directory, `plot.py` finds the latest aggregate experiment evaluation and also the latest evaluation under each run
+- in that experiment case, each run keeps its own model-specific curves under its own run evaluation directory
+- the experiment evaluation directory also gets comparison plots spanning multiple runs
+
+Example after evaluating an experiment with two runs:
+
+```text
+<experiment_dir>/
+  TRAINING_REPORT.md
+  separator1_default/
+    evaluations/
+      20260421_124428/
+        evaluation_results.json
+        evaluation_results.npy
+        EVALUATION_SUMMARY.md
+        plots/
+          nmse_vs_snr_TDL_A_30.png
+          nmse_vs_snr_combined.png
+  separator2_default/
+    evaluations/
+      20260421_124428/
+        evaluation_results.json
+        evaluation_results.npy
+        EVALUATION_SUMMARY.md
+        plots/
+          nmse_vs_snr_TDL_A_30.png
+          nmse_vs_snr_combined.png
+  evaluations/
+    20260421_124428_separator1_default_separator2_default/
+      evaluation_results.json
+      evaluation_results.npy
+      EVALUATION_SUMMARY.md
+      plots/
+        nmse_vs_snr_TDL_A_30.png
+        nmse_vs_snr_combined.png
+```
+
+`TRAINING_REPORT.md` now also lists `task`, `model`, and `training` labels per run instead of forcing you to infer everything only from `run_name`.
+For multi-stage training, `TRAINING_REPORT.md` also includes a per-stage summary block.
 
 ## 8. ONNX Export
 
@@ -366,9 +574,11 @@ Post-training multi-run export still uses the per-run artifact directory:
 <run_dir>/onnx_exports/
   <run_name>.onnx
   export_manifest.json
+  MODEL_FLOW.md
+  model_flow.json
 ```
 
-`export_manifest.json` stores resolved model metadata, training metadata, tensor shapes, names, and validation results.
+`export_manifest.json` stores resolved model metadata, training metadata, tensor shapes, names, validation results, and the same model-flow description that is also written as `MODEL_FLOW.md` and `model_flow.json` beside the exported artifact.
 
 ### 8.3 ONNX I/O contract
 
@@ -394,6 +604,8 @@ The exporter always stores one reference sample. That only affects the bundled `
 <run_dir>/matlab_exports/
   matlab_model_bundle.mat
   matlab_model_bundle_manifest.json
+  MODEL_FLOW.md
+  model_flow.json
 ```
 
 ### 9.3 What the bundle contains
@@ -443,6 +655,7 @@ For `full_mlp`, the bundle contains the single joint network weights in executio
 - `joint_l02_bias`
 
 Matlab bundle inference applies the same per-sample RMS input normalization and output rescaling rule as the Python model when `model_spec.normalize_energy=true`.
+The Matlab bundle manifest also embeds the same model-flow description that is saved as `MODEL_FLOW.md` and `model_flow.json` in the bundle directory, so the artifact can be copied to another machine and inspected without the original training workspace.
 
 ## 10. Matlab Integration
 
@@ -746,6 +959,66 @@ model = create_model(model_name=model_spec['model_type'], config=model_spec)
 
 Current refactor loaders expect `model_spec`, `training_spec`, `metadata`, and `component_specs` to be present. Old pre-v2 checkpoints are not the supported workflow path for evaluation/export in this guide.
 
+### 12.4 Continue training from one checkpoint
+
+The supported resume workflow is intentionally simple:
+
+- you pass exactly one checkpoint file with `--init_checkpoint`
+- the current planned run may use different training parameters
+- the current planned run must use the same model structure as the checkpoint
+- before training starts, the workflow compares the compiled current `model_spec` against the checkpoint `model_spec`
+- if anything differs, training stops and the mismatch is reported field-by-field
+
+This makes it safe to do things such as:
+
+- keep the same full-MLP architecture but change learning rate or loss
+- keep the same separator1 architecture but switch to a staged training schedule
+
+It does not allow silent architecture drift.
+
+### 12.5 Multi-stage training strategy schema
+
+The current built-in staged strategy type is `multi_stage_supervised`.
+
+Example:
+
+```yaml
+training_strategies:
+  quick_two_stage_supervised:
+    type: multi_stage_supervised
+    params:
+      stages:
+        - name: warmup_nmse
+          params:
+            batch_size: 32
+            num_batches: 60
+            optimizer:
+              type: adam
+              params:
+                learning_rate: 0.01
+            loss:
+              type: nmse
+        - name: finetune_log
+          params:
+            batch_size: 32
+            num_batches: 40
+            optimizer:
+              type: adam
+              params:
+                learning_rate: 0.003
+            loss:
+              type: log
+```
+
+Runtime behavior:
+
+- one model instance is created
+- stage 1 trains it with the first stage spec
+- stage 2 continues from the stage 1 weights
+- stage 3, if present, continues from the stage 2 weights, and so on
+- per-stage checkpoint scratch artifacts live under `stage_artifacts/`
+- final `model.pth`, `config.yaml`, `MODEL_FLOW.md`, and exports still live at the run root as usual
+
 ## 13. Benchmark Entry Points
 
 ```bash
@@ -759,5 +1032,7 @@ python ./Model_AIIC_refactor/compare_optimizations.py --experiment quick_separat
 - `configs/v2/experiments.yaml` is the supported workflow interface for training and benchmark launches.
 - Task/model/training_strategy components are the supported source of truth for new runs.
 - `full_mlp`, `separator1`, and `separator2` all share the same internal normalize-input / restore-output energy contract when `normalize_energy=true`.
+- model-flow descriptions are first-class artifacts and are written both into training run directories and export directories.
+- experiment-level evaluation always keeps run-local evaluation results separate from the aggregate comparison summary.
 - For manual export, the project standardizes on single-checkpoint export CLIs.
 - This file is the only maintained help-style guide for `Model_AIIC_refactor`.

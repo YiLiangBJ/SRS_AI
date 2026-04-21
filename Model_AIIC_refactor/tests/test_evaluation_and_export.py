@@ -14,11 +14,11 @@ import yaml
 from scipy.io import loadmat
 
 from models import create_model
-from utils import find_checkpoint_path, load_run_artifacts
+from utils import compare_model_specs, find_checkpoint_path, load_initial_checkpoint_state, load_run_artifacts, save_model_flow_artifacts
 from workflows.evaluation_workflow import evaluate_models_programmatic, resolve_evaluation_output_dir
 from workflows.export_workflow import export_checkpoint_to_onnx, export_run_to_onnx, export_runs_to_onnx
 from workflows.matlab_export_workflow import export_checkpoint_to_matlab_bundle, export_run_to_matlab_bundle, export_runs_to_matlab_bundle
-from workflows.plotting_workflow import resolve_plot_inputs
+from workflows.plotting_workflow import generate_plots_for_target_programmatic, resolve_plot_inputs
 
 
 def _manifest_bool(model_spec, key, default=False):
@@ -209,7 +209,6 @@ class TestEvaluationAndExport(unittest.TestCase):
                 'params': {
                     'seq_len': 12,
                     'pos_values': [0, 3, 6, 9],
-                    'normalize_energy': True,
                     'snr_config': {'type': 'range', 'min': 0, 'max': 30},
                     'tdl_config': 'A-30',
                 },
@@ -217,6 +216,7 @@ class TestEvaluationAndExport(unittest.TestCase):
             'model': {
                 'type': 'separator1',
                 'params': {
+                    'normalize_energy': True,
                     'hidden_dim': 8,
                     'num_stages': 1,
                     'mlp_depth': 2,
@@ -286,13 +286,12 @@ class TestEvaluationAndExport(unittest.TestCase):
         component_specs = deepcopy(self.component_specs)
         component_specs['task']['params']['seq_len'] = model_spec['seq_len']
         component_specs['task']['params']['pos_values'] = model_spec['pos_values']
-        component_specs['task']['params']['normalize_energy'] = model_spec.get('normalize_energy', True)
         component_specs['model'] = {
             'type': model_spec['model_type'],
             'params': {
                 key: value
                 for key, value in model_spec.items()
-                if key not in {'model_type', 'seq_len', 'pos_values', 'num_ports', 'normalize_energy'}
+                if key not in {'model_type', 'seq_len', 'pos_values', 'num_ports'}
             },
         }
         model = create_model(model_spec['model_type'], model_spec)
@@ -324,6 +323,48 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertEqual(artifacts.metadata['run_name'], self.run_dir.name)
         self.assertIn('task', artifacts.component_specs)
         self.assertEqual(find_checkpoint_path(self.run_dir).name, 'model.pth')
+
+    def test_save_model_flow_artifacts_writes_human_readable_files(self):
+        artifacts = save_model_flow_artifacts(
+            output_dir=self.run_dir,
+            model_spec=self.model_spec,
+            component_specs=self.component_specs,
+        )
+
+        self.assertTrue(Path(artifacts['json_path']).exists())
+        self.assertTrue(Path(artifacts['markdown_path']).exists())
+        self.assertEqual(artifacts['flow_spec']['input_shape'], [-1, 24])
+        self.assertEqual(artifacts['flow_spec']['output_shape'], [-1, 4, 24])
+        self.assertIn('total_trainable_params', artifacts['flow_spec'])
+        self.assertIn('param_count_per_occurrence', artifacts['flow_spec']['nodes'][0])
+        self.assertIn('why', artifacts['flow_spec']['nodes'][0])
+
+    def test_compare_model_specs_reports_mismatch(self):
+        mismatches = compare_model_specs(
+            self.model_spec,
+            {**self.model_spec, 'hidden_dim': 16},
+        )
+
+        self.assertEqual(len(mismatches), 1)
+        self.assertEqual(mismatches[0]['field'], 'hidden_dim')
+
+    def test_load_initial_checkpoint_state_rejects_model_mismatch(self):
+        with self.assertRaisesRegex(ValueError, 'hidden_dim'):
+            load_initial_checkpoint_state(
+                checkpoint_path=self.run_dir / 'model.pth',
+                expected_model_spec={**self.model_spec, 'hidden_dim': 16},
+                device='cpu',
+            )
+
+    def test_load_initial_checkpoint_state_accepts_matching_model(self):
+        state_dict, artifacts = load_initial_checkpoint_state(
+            checkpoint_path=self.run_dir / 'model.pth',
+            expected_model_spec=self.model_spec,
+            device='cpu',
+        )
+
+        self.assertIn('port_mlps.0.0.mlp_real.0.weight', state_dict)
+        self.assertEqual(artifacts.model_spec['model_type'], 'separator1')
 
     def test_evaluate_models_programmatic_aggregates_dict_results(self):
         fake_eval_result = {
@@ -357,6 +398,39 @@ class TestEvaluationAndExport(unittest.TestCase):
         with open(json_path, 'r', encoding='utf-8') as output_file:
             saved = json.load(output_file)
         self.assertIn(self.run_dir.name, saved['models'])
+        self.assertIn('aggregate_output_dir', results['artifacts'])
+
+        per_run_output_dir = Path(results['artifacts']['per_run_output_dirs'][self.run_dir.name])
+        self.assertTrue((per_run_output_dir / 'evaluation_results.json').exists())
+
+    def test_experiment_evaluation_saves_per_run_and_aggregate_outputs(self):
+        second_run_dir = self._create_second_run()
+        fake_eval_result = {
+            'snr_db': 20.0,
+            'tdl_config': 'A-30',
+            'nmse': 0.1,
+            'nmse_db': -10.0,
+            'per_port_nmse': [0.1, 0.2, 0.3, 0.4],
+            'per_port_nmse_db': [-10.0, -7.0, -5.2, -4.0],
+            'num_samples': 8,
+        }
+
+        with patch('workflows.evaluation_workflow.evaluate_at_snr', return_value=fake_eval_result):
+            results = evaluate_models_programmatic(
+                exp_dir=self.root,
+                snr_range='20',
+                tdl_list='A-30',
+                num_batches=1,
+                batch_size=8,
+                device='cpu',
+            )
+
+        aggregate_output_dir = Path(results['artifacts']['aggregate_output_dir'])
+        self.assertTrue((aggregate_output_dir / 'evaluation_results.json').exists())
+        self.assertIn(self.run_dir.name, results['artifacts']['per_run_output_dirs'])
+        self.assertIn(second_run_dir.name, results['artifacts']['per_run_output_dirs'])
+        for run_name, run_output_dir in results['artifacts']['per_run_output_dirs'].items():
+            self.assertTrue((Path(run_output_dir) / 'evaluation_results.json').exists(), run_name)
 
     def test_default_evaluation_output_dir_uses_timestamped_evaluations_root(self):
         output_dir = resolve_evaluation_output_dir(exp_dir=self.root, model_dirs=[self.run_dir])
@@ -376,6 +450,37 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertEqual(resolved_json, newer_eval_dir / 'evaluation_results.json')
         self.assertEqual(resolved_output, newer_eval_dir / 'plots')
 
+    def test_generate_plots_for_experiment_writes_run_and_aggregate_plots(self):
+        second_run_dir = self._create_second_run()
+        fake_eval_result = {
+            'snr_db': 20.0,
+            'tdl_config': 'A-30',
+            'nmse': 0.1,
+            'nmse_db': -10.0,
+            'per_port_nmse': [0.1, 0.2, 0.3, 0.4],
+            'per_port_nmse_db': [-10.0, -7.0, -5.2, -4.0],
+            'num_samples': 8,
+        }
+
+        with patch('workflows.evaluation_workflow.evaluate_at_snr', return_value=fake_eval_result):
+            results = evaluate_models_programmatic(
+                exp_dir=self.root,
+                snr_range='20',
+                tdl_list='A-30',
+                num_batches=1,
+                batch_size=8,
+                device='cpu',
+            )
+
+        generated_files = generate_plots_for_target_programmatic(self.root)
+        aggregate_plots_dir = Path(results['artifacts']['aggregate_output_dir']) / 'plots'
+        self.assertTrue((aggregate_plots_dir / 'nmse_vs_snr_combined.png').exists())
+        self.assertTrue(any(Path(file_path).name == 'nmse_vs_snr_combined.png' for file_path in generated_files))
+
+        for run_dir in (self.run_dir, second_run_dir):
+            run_eval_dir = Path(results['artifacts']['per_run_output_dirs'][run_dir.name])
+            self.assertTrue((run_eval_dir / 'plots' / 'nmse_vs_snr_combined.png').exists())
+
     def test_export_run_to_onnx_writes_manifest(self):
         manifest = export_run_to_onnx(
             run_dir=self.run_dir,
@@ -393,6 +498,8 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(manifest['dynamic_batch'])
         self.assertTrue(manifest['model_spec']['normalize_energy'])
         self.assertTrue(manifest['matlab_notes']['normalize_energy'])
+        self.assertTrue(Path(manifest['model_flow_json_path']).exists())
+        self.assertTrue(Path(manifest['model_flow_markdown_path']).exists())
 
     def test_export_run_to_onnx_supports_full_mlp(self):
         run_dir = self._create_run(
@@ -439,6 +546,8 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(manifest['model_spec']['normalize_energy'])
         self.assertTrue(manifest['input_normalization']['enabled'])
         self.assertEqual(manifest['sample_input_shape'][0], 1)
+        self.assertTrue(Path(manifest['model_flow_json_path']).exists())
+        self.assertTrue(Path(manifest['model_flow_markdown_path']).exists())
 
     def test_export_checkpoint_to_matlab_bundle_respects_explicit_checkpoint(self):
         manifest = export_checkpoint_to_matlab_bundle(checkpoint_path=self.explicit_checkpoint_path)

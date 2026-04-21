@@ -8,7 +8,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
-from utils import resolve_existing_path
+from utils import discover_run_dirs, resolve_existing_path
 
 
 def _resolve_input_path(path_value) -> Path:
@@ -136,3 +136,32 @@ def generate_plots_programmatic(eval_results_path, output_dir):
     generated_files.append(combined_plot)
     print(f"  ✓ Generated: {combined_plot.name}")
     return generated_files
+
+
+def generate_plots_for_target_programmatic(input_path, output_dir=None):
+    """Generate plots for either one run/evaluation or a whole experiment directory."""
+    resolved_input = _resolve_input_path(input_path)
+
+    if resolved_input.is_dir() and not (resolved_input / 'evaluation_results.json').exists():
+        experiment_evaluations_dir = resolved_input / 'evaluations'
+        aggregate_eval_dir = _discover_latest_evaluation_dir(experiment_evaluations_dir) if experiment_evaluations_dir.is_dir() else None
+        run_dirs = discover_run_dirs(resolved_input)
+        generated_files = []
+
+        for run_dir in run_dirs:
+            run_eval_dir = _discover_latest_evaluation_dir(run_dir / 'evaluations') if (run_dir / 'evaluations').is_dir() else None
+            if run_eval_dir is None:
+                continue
+            generated_files.extend(generate_plots_programmatic(run_eval_dir, run_eval_dir / 'plots'))
+
+        if aggregate_eval_dir is not None:
+            aggregate_output_dir = Path(output_dir) if output_dir else aggregate_eval_dir / 'plots'
+            generated_files.extend(generate_plots_programmatic(aggregate_eval_dir, aggregate_output_dir))
+
+        if not generated_files:
+            raise FileNotFoundError(
+                'Could not find evaluation results under the experiment directory or its run directories.'
+            )
+        return generated_files
+
+    return generate_plots_programmatic(resolved_input, output_dir)

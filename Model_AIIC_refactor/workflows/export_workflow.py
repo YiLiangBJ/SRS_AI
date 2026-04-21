@@ -7,7 +7,7 @@ from typing import Dict, List
 
 import torch
 
-from utils import load_trained_model_from_checkpoint, load_trained_model_from_run, resolve_run_selection, build_dummy_input
+from utils import load_trained_model_from_checkpoint, load_trained_model_from_run, resolve_run_selection, build_dummy_input, save_model_flow_artifacts
 
 
 def _prepare_model_for_export(model: torch.nn.Module) -> torch.nn.Module:
@@ -117,6 +117,11 @@ def export_run_to_onnx(
         )
 
     validation = validate_exported_model(onnx_path, model, dummy_input) if validate else {}
+    flow_artifacts = save_model_flow_artifacts(
+        output_dir=run_output_dir,
+        model_spec=artifacts.model_spec,
+        component_specs=artifacts.component_specs,
+    )
     manifest = {
         'timestamp': datetime.now().isoformat(),
         'run_name': artifacts.run_dir.name,
@@ -133,6 +138,9 @@ def export_run_to_onnx(
         'opset_version': opset_version,
         'dynamic_batch': dynamic_batch,
         'validation': validation,
+        'model_flow': flow_artifacts['flow_spec'],
+        'model_flow_json_path': flow_artifacts['json_path'],
+        'model_flow_markdown_path': flow_artifacts['markdown_path'],
         'matlab_notes': {
             'recommended_import': 'importNetworkFromONNX',
             'input_name': input_names[0],
@@ -200,6 +208,11 @@ def export_checkpoint_to_onnx(
         )
 
     validation = validate_exported_model(onnx_path, model, dummy_input) if validate else {}
+    flow_artifacts = save_model_flow_artifacts(
+        output_dir=onnx_path.parent,
+        model_spec=artifacts.model_spec,
+        component_specs=artifacts.component_specs,
+    )
     manifest = {
         'timestamp': datetime.now().isoformat(),
         'run_name': artifacts.run_dir.name,
@@ -216,6 +229,9 @@ def export_checkpoint_to_onnx(
         'opset_version': opset_version,
         'dynamic_batch': dynamic_batch,
         'validation': validation,
+        'model_flow': flow_artifacts['flow_spec'],
+        'model_flow_json_path': flow_artifacts['json_path'],
+        'model_flow_markdown_path': flow_artifacts['markdown_path'],
         'matlab_notes': {
             'recommended_import': 'importNetworkFromONNX',
             'input_name': input_names[0],
