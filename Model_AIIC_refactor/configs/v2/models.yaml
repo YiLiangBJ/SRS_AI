@@ -29,7 +29,7 @@ models:
     sweeps:
       - target: params.hidden_dim
         alias: hd
-        values: [64, 128, 256, 512]
+        values: [32, 64, 128, 256, 512]
       - target: params.mlp_depth
         alias: depth
         values: [2, 3, 4, 5]
