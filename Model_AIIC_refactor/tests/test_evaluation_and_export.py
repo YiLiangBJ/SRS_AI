@@ -1,5 +1,6 @@
 """Tests for evaluation aggregation and ONNX export workflows."""
 
+from copy import deepcopy
 import json
 import re
 import shutil
@@ -147,6 +148,25 @@ def _python_bundle_forward_separator2(weights, model_spec, input_data):
     return _restore_real_stacked_output(features, input_rms, model_spec)
 
 
+def _python_bundle_forward_full_mlp(weights, model_spec, input_data):
+    num_ports = int(model_spec['num_ports'])
+    seq_len = int(model_spec['seq_len'])
+
+    normalized_input, input_rms = _normalize_real_stacked_input(input_data, model_spec)
+    x = normalized_input
+
+    layer_idx = 1
+    while f'joint_l{layer_idx:02d}_weight' in weights:
+        prefix = f'joint_l{layer_idx:02d}'
+        x = x @ weights[f'{prefix}_weight'].t() + weights[f'{prefix}_bias']
+        if f'joint_l{layer_idx + 1:02d}_weight' in weights:
+            x = torch.relu(x)
+        layer_idx += 1
+
+    features = x.view(-1, num_ports, seq_len * 2)
+    return _restore_real_stacked_output(features, input_rms, model_spec)
+
+
 class TestEvaluationAndExport(unittest.TestCase):
     """Exercise the shared run-artifact, evaluation, and export workflows."""
 
@@ -168,16 +188,53 @@ class TestEvaluationAndExport(unittest.TestCase):
             'normalize_energy': True,
         }
         self.training_spec = {
+            'strategy_type': 'standard_supervised',
             'batch_size': 8,
             'num_batches': 2,
             'loss_type': 'nmse',
             'learning_rate': 0.01,
-            'snr_config': {'type': 'range', 'min': 0, 'max': 30},
-            'tdl_config': 'A-30',
+            'optimizer': {'type': 'adam'},
+            'print_interval': 10,
+            'validation_batches': 4,
+            'patience': 3,
+            'keep_last_n_checkpoints': 2,
         }
         self.metadata = {
             'experiment_name': 'unit_test',
             'run_name': self.run_dir.name,
+        }
+        self.component_specs = {
+            'task': {
+                'type': 'channel_separator',
+                'params': {
+                    'seq_len': 12,
+                    'pos_values': [0, 3, 6, 9],
+                    'normalize_energy': True,
+                    'snr_config': {'type': 'range', 'min': 0, 'max': 30},
+                    'tdl_config': 'A-30',
+                },
+            },
+            'model': {
+                'type': 'separator1',
+                'params': {
+                    'hidden_dim': 8,
+                    'num_stages': 1,
+                    'mlp_depth': 2,
+                    'share_weights_across_stages': False,
+                },
+            },
+            'training_strategy': {
+                'type': 'standard_supervised',
+                'params': {
+                    'batch_size': 8,
+                    'num_batches': 2,
+                    'optimizer': {
+                        'type': 'adam',
+                        'params': {'learning_rate': 0.01},
+                    },
+                    'loss': {'type': 'nmse'},
+                },
+            },
         }
 
         model = create_model('separator1', self.model_spec)
@@ -186,6 +243,7 @@ class TestEvaluationAndExport(unittest.TestCase):
             'model_spec': self.model_spec,
             'training_spec': self.training_spec,
             'metadata': self.metadata,
+            'component_specs': self.component_specs,
             'model_info': {'num_params': sum(param.numel() for param in model.parameters())},
         }
         torch.save(checkpoint, self.run_dir / 'model.pth')
@@ -204,6 +262,7 @@ class TestEvaluationAndExport(unittest.TestCase):
                     'model_spec': self.model_spec,
                     'training_spec': self.training_spec,
                     'metadata': self.metadata,
+                    'component_specs': self.component_specs,
                 },
                 config_file,
                 sort_keys=False,
@@ -224,12 +283,25 @@ class TestEvaluationAndExport(unittest.TestCase):
         run_dir.mkdir(parents=True, exist_ok=True)
         model_spec = {**self.model_spec, **(model_spec_override or {})}
         metadata = {**self.metadata, 'run_name': run_name}
+        component_specs = deepcopy(self.component_specs)
+        component_specs['task']['params']['seq_len'] = model_spec['seq_len']
+        component_specs['task']['params']['pos_values'] = model_spec['pos_values']
+        component_specs['task']['params']['normalize_energy'] = model_spec.get('normalize_energy', True)
+        component_specs['model'] = {
+            'type': model_spec['model_type'],
+            'params': {
+                key: value
+                for key, value in model_spec.items()
+                if key not in {'model_type', 'seq_len', 'pos_values', 'num_ports', 'normalize_energy'}
+            },
+        }
         model = create_model(model_spec['model_type'], model_spec)
         checkpoint = {
             'model_state_dict': model.state_dict(),
             'model_spec': model_spec,
             'training_spec': self.training_spec,
             'metadata': metadata,
+            'component_specs': component_specs,
             'model_info': {'num_params': sum(param.numel() for param in model.parameters())},
         }
         torch.save(checkpoint, run_dir / 'model.pth')
@@ -239,6 +311,7 @@ class TestEvaluationAndExport(unittest.TestCase):
                     'model_spec': model_spec,
                     'training_spec': self.training_spec,
                     'metadata': metadata,
+                    'component_specs': component_specs,
                 },
                 config_file,
                 sort_keys=False,
@@ -249,52 +322,8 @@ class TestEvaluationAndExport(unittest.TestCase):
         artifacts = load_run_artifacts(self.run_dir)
         self.assertEqual(artifacts.model_spec['model_type'], 'separator1')
         self.assertEqual(artifacts.metadata['run_name'], self.run_dir.name)
+        self.assertIn('task', artifacts.component_specs)
         self.assertEqual(find_checkpoint_path(self.run_dir).name, 'model.pth')
-
-    def test_load_run_artifacts_infers_legacy_separator1_without_layer_norm(self):
-        legacy_run_dir = self.root / 'legacy_separator1_run'
-        legacy_run_dir.mkdir(parents=True, exist_ok=True)
-        legacy_model_spec = {
-            'model_type': 'separator1',
-            'seq_len': 12,
-            'pos_values': [0, 3, 6, 9],
-            'num_ports': 4,
-            'hidden_dim': 8,
-            'num_stages': 1,
-            'mlp_depth': 3,
-            'share_weights_across_stages': False,
-            'use_hidden_layer_norm': False,
-            'use_hidden_relu': True,
-            'normalize_energy': True,
-        }
-        legacy_model = create_model('separator1', legacy_model_spec)
-        legacy_checkpoint_model_spec = {
-            key: value
-            for key, value in legacy_model_spec.items()
-            if key not in {'use_hidden_layer_norm', 'use_hidden_relu'}
-        }
-        legacy_checkpoint = {
-            'model_state_dict': legacy_model.state_dict(),
-            'model_spec': legacy_checkpoint_model_spec,
-            'training_spec': self.training_spec,
-            'metadata': {**self.metadata, 'run_name': legacy_run_dir.name},
-            'model_info': {'num_params': sum(param.numel() for param in legacy_model.parameters())},
-        }
-        torch.save(legacy_checkpoint, legacy_run_dir / 'model.pth')
-        with open(legacy_run_dir / 'config.yaml', 'w', encoding='utf-8') as config_file:
-            yaml.safe_dump(
-                {
-                    'model_spec': legacy_checkpoint_model_spec,
-                    'training_spec': self.training_spec,
-                    'metadata': {**self.metadata, 'run_name': legacy_run_dir.name},
-                },
-                config_file,
-                sort_keys=False,
-            )
-
-        artifacts = load_run_artifacts(legacy_run_dir)
-        self.assertFalse(artifacts.model_spec['use_hidden_layer_norm'])
-        self.assertTrue(artifacts.model_spec['use_hidden_relu'])
 
     def test_evaluate_models_programmatic_aggregates_dict_results(self):
         fake_eval_result = {
@@ -365,6 +394,26 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(manifest['model_spec']['normalize_energy'])
         self.assertTrue(manifest['matlab_notes']['normalize_energy'])
 
+    def test_export_run_to_onnx_supports_full_mlp(self):
+        run_dir = self._create_run(
+            'demo_run_full_mlp',
+            model_spec_override={
+                'model_type': 'full_mlp',
+                'hidden_dim': 32,
+                'mlp_depth': 3,
+            },
+        )
+
+        manifest = export_run_to_onnx(
+            run_dir=run_dir,
+            batch_size=1,
+            dynamic_batch=True,
+            validate=False,
+        )
+
+        self.assertEqual(manifest['model_spec']['model_type'], 'full_mlp')
+        self.assertTrue(Path(manifest['onnx_path']).exists())
+
     def test_export_checkpoint_to_onnx_respects_explicit_checkpoint(self):
         manifest = export_checkpoint_to_onnx(
             checkpoint_path=self.explicit_checkpoint_path,
@@ -396,6 +445,25 @@ class TestEvaluationAndExport(unittest.TestCase):
 
         self.assertEqual(Path(manifest['checkpoint_path']), self.explicit_checkpoint_path)
         self.assertTrue(Path(manifest['mat_path']).exists())
+
+    def test_export_run_to_matlab_bundle_supports_full_mlp(self):
+        run_dir = self._create_run(
+            'demo_run_full_mlp_matlab',
+            model_spec_override={
+                'model_type': 'full_mlp',
+                'hidden_dim': 32,
+                'mlp_depth': 3,
+            },
+        )
+
+        manifest = export_run_to_matlab_bundle(run_dir=run_dir)
+
+        self.assertEqual(manifest['model_spec']['model_type'], 'full_mlp')
+        self.assertTrue(Path(manifest['mat_path']).exists())
+        self.assertEqual(
+            manifest['bundle_contents']['full_mlp_field_pattern'],
+            'joint_l##_weight/bias',
+        )
 
     def test_separator1_matlab_bundle_matches_exported_reference_output(self):
         manifest = export_run_to_matlab_bundle(run_dir=self.run_dir)
@@ -431,6 +499,28 @@ class TestEvaluationAndExport(unittest.TestCase):
             if not key.startswith('__') and key not in {'sample_input', 'reference_output', 'pos_values'}
         }
         reconstructed = _python_bundle_forward_separator2(weights, manifest['model_spec'], sample_input)
+        self.assertTrue(torch.allclose(reconstructed, reference_output, atol=1e-5, rtol=1e-5))
+
+    def test_full_mlp_matlab_bundle_matches_exported_reference_output(self):
+        run_dir = self._create_run(
+            'demo_run_full_mlp_bundle',
+            model_spec_override={
+                'model_type': 'full_mlp',
+                'hidden_dim': 32,
+                'mlp_depth': 3,
+            },
+        )
+        manifest = export_run_to_matlab_bundle(run_dir=run_dir)
+        mat_data = loadmat(manifest['mat_path'])
+        sample_input = torch.from_numpy(mat_data['sample_input']).float()
+        reference_output = torch.from_numpy(mat_data['reference_output']).float()
+
+        weights = {
+            key: torch.from_numpy(value).float()
+            for key, value in mat_data.items()
+            if not key.startswith('__') and key not in {'sample_input', 'reference_output', 'pos_values'}
+        }
+        reconstructed = _python_bundle_forward_full_mlp(weights, manifest['model_spec'], sample_input)
         self.assertTrue(torch.allclose(reconstructed, reference_output, atol=1e-5, rtol=1e-5))
 
     def test_export_runs_to_onnx_rejects_shared_output_root_for_multiple_runs(self):

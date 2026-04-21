@@ -1,0 +1,48 @@
+experiments:
+  quick_full_mlp_v2:
+    description: Quick smoke test for the joint full-MLP baseline.
+    task: channel_separator_4port_quick
+    model: full_mlp_default
+    training_strategy: quick_supervised
+
+  full_mlp_nmse_v2:
+    description: Train the joint full-MLP baseline with plain NMSE loss.
+    task: channel_separator_4port_standard
+    model: full_mlp_default
+    training_strategy: supervised_nmse_plateau
+
+  full_mlp_arch_search_v2:
+    description: Sweep hidden_dim and mlp_depth for the joint full-MLP baseline under NMSE training.
+    task: channel_separator_4port_standard
+    model: full_mlp_arch_search
+    training_strategy: supervised_nmse_plateau
+
+  full_mlp_capacity_search_v2:
+    description: Broader hidden_dim and mlp_depth sweep for the joint full-MLP baseline under NMSE training.
+    task: channel_separator_4port_standard
+    model: full_mlp_capacity_search
+    training_strategy: supervised_nmse_plateau
+
+  quick_separator1_v2:
+    description: Quick smoke test using the component-based schema.
+    task: channel_separator_4port_quick
+    model: separator1_small
+    training_strategy: quick_supervised
+
+  default_6port_separator1_v2:
+    description: Default 6-port separator1 sweep using the component-based schema.
+    task: channel_separator_6port_standard
+    model: separator1_grid_search_6ports
+    training_strategy: supervised_log_plateau
+
+  compare_default_models_v2:
+    description: Compare the default separator1 and separator2 models under the same task and training strategy.
+    task: channel_separator_4port_standard
+    model: [separator1_default, separator2_default]
+    training_strategy: supervised_log_plateau
+
+  separator1_loss_search_v2:
+    description: Compare different supervised losses for separator1_default using the component-based schema.
+    task: channel_separator_4port_standard
+    model: separator1_default
+    training_strategy: loss_sweep_supervised

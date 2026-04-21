@@ -47,7 +47,7 @@ def run_training(experiment, num_batches, batch_size, device, use_amp, compile_m
 
 def main():
     parser = argparse.ArgumentParser(description='Compare training performance with different optimizations')
-    parser.add_argument('--experiment', type=str, required=True, help='Experiment name from experiments.yaml')
+    parser.add_argument('--experiment', type=str, required=True, help='Experiment name from configs/v2/experiments.yaml')
     parser.add_argument('--num_batches', type=int, default=100, help='Number of batches to train')
     parser.add_argument('--batch_size', type=int, default=None, help='Batch size (optional override)')
     parser.add_argument('--skip_cpu', action='store_true', help='Skip CPU test (only run GPU)')

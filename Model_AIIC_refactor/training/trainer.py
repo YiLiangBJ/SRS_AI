@@ -240,7 +240,7 @@ class Trainer:
         self,
         num_batches: int,
         batch_size: int,
-        snr_config,  # SNRConfig object or legacy format
+        snr_config,
         pos_values: List[int] = None,
         tdl_config: Union[str, List[str]] = 'A-30',
         seq_len: int = None,
@@ -260,7 +260,7 @@ class Trainer:
         Args:
             num_batches: Number of training batches
             batch_size: Batch size
-            snr_config: SNRConfig object (or legacy snr_db for backward compat)
+            snr_config: SNRConfig object provided by the task adapter
             pos_values: Port positions (default: [0, 3, 6, 9])
             tdl_config: TDL configuration (default: 'A-30')
             seq_len: Sequence length (default: from model)
@@ -277,17 +277,6 @@ class Trainer:
         Returns:
             losses: List of training losses
         """
-        # Handle legacy snr_db format
-        try:
-            from ..utils import SNRConfig
-            if not isinstance(snr_config, SNRConfig):
-                # Legacy format: convert to SNRConfig
-                if isinstance(snr_config, tuple):
-                    snr_config = SNRConfig({'type': 'range', 'min': snr_config[0], 'max': snr_config[1]})
-                elif isinstance(snr_config, (int, float)):
-                    snr_config = SNRConfig({'type': 'discrete', 'values': [snr_config]})
-        except:
-            pass
         if pos_values is None:
             pos_values = [0, 3, 6, 9]
         

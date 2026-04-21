@@ -1,6 +1,6 @@
 """Shared helpers for loading trained run artifacts and export metadata."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
@@ -25,45 +25,6 @@ def _first_non_empty(mapping: Dict[str, Any], *keys: str) -> Dict[str, Any]:
     return {}
 
 
-def _normalize_legacy_metadata(metadata: Dict[str, Any], run_dir: Path) -> Dict[str, Any]:
-    """Map older metadata field names into the canonical refactor schema."""
-    resolved = dict(metadata or {})
-    if not resolved:
-        return {}
-
-    resolved.setdefault('run_name', resolved.get('config_instance_name') or run_dir.name)
-    resolved.setdefault('model_recipe_name', resolved.get('model_config_name'))
-    resolved.setdefault('training_recipe_name', resolved.get('training_config_name'))
-    resolved.setdefault('model_label', resolved.get('model_label') or resolved.get('model_config_name'))
-    resolved.setdefault('training_label', resolved.get('training_label') or resolved.get('training_config_name'))
-    resolved.setdefault('experiment_name', resolved.get('experiment_name'))
-    return resolved
-
-
-def _infer_separator1_architecture_flags(model_spec: Dict[str, Any], checkpoint: Dict[str, Any]) -> Dict[str, Any]:
-    """Infer missing separator1 architecture flags from checkpoint contents."""
-    resolved = dict(model_spec or {})
-    if resolved.get('model_type') != 'separator1':
-        return resolved
-
-    state_dict = checkpoint.get('model_state_dict', {}) or {}
-
-    if 'use_hidden_relu' not in resolved:
-        # Historical separator1 checkpoints already used hidden ReLU.
-        resolved['use_hidden_relu'] = True
-
-    if 'use_hidden_layer_norm' not in resolved:
-        has_layer_norm = any(
-            key.endswith('.weight')
-            and ('mlp_real.' in key or 'mlp_imag.' in key)
-            and getattr(value, 'ndim', None) == 1
-            for key, value in state_dict.items()
-        )
-        resolved['use_hidden_layer_norm'] = bool(has_layer_norm)
-
-    return resolved
-
-
 @dataclass(frozen=True)
 class RunArtifacts:
     """Resolved metadata and checkpoint assets for a trained run."""
@@ -76,6 +37,7 @@ class RunArtifacts:
     training_spec: Dict[str, Any]
     metadata: Dict[str, Any]
     eval_results: Dict[str, Any]
+    component_specs: Dict[str, Any] = field(default_factory=dict)
 
 
 def find_checkpoint_path(run_dir: Union[str, Path]) -> Optional[Path]:
@@ -106,13 +68,9 @@ def _load_run_artifacts_from_paths(
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    model_spec = _first_non_empty(config_data, 'model_spec', 'model_config') or checkpoint.get('model_spec') or {}
+    model_spec = _first_non_empty(config_data, 'model_spec') or checkpoint.get('model_spec') or {}
     if not model_spec:
-        raise KeyError(
-            f"Checkpoint missing 'model_spec' in {checkpoint_path}. Retrain with the current training pipeline."
-        )
-
-    model_spec = _infer_separator1_architecture_flags(model_spec, checkpoint)
+        raise KeyError(f"Checkpoint missing 'model_spec' in {checkpoint_path}")
 
     missing_fields = [field for field in REQUIRED_MODEL_SPEC_FIELDS if field not in model_spec]
     if missing_fields:
@@ -122,11 +80,17 @@ def _load_run_artifacts_from_paths(
         model_spec,
         num_params=checkpoint.get('model_info', {}).get('num_params') or model_spec.get('num_params'),
     )
-    training_spec = _first_non_empty(config_data, 'training_spec', 'training_config') or checkpoint.get('training_spec') or {}
-    metadata = _normalize_legacy_metadata(
-        _first_non_empty(config_data, 'metadata') or checkpoint.get('metadata') or {},
-        run_dir=run_dir,
-    )
+    training_spec = _first_non_empty(config_data, 'training_spec') or checkpoint.get('training_spec') or {}
+    metadata = _first_non_empty(config_data, 'metadata') or checkpoint.get('metadata') or {}
+    component_specs = _first_non_empty(config_data, 'component_specs') or checkpoint.get('component_specs') or {}
+    if not training_spec:
+        raise KeyError(f"Checkpoint missing 'training_spec' in {checkpoint_path}")
+    if not metadata:
+        raise KeyError(f"Checkpoint missing 'metadata' in {checkpoint_path}")
+    if not component_specs:
+        raise KeyError(f"Checkpoint missing 'component_specs' in {checkpoint_path}")
+    metadata = dict(metadata)
+    metadata.setdefault('run_name', run_dir.name)
     eval_results = checkpoint.get('eval_results', {})
 
     return RunArtifacts(
@@ -137,6 +101,7 @@ def _load_run_artifacts_from_paths(
         model_spec=model_spec,
         training_spec=training_spec,
         metadata=metadata,
+        component_specs=component_specs,
         eval_results=eval_results,
     )
 
@@ -147,14 +112,26 @@ def normalize_model_spec(model_spec: Dict[str, Any], num_params: Optional[int] =
     if 'pos_values' in resolved and 'num_ports' not in resolved:
         resolved['num_ports'] = len(resolved['pos_values'])
 
-    resolved.setdefault('hidden_dim', 64)
-    resolved.setdefault('num_stages', 2)
-    resolved.setdefault('mlp_depth', 3)
-    resolved.setdefault('share_weights_across_stages', False)
-    resolved.setdefault('use_hidden_relu', True)
-    resolved.setdefault('activation_type', 'relu')
-    resolved.setdefault('onnx_mode', False)
     resolved.setdefault('normalize_energy', False)
+
+    model_type = resolved.get('model_type')
+    if model_type == 'separator1':
+        resolved.setdefault('hidden_dim', 64)
+        resolved.setdefault('num_stages', 2)
+        resolved.setdefault('mlp_depth', 3)
+        resolved.setdefault('share_weights_across_stages', False)
+        resolved.setdefault('use_hidden_layer_norm', False)
+        resolved.setdefault('use_hidden_relu', True)
+    elif model_type == 'separator2':
+        resolved.setdefault('hidden_dim', 64)
+        resolved.setdefault('num_stages', 2)
+        resolved.setdefault('mlp_depth', 3)
+        resolved.setdefault('share_weights_across_stages', False)
+        resolved.setdefault('activation_type', 'relu')
+        resolved.setdefault('onnx_mode', False)
+    elif model_type == 'full_mlp':
+        resolved.setdefault('hidden_dim', 128)
+        resolved.setdefault('mlp_depth', 3)
 
     if num_params is not None:
         resolved['num_params'] = int(num_params)
@@ -180,12 +157,18 @@ def build_run_metadata(
     training_recipe_name: str,
     training_label: str,
     training_duration: float,
+    task_recipe_name: Optional[str] = None,
+    task_label: Optional[str] = None,
+    schema_version: str = 'v2',
 ) -> Dict[str, Any]:
     """Build the canonical run metadata payload."""
     from datetime import datetime
 
     return {
         'experiment_name': experiment_name,
+        'schema_version': schema_version,
+        'task_recipe_name': task_recipe_name,
+        'task_label': task_label,
         'model_recipe_name': model_recipe_name,
         'model_label': model_label,
         'run_name': run_name,
@@ -201,18 +184,22 @@ def save_run_config(
     model_spec: Dict[str, Any],
     training_spec: Dict[str, Any],
     metadata: Dict[str, Any],
+    component_specs: Optional[Dict[str, Any]] = None,
 ) -> Path:
     """Persist the canonical config.yaml stored in each run directory."""
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / 'config.yaml'
+    payload = {
+        'model_spec': dict(model_spec or {}),
+        'training_spec': dict(training_spec or {}),
+        'metadata': dict(metadata or {}),
+    }
+    if component_specs:
+        payload['component_specs'] = dict(component_specs)
     with open(config_path, 'w', encoding='utf-8') as config_file:
         yaml.safe_dump(
-            {
-                'model_spec': dict(model_spec or {}),
-                'training_spec': dict(training_spec or {}),
-                'metadata': dict(metadata or {}),
-            },
+            payload,
             config_file,
             default_flow_style=False,
             allow_unicode=True,
@@ -255,7 +242,7 @@ def load_trained_model_from_run(
 ) -> Tuple[torch.nn.Module, RunArtifacts]:
     """Load a trained model and its resolved run artifacts."""
     artifacts = load_run_artifacts(run_dir, device=device)
-    model_type = artifacts.model_spec.get('model_type', 'separator1')
+    model_type = artifacts.model_spec['model_type']
     model = create_model(model_name=model_type, config=artifacts.model_spec)
 
     state_dict = artifacts.checkpoint['model_state_dict']
@@ -274,7 +261,7 @@ def load_trained_model_from_checkpoint(
 ) -> Tuple[torch.nn.Module, RunArtifacts]:
     """Load a trained model and its resolved artifacts from an explicit checkpoint path."""
     artifacts = load_run_artifacts_from_checkpoint(checkpoint_path, device=device)
-    model_type = artifacts.model_spec.get('model_type', 'separator1')
+    model_type = artifacts.model_spec['model_type']
     model = create_model(model_name=model_type, config=artifacts.model_spec)
 
     state_dict = artifacts.checkpoint['model_state_dict']
@@ -287,7 +274,21 @@ def load_trained_model_from_checkpoint(
     return model, artifacts
 
 
-def build_dummy_input(model_spec: Dict[str, Any], batch_size: int = 1) -> torch.Tensor:
-    """Create a representative real-stacked input tensor for export or smoke tests."""
+def build_dummy_input(
+    model_spec: Dict[str, Any],
+    batch_size: int = 1,
+    component_specs: Optional[Dict[str, Any]] = None,
+) -> torch.Tensor:
+    """Create representative model input for export or smoke tests."""
+    task_spec = dict(component_specs or {}).get('task') if component_specs else None
+    if task_spec:
+        try:
+            from tasks import create_task
+        except ImportError:
+            from ..tasks import create_task
+
+        task = create_task(task_spec)
+        return task.build_dummy_input(model_spec=model_spec, batch_size=batch_size)
+
     seq_len = int(model_spec['seq_len'])
     return torch.randn(batch_size, seq_len * 2, dtype=torch.float32)

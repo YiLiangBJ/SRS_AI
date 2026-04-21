@@ -1,0 +1,116 @@
+training_strategies:
+  supervised_nmse_plateau:
+    type: standard_supervised
+    params:
+      batch_size: 4096
+      num_batches: 100000
+      optimizer:
+        type: adam
+        params:
+          learning_rate: 0.01
+      loss:
+        type: nmse
+      validation:
+        interval: 100
+        batches: 4
+      early_stop:
+        patience: 5
+      logging:
+        print_interval: 100
+      checkpoints:
+        save_interval: 1000
+        keep_last_n: 2
+      scheduler:
+        type: reduce_on_plateau
+        params:
+          factor: 0.8
+          patience: 30
+          threshold: 0.005
+          threshold_mode: abs
+          cooldown: 10
+          min_lr: 1.0e-6
+
+  quick_supervised:
+    type: standard_supervised
+    params:
+      batch_size: 32
+      num_batches: 100
+      optimizer:
+        type: adam
+        params:
+          learning_rate: 0.01
+      loss:
+        type: nmse
+      validation:
+        batches: 4
+      early_stop:
+        patience: 3
+      logging:
+        print_interval: 10
+      checkpoints:
+        keep_last_n: 2
+
+  supervised_log_plateau:
+    type: standard_supervised
+    params:
+      batch_size: 4096
+      num_batches: 100000
+      optimizer:
+        type: adam
+        params:
+          learning_rate: 0.01
+      loss:
+        type: log
+      validation:
+        interval: 100
+        batches: 4
+      early_stop:
+        patience: 5
+      logging:
+        print_interval: 100
+      checkpoints:
+        save_interval: 1000
+        keep_last_n: 2
+      scheduler:
+        type: reduce_on_plateau
+        params:
+          factor: 0.8
+          patience: 30
+          threshold: 0.005
+          threshold_mode: abs
+          cooldown: 10
+          min_lr: 1.0e-6
+
+  loss_sweep_supervised:
+    type: standard_supervised
+    params:
+      batch_size: 4096
+      num_batches: 100000
+      optimizer:
+        type: adam
+        params:
+          learning_rate: 0.01
+      loss:
+        type: nmse
+      validation:
+        interval: 100
+        batches: 4
+      early_stop:
+        patience: 5
+      logging:
+        print_interval: 100
+      checkpoints:
+        keep_last_n: 2
+      scheduler:
+        type: reduce_on_plateau
+        params:
+          factor: 0.8
+          patience: 30
+          threshold: 0.005
+          threshold_mode: abs
+          cooldown: 10
+          min_lr: 1.0e-6
+    sweeps:
+      - target: params.loss.type
+        alias: loss
+        values: [nmse, weighted, log, normalized]

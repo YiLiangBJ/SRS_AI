@@ -87,7 +87,11 @@ def export_run_to_onnx(
     run_output_dir = output_root
     run_output_dir.mkdir(parents=True, exist_ok=True)
 
-    dummy_input = build_dummy_input(artifacts.model_spec, batch_size=batch_size)
+    dummy_input = build_dummy_input(
+        artifacts.model_spec,
+        batch_size=batch_size,
+        component_specs=artifacts.component_specs,
+    )
     input_names = ['mixed_signal']
     output_names = ['separated_channels']
     dynamic_axes = None
@@ -167,7 +171,11 @@ def export_checkpoint_to_onnx(
     )
     onnx_path.parent.mkdir(parents=True, exist_ok=True)
 
-    dummy_input = build_dummy_input(artifacts.model_spec, batch_size=batch_size)
+    dummy_input = build_dummy_input(
+        artifacts.model_spec,
+        batch_size=batch_size,
+        component_specs=artifacts.component_specs,
+    )
     input_names = ['mixed_signal']
     output_names = ['separated_channels']
     dynamic_axes = None

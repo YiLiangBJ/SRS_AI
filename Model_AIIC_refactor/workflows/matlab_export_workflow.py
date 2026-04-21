@@ -78,6 +78,40 @@ def _export_separator1_weights(model: torch.nn.Module, num_ports: int, num_stage
     return mat_data
 
 
+def _export_full_mlp_weights(model: torch.nn.Module) -> Dict[str, np.ndarray]:
+    mat_data: Dict[str, np.ndarray] = {}
+    for layer_idx, layer in enumerate(_linear_layers(model.network), start=1):
+        prefix = f'joint_l{layer_idx:02d}'
+        mat_data[f'{prefix}_weight'] = _to_numpy(layer.weight)
+        mat_data[f'{prefix}_bias'] = _to_numpy(layer.bias)
+    return mat_data
+
+
+def _build_bundle_contents(model_type: str, mlp_depth: int, linear_layer_count: int) -> Dict[str, object]:
+    bundle_contents: Dict[str, object] = {
+        'sample_input_field': 'sample_input',
+        'reference_output_field': 'reference_output',
+        'pos_values_field': 'pos_values',
+    }
+
+    if model_type == 'separator2':
+        bundle_contents['linear_layers_per_mlp'] = mlp_depth
+        bundle_contents['separator2_field_pattern'] = 'p##_s##_l##_weight_real/weight_imag/bias_real/bias_imag'
+    elif model_type == 'separator1':
+        bundle_contents['linear_layers_per_mlp'] = mlp_depth
+        bundle_contents['separator1_field_pattern'] = (
+            'p##_s##_real_l##_weight/bias[/ln_weight/ln_bias/ln_eps] '
+            'and p##_s##_imag_l##_weight/bias[/ln_weight/ln_bias/ln_eps]'
+        )
+    elif model_type == 'full_mlp':
+        bundle_contents['linear_layers_in_joint_network'] = linear_layer_count
+        bundle_contents['full_mlp_field_pattern'] = 'joint_l##_weight/bias'
+    else:
+        raise ValueError(f'Unsupported model_type for Matlab bundle export: {model_type}')
+
+    return bundle_contents
+
+
 def export_run_to_matlab_bundle(
     run_dir,
     output_root=None,
@@ -90,8 +124,8 @@ def export_run_to_matlab_bundle(
     model_spec = dict(artifacts.model_spec)
     model_type = model_spec['model_type']
     num_ports = int(model_spec['num_ports'])
-    num_stages = int(model_spec['num_stages'])
     mlp_depth = int(model_spec['mlp_depth'])
+    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else mlp_depth
 
     if output_root is None:
         output_root = artifacts.run_dir / 'matlab_exports'
@@ -100,7 +134,11 @@ def export_run_to_matlab_bundle(
     run_output_dir = output_root
     run_output_dir.mkdir(parents=True, exist_ok=True)
 
-    sample_input = build_dummy_input(model_spec, batch_size=1)
+    sample_input = build_dummy_input(
+        model_spec,
+        batch_size=1,
+        component_specs=artifacts.component_specs,
+    )
     with torch.no_grad():
         reference_output = model(sample_input)
 
@@ -111,9 +149,13 @@ def export_run_to_matlab_bundle(
     }
 
     if model_type == 'separator2':
+        num_stages = int(model_spec['num_stages'])
         mat_data.update(_export_separator2_weights(model, num_ports=num_ports, num_stages=num_stages))
     elif model_type == 'separator1':
+        num_stages = int(model_spec['num_stages'])
         mat_data.update(_export_separator1_weights(model, num_ports=num_ports, num_stages=num_stages))
+    elif model_type == 'full_mlp':
+        mat_data.update(_export_full_mlp_weights(model))
     else:
         raise ValueError(f'Unsupported model_type for Matlab bundle export: {model_type}')
 
@@ -136,20 +178,17 @@ def export_run_to_matlab_bundle(
         'sample_input_shape': list(sample_input.shape),
         'reference_output_shape': list(reference_output.shape),
         'reference_sample_rule': 'sample_input/reference_output are always exported with batch size 1; Matlab inference accepts arbitrary batch size N.',
-        'materialization_rule': 'Every effective port-stage MLP is materialized explicitly, even when training used shared stage weights.',
+        'materialization_rule': 'Every learned affine layer used during inference is materialized explicitly. For staged models this includes each effective port-stage block, even when training used shared stage weights.',
         'matlab_entrypoints': [
             'import_refactor_matlab_bundle',
             'predict_refactor_matlab_bundle',
             'run_refactor_matlab_bundle_demo',
         ],
-        'bundle_contents': {
-            'sample_input_field': 'sample_input',
-            'reference_output_field': 'reference_output',
-            'pos_values_field': 'pos_values',
-            'linear_layers_per_mlp': mlp_depth,
-            'separator2_field_pattern': 'p##_s##_l##_weight_real/weight_imag/bias_real/bias_imag',
-            'separator1_field_pattern': 'p##_s##_real_l##_weight/bias[/ln_weight/ln_bias/ln_eps] and p##_s##_imag_l##_weight/bias[/ln_weight/ln_bias/ln_eps]',
-        },
+        'bundle_contents': _build_bundle_contents(
+            model_type=model_type,
+            mlp_depth=mlp_depth,
+            linear_layer_count=linear_layer_count,
+        ),
         'input_normalization': {
             'enabled': bool(model_spec.get('normalize_energy', False)),
             'rule': 'Per-sample RMS over the complex sequence; output is rescaled by the same factor after separation.',
@@ -176,8 +215,8 @@ def export_checkpoint_to_matlab_bundle(
     model_spec = dict(artifacts.model_spec)
     model_type = model_spec['model_type']
     num_ports = int(model_spec['num_ports'])
-    num_stages = int(model_spec['num_stages'])
     mlp_depth = int(model_spec['mlp_depth'])
+    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else mlp_depth
 
     if output_root is None:
         output_root = artifacts.run_dir / 'matlab_exports'
@@ -186,7 +225,11 @@ def export_checkpoint_to_matlab_bundle(
     run_output_dir = output_root
     run_output_dir.mkdir(parents=True, exist_ok=True)
 
-    sample_input = build_dummy_input(model_spec, batch_size=1)
+    sample_input = build_dummy_input(
+        model_spec,
+        batch_size=1,
+        component_specs=artifacts.component_specs,
+    )
     with torch.no_grad():
         reference_output = model(sample_input)
 
@@ -197,9 +240,13 @@ def export_checkpoint_to_matlab_bundle(
     }
 
     if model_type == 'separator2':
+        num_stages = int(model_spec['num_stages'])
         mat_data.update(_export_separator2_weights(model, num_ports=num_ports, num_stages=num_stages))
     elif model_type == 'separator1':
+        num_stages = int(model_spec['num_stages'])
         mat_data.update(_export_separator1_weights(model, num_ports=num_ports, num_stages=num_stages))
+    elif model_type == 'full_mlp':
+        mat_data.update(_export_full_mlp_weights(model))
     else:
         raise ValueError(f'Unsupported model_type for Matlab bundle export: {model_type}')
 
@@ -222,20 +269,17 @@ def export_checkpoint_to_matlab_bundle(
         'sample_input_shape': list(sample_input.shape),
         'reference_output_shape': list(reference_output.shape),
         'reference_sample_rule': 'sample_input/reference_output are always exported with batch size 1; Matlab inference accepts arbitrary batch size N.',
-        'materialization_rule': 'Every effective port-stage MLP is materialized explicitly, even when training used shared stage weights.',
+        'materialization_rule': 'Every learned affine layer used during inference is materialized explicitly. For staged models this includes each effective port-stage block, even when training used shared stage weights.',
         'matlab_entrypoints': [
             'import_refactor_matlab_bundle',
             'predict_refactor_matlab_bundle',
             'run_refactor_matlab_bundle_demo',
         ],
-        'bundle_contents': {
-            'sample_input_field': 'sample_input',
-            'reference_output_field': 'reference_output',
-            'pos_values_field': 'pos_values',
-            'linear_layers_per_mlp': mlp_depth,
-            'separator2_field_pattern': 'p##_s##_l##_weight_real/weight_imag/bias_real/bias_imag',
-            'separator1_field_pattern': 'p##_s##_real_l##_weight/bias and p##_s##_imag_l##_weight/bias',
-        },
+        'bundle_contents': _build_bundle_contents(
+            model_type=model_type,
+            mlp_depth=mlp_depth,
+            linear_layer_count=linear_layer_count,
+        ),
         'input_normalization': {
             'enabled': bool(model_spec.get('normalize_energy', False)),
             'rule': 'Per-sample RMS over the complex sequence; output is rescaled by the same factor after separation.',

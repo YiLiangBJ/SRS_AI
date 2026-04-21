@@ -45,6 +45,8 @@ switch string(modelSpec.model_type)
         [outputData, debug] = local_forward_separator2(weights, modelSpec, normalizedInput, collectDetailedDebug);
     case "separator1"
         [outputData, debug] = local_forward_separator1(weights, modelSpec, normalizedInput, collectDetailedDebug);
+    case "full_mlp"
+        [outputData, debug] = local_forward_full_mlp(weights, modelSpec, normalizedInput, collectDetailedDebug);
     otherwise
         error("predict_refactor_matlab_bundle:UnsupportedModel", ...
             "Unsupported model_type: %s", string(modelSpec.model_type));
@@ -250,6 +252,51 @@ if collectDetailedDebug
 end
 end
 
+function [outputData, debug] = local_forward_full_mlp(weights, modelSpec, inputData, collectDetailedDebug)
+numPorts = double(modelSpec.num_ports);
+seqLen = double(modelSpec.seq_len);
+numLayers = local_count_full_mlp_layers(weights);
+
+x = inputData;
+if collectDetailedDebug
+    layerTraces = cell(numLayers, 1);
+end
+
+for layerIdx = 1:numLayers
+    prefix = sprintf('joint_l%02d', layerIdx);
+    weight = single(weights.([prefix '_weight']));
+    bias = single(weights.([prefix '_bias']));
+
+    layerInput = x;
+    affine = layerInput * weight.' + bias;
+    x = affine;
+    if layerIdx < numLayers
+        x = max(x, 0);
+    end
+
+    if collectDetailedDebug
+        layerTraces{layerIdx} = struct( ...
+            'layer_index', layerIdx, ...
+            'prefix', prefix, ...
+            'input', layerInput, ...
+            'weight', weight, ...
+            'bias', bias, ...
+            'affine', affine, ...
+            'post_activation', x ...
+        );
+    end
+end
+
+batchSize = size(inputData, 1);
+outputData = reshape(x, [batchSize, numPorts, seqLen * 2]);
+debug = struct();
+debug.model_type = "full_mlp";
+debug.layer_count = numLayers;
+if collectDetailedDebug
+    debug.layer_traces = layerTraces;
+end
+end
+
 function x = local_apply_complex_activation(x, hiddenSize, activationType)
 xReal = x(:, 1:hiddenSize);
 xImag = x(:, hiddenSize + 1:end);
@@ -283,6 +330,18 @@ end
 
 function prefix = local_separator1_prefix(portIdx, stageIdx, branchName, layerIdx)
 prefix = sprintf('p%02d_s%02d_%s_l%02d', portIdx, stageIdx, branchName, layerIdx);
+end
+
+function numLayers = local_count_full_mlp_layers(weights)
+numLayers = 0;
+while isfield(weights, sprintf('joint_l%02d_weight', numLayers + 1))
+    numLayers = numLayers + 1;
+end
+
+if numLayers == 0
+    error("predict_refactor_matlab_bundle:MissingFullMLPLayers", ...
+        "No full_mlp layers were found in the Matlab bundle.");
+end
 end
 
 function [normalizedInput, inputRms, enabled] = local_normalize_real_stacked_input(inputData, modelSpec)

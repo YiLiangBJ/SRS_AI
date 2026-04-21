@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from data import generate_training_batch
+from tasks import create_task
 from utils import split_csv_arg, discover_run_dirs, load_trained_model_from_run
 
 
@@ -40,6 +40,7 @@ def resolve_device(device):
 
 
 def evaluate_at_snr(
+    task,
     model,
     model_spec: dict,
     snr_db: float,
@@ -50,55 +51,16 @@ def evaluate_at_snr(
     use_amp: bool = False,
 ):
     """Evaluate one run at one SNR point."""
-    seq_len = model_spec['seq_len']
-    pos_values = model_spec['pos_values']
-    num_ports = len(pos_values)
-
-    total_mse = torch.tensor(0.0, device=device)
-    total_power = torch.tensor(0.0, device=device)
-    port_mse = torch.zeros(num_ports, device=device)
-    port_power = torch.zeros(num_ports, device=device)
-    autocast_context = torch.cuda.amp.autocast if use_amp and device.type == 'cuda' else None
-
-    with torch.no_grad():
-        for _ in range(num_batches):
-            y, h_targets, _, _, _ = generate_training_batch(
-                batch_size=batch_size,
-                seq_len=seq_len,
-                pos_values=pos_values,
-                snr_db=snr_db,
-                tdl_config=tdl_config,
-                return_complex=False,
-                device=device,
-            )
-
-            if autocast_context is not None:
-                with autocast_context():
-                    h_pred = model(y)
-            else:
-                h_pred = model(y)
-
-            diff = h_pred - h_targets
-            total_mse += diff.pow(2).sum()
-            total_power += h_targets.pow(2).sum()
-            port_mse += diff.pow(2).sum(dim=(0, 2))
-            port_power += h_targets.pow(2).sum(dim=(0, 2))
-
-    nmse = (total_mse / (total_power + 1e-10)).cpu().item()
-    nmse_db = 10 * np.log10(nmse) if nmse > 0 else -100
-    port_nmse = (port_mse / (port_power + 1e-10)).cpu().numpy()
-    port_nmse_db = 10 * np.log10(port_nmse)
-    port_nmse_db[np.isinf(port_nmse_db)] = -100
-
-    return {
-        'snr_db': float(snr_db),
-        'tdl_config': tdl_config,
-        'nmse': float(nmse),
-        'nmse_db': float(nmse_db),
-        'per_port_nmse': port_nmse.tolist(),
-        'per_port_nmse_db': port_nmse_db.tolist(),
-        'num_samples': num_batches * batch_size,
-    }
+    return task.evaluate_at_snr(
+        model=model,
+        model_spec=model_spec,
+        snr_db=snr_db,
+        tdl_config=tdl_config,
+        num_batches=num_batches,
+        batch_size=batch_size,
+        device=device,
+        use_amp=use_amp,
+    )
 
 
 def save_evaluation_results(results, output_dir: Path):
@@ -188,7 +150,7 @@ def evaluate_models_programmatic(
     exp_dir = Path(exp_dir) if exp_dir is not None else None
 
     snr_list = parse_snr_range(snr_range)
-    tdl_list = split_csv_arg(tdl_list) if tdl_list is not None else ['A-30', 'B-100', 'C-300']
+    explicit_tdl_list = split_csv_arg(tdl_list) if tdl_list is not None else None
 
     if model_dirs:
         target_dirs = [Path(path) for path in model_dirs]
@@ -216,7 +178,7 @@ def evaluate_models_programmatic(
         'output_dir': str(output_dir),
         'config': {
             'snr_list': snr_list,
-            'tdl_list': tdl_list,
+            'tdl_list': explicit_tdl_list,
             'num_batches': num_batches,
             'batch_size': batch_size,
             'total_samples_per_point': num_batches * batch_size,
@@ -231,22 +193,31 @@ def evaluate_models_programmatic(
         try:
             model, artifacts = load_trained_model_from_run(run_dir, device=device)
             model_spec = artifacts.model_spec
+            task_spec = artifacts.component_specs.get('task')
+            if not task_spec:
+                raise KeyError(
+                    'Run artifacts do not contain component_specs.task. '
+                    'Re-run training with the component-based schema before evaluating.'
+                )
+            task = create_task(task_spec)
             if compile and device.type == 'cuda' and hasattr(torch, 'compile'):
                 torch.set_float32_matmul_precision('high')
                 torch.backends.cuda.matmul.allow_tf32 = True
                 torch.backends.cudnn.allow_tf32 = True
                 model = torch.compile(model, mode='reduce-overhead')
             model.eval()
+            run_tdl_list = explicit_tdl_list or list(task.get_default_tdl_list()) or ['A-30', 'B-100', 'C-300']
 
             results['models'][run_name] = {
                 'model_spec': model_spec,
                 'training_spec': artifacts.training_spec,
                 'metadata': artifacts.metadata,
+                'component_specs': artifacts.component_specs,
                 'checkpoint_path': str(artifacts.checkpoint_path),
                 'tdl_results': {},
             }
 
-            for tdl_config in tdl_list:
+            for tdl_config in run_tdl_list:
                 tdl_results = {
                     'snr': [],
                     'nmse': [],
@@ -257,6 +228,7 @@ def evaluate_models_programmatic(
 
                 for snr_db in tqdm(snr_list, desc=f'  {run_name} - {tdl_config}', leave=False):
                     point_result = evaluate_at_snr(
+                        task=task,
                         model=model,
                         model_spec=model_spec,
                         snr_db=snr_db,

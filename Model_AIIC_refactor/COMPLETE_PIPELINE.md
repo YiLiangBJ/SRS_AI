@@ -16,23 +16,27 @@ Generated files such as `TRAINING_REPORT.md` are not part of this guide. They re
 
 The project is experiment-first.
 
-You do not manually pair model config and training config on the CLI. You launch a named experiment from `configs/experiments.yaml`, and the workflow resolves:
+You do not manually pair model config and training config on the CLI. You launch a named experiment from `configs/v2/experiments.yaml`, and the workflow resolves:
 
-1. model recipes
-2. training recipe
-3. expanded search-space variants
-4. the final executable run plan
+1. one task recipe
+2. one or more model recipes
+3. one training-strategy recipe
+4. local and experiment-level sweep expansions
+5. the final executable run plan
 
 ## 2. Important Terms
 
-- `experiment`: a named workflow preset from `experiments.yaml`
-- `model recipe`: one entry from `model_configs.yaml`
-- `training recipe`: one entry from `training_configs.yaml`
-- `model label`: the expanded model variant name after search-space resolution
-- `training label`: the expanded training variant name after search-space resolution
+- `experiment`: a named workflow preset from `configs/v2/experiments.yaml`
+- `task recipe`: one entry from `configs/v2/tasks.yaml`
+- `model recipe`: one entry from `configs/v2/models.yaml`
+- `training strategy recipe`: one entry from `configs/v2/training_strategies.yaml`
+- `task label`: the expanded task variant name after sweep resolution
+- `model label`: the expanded model variant name after sweep resolution
+- `training label`: the expanded training-strategy variant name after sweep resolution
 - `run_name`: the final unique executable run identifier
-- `model_spec`: the resolved model schema saved with the run
-- `training_spec`: the resolved training schema saved with the run
+- `component_specs`: the raw task/model/training_strategy payloads saved with the run
+- `model_spec`: the task-compiled runtime model schema saved with the run
+- `training_spec`: the compiled runtime training schema saved with the run
 
 Use these names consistently in code, reports, checkpoints, and exports.
 
@@ -69,91 +73,149 @@ This layout keeps research iteration practical:
 
 ### 4.1 Recommended split
 
-- `configs/model_configs.yaml`: architecture, port layout, ONNX-related model options, and model-side search spaces
-- `configs/training_configs.yaml`: optimization, data sampling, loss, validation cadence, scheduler settings, and checkpoint cadence
-- `configs/experiments.yaml`: reusable workflow presets binding model recipes to one training recipe
+- `configs/v2/tasks.yaml`: data-generation policy, port layout, sequence length, normalization flag, SNR sampling, and TDL selection
+- `configs/v2/models.yaml`: architecture family plus model-side hyperparameter sweeps
+- `configs/v2/training_strategies.yaml`: optimizer, loss, validation cadence, scheduler, and checkpoint policy
+- `configs/v2/experiments.yaml`: reusable workflow presets binding task + model + training strategy
 
 ### 4.2 Supported config patterns
 
-Single model config:
+Task recipe:
 
 ```yaml
-separator1_default:
-  model_type: separator1
-  pos_values: [0, 3, 6, 9]
-  hidden_dim: 64
-  num_stages: 3
+tasks:
+  channel_separator_4port_standard:
+    type: channel_separator
+    params:
+      seq_len: 12
+      pos_values: [0, 3, 6, 9]
+      normalize_energy: true
+      snr_config:
+        type: range
+        min: 0
+        max: 30
+        per_sample: true
+        sampling: stratified
+        num_bins: 10
+      tdl_config: [A-30, B-100, C-300]
 ```
 
-Fixed params plus search space:
+Model recipe with sweeps:
 
 ```yaml
-separator1_grid_search:
-  model_type: separator1
-  fixed_params:
-    pos_values: [0, 3, 6, 9]
-    mlp_depth: 3
-  search_space:
-    hidden_dim: [32, 64, 128]
-    num_stages: [2, 3]
+models:
+  full_mlp_capacity_search:
+    type: full_mlp
+    params:
+      hidden_dim: 128
+      mlp_depth: 3
+    sweeps:
+      - target: params.hidden_dim
+        alias: hd
+        values: [64, 128, 256, 512]
+      - target: params.mlp_depth
+        alias: depth
+        values: [2, 3, 4, 5]
+```
+
+Training-strategy recipe:
+
+```yaml
+training_strategies:
+  supervised_nmse_plateau:
+    type: standard_supervised
+    params:
+      batch_size: 4096
+      num_batches: 100000
+      optimizer:
+        type: adam
+        params:
+          learning_rate: 0.01
+      loss:
+        type: nmse
+      validation:
+        interval: 100
+        batches: 4
+      early_stop:
+        patience: 5
 ```
 
 Experiment preset:
 
 ```yaml
 experiments:
-  compare_default_models:
-    model_configs:
-      - separator1_default
-      - separator2_default
-    training_config: snr_range_0_30_perSample
+  compare_default_models_v2:
+    task: channel_separator_4port_standard
+    model: [separator1_default, separator2_default]
+    training_strategy: supervised_log_plateau
 ```
 
 ### 4.3 Practical conventions
 
-- Keep `pos_values`, `seq_len`, width/depth, activation, ONNX compatibility, and model-side normalization on the model side.
-- Keep SNR policy, TDL policy, loss, LR, validation cadence, scheduler policy, and checkpoint cadence on the training side.
-- Put workflow intent in `experiments.yaml`: smoke tests, architecture comparisons, benchmark presets, export candidates, and sweeps.
-- If a field is a deliberate scientific sweep, put it in `search_space`.
-- If a field is constant, keep it flat or place it in `fixed_params`.
+- Keep `seq_len`, `pos_values`, `normalize_energy`, `snr_config`, and `tdl_config` on the task side.
+- Keep width/depth/stage count, activation options, and model-family-specific architecture flags on the model side.
+- Keep optimizer, loss, validation cadence, scheduler policy, and checkpoint cadence on the training-strategy side.
+- Put workflow intent in `configs/v2/experiments.yaml`: smoke tests, architecture comparisons, export candidates, and sweeps.
+- If a field is a deliberate scientific sweep, put it in `sweeps`.
+- If a model needs task-owned values such as `seq_len` or `pos_values`, let the task adapter inject them through runtime `model_spec` compilation instead of duplicating them in the model recipe.
 - Prefer narrow sweeps aligned to one question instead of one large unfocused Cartesian product.
 
 ### 4.4 Inspect plans before launch
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
-  --experiment quick_separator1 \
+  --experiment quick_full_mlp_v2 \
   --plan_only \
   --device cpu
 ```
+
+### 4.5 Built-in experiment presets
+
+- `quick_full_mlp_v2`: one-run smoke test for the joint full-MLP baseline
+- `full_mlp_nmse_v2`: default full-MLP training with plain NMSE loss
+- `full_mlp_arch_search_v2`: 9-run width/depth search for full-MLP
+- `full_mlp_capacity_search_v2`: broader 16-run width/depth search for full-MLP
+- `quick_separator1_v2`: one-run smoke test for separator1
+- `compare_default_models_v2`: compare separator1_default and separator2_default on the same task
+- `default_6port_separator1_v2`: default 6-port separator1 sweep
+- `separator1_loss_search_v2`: compare supervised loss choices for separator1_default
 
 ## 5. Training
 
 ### 5.1 Common commands
 
-Train one named experiment:
+Train one quick full-MLP smoke test:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
-  --experiment compare_default_models \
+  --experiment quick_full_mlp_v2 \
   --device cuda
 ```
 
-Train, then evaluate and plot:
+Inspect the broader full-MLP search without launching it:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
-  --experiment compare_default_models \
+  --experiment full_mlp_capacity_search_v2 \
+  --plan_only \
+  --device cpu
+```
+
+Train, then evaluate and plot a cross-model comparison:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment compare_default_models_v2 \
   --device cuda \
   --eval_after_train \
   --plot_after_eval
 ```
 
-Benchmark preset with batch-count override:
+Quick CPU benchmark-style run with batch-count override:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
-  --experiment perf_quick \
+  --experiment quick_separator1_v2 \
   --num_batches 100 \
   --device cpu
 ```
@@ -162,7 +224,7 @@ python ./Model_AIIC_refactor/train.py \
 
 | Argument | Meaning |
 |---|---|
-| `--experiment` | Required experiment name from `experiments.yaml` |
+| `--experiment` | Required experiment name from `configs/v2/experiments.yaml` |
 | `--batch_size` | Optional override applied after recipe resolution |
 | `--num_batches` | Optional override applied after recipe resolution |
 | `--device` | `auto`, `cpu`, `cuda`, `cuda:0`, ... |
@@ -193,7 +255,8 @@ python ./Model_AIIC_refactor/train.py \
 - `loss_type=normalized` now means mean per-sample NMSE.
 - validation averages multiple batches drawn from the same SNR distribution as training.
 - the default LR scheduler is intentionally smoother than before.
-- model-side energy normalization is inside the model when `model_spec.normalize_energy=true`.
+- when the task resolves `normalize_energy=true`, `separator1`, `separator2`, and `full_mlp` all apply per-sample RMS normalization at model input and restore the same RMS on model output.
+- that normalization rule is preserved consistently in Python inference, ONNX export, and Matlab bundle inference.
 
 ## 6. Artifact Layout
 
@@ -232,7 +295,7 @@ Evaluate an existing experiment:
 
 ```bash
 python ./Model_AIIC_refactor/evaluate_models_refactored.py \
-  --exp_dir "./Model_AIIC_refactor/experiments_refactored/20260409_000000_compare_default_models" \
+  --exp_dir "./Model_AIIC_refactor/experiments_refactored/20260421_000000_compare_default_models_v2" \
   --device cuda \
   --snr_range "30:-3:0" \
   --tdl "A-30,B-100,C-300" \
@@ -244,7 +307,7 @@ Plot later from an experiment or evaluation directory:
 
 ```bash
 python ./Model_AIIC_refactor/plot.py \
-  --input "./Model_AIIC_refactor/experiments_refactored/20260409_000000_compare_default_models"
+  --input "./Model_AIIC_refactor/experiments_refactored/20260421_000000_compare_default_models_v2"
 ```
 
 `plot.py` accepts:
@@ -341,6 +404,12 @@ Always present:
 - `reference_output`: `1 x num_ports x (2*seq_len)`
 - `pos_values`
 
+Supported bundle model types:
+
+- `separator1`
+- `separator2`
+- `full_mlp`
+
 For `separator2`, the bundle also contains fully materialized effective MLP weights per port, stage, and layer:
 
 - `p01_s01_l01_weight_real`
@@ -365,6 +434,15 @@ If `use_hidden_layer_norm=true`, hidden layers also include per-branch LayerNorm
 - `p01_s01_imag_l01_ln_eps`
 
 Even when training used `share_weights_across_stages=True`, the exporter writes every effective port-stage block explicitly.
+
+For `full_mlp`, the bundle contains the single joint network weights in execution order:
+
+- `joint_l01_weight`
+- `joint_l01_bias`
+- `joint_l02_weight`
+- `joint_l02_bias`
+
+Matlab bundle inference applies the same per-sample RMS input normalization and output rescaling rule as the Python model when `model_spec.normalize_energy=true`.
 
 ## 10. Matlab Integration
 
@@ -566,7 +644,7 @@ imag_out = imag_hidden * W_imag_out^T + b_imag_out
 port_output = [real_out, imag_out]
 ```
 
-Legacy separator1 checkpoints that were trained before LayerNorm support do not contain these LayerNorm parameters. The artifact loader treats missing `use_hidden_layer_norm` as `false` for such legacy checkpoints.
+For current v2 bundles, `model_spec.use_hidden_layer_norm` tells you whether these LayerNorm parameters are expected to exist in the exported bundle.
 
 Residual refinement then applies:
 
@@ -593,7 +671,6 @@ It also records detailed traces in:
 
 - `debug.stage_outputs`
 - `debug.stage_port_layer_traces`
-- `debug.port_layer_outputs`
 
 ## 12. Checkpoint And Config Schema
 
@@ -605,6 +682,11 @@ checkpoint = {
     'model_info': model.get_model_info(),
     'model_spec': {...},
     'training_spec': {...},
+    'component_specs': {
+        'task': {...},
+        'model': {...},
+        'training_strategy': {...},
+    },
     'optimizer_state_dict': optimizer.state_dict(),
     'losses': [...],
     'val_losses': [...],
@@ -619,6 +701,7 @@ Expected schema for new code:
 - `model_spec`
 - `training_spec`
 - `metadata`
+- `component_specs`
 - `model_state_dict`
 
 ### 12.2 Human-readable companion
@@ -641,30 +724,40 @@ training_spec:
   ...
 metadata:
   ...
+component_specs:
+  task:
+    ...
+  model:
+    ...
+  training_strategy:
+    ...
 ```
 
 ### 12.3 Load expectation
 
-New evaluators and exporters load from `model_spec`.
+New evaluators and exporters load from `model_spec` plus `component_specs`.
 
 ```python
 checkpoint = torch.load(model_path, map_location=device)
 model_spec = checkpoint['model_spec']
+component_specs = checkpoint['component_specs']
 model = create_model(model_name=model_spec['model_type'], config=model_spec)
 ```
 
-If a historical checkpoint does not contain `model_spec`, treat it as legacy and rely on the compatibility loader in the utilities layer.
+Current refactor loaders expect `model_spec`, `training_spec`, `metadata`, and `component_specs` to be present. Old pre-v2 checkpoints are not the supported workflow path for evaluation/export in this guide.
 
 ## 13. Benchmark Entry Points
 
 ```bash
-python ./Model_AIIC_refactor/compare_cpu_gpu.py --experiment perf_quick --skip_gpu
-python ./Model_AIIC_refactor/compare_optimizations.py --experiment perf_quick --skip_gpu
+python ./Model_AIIC_refactor/compare_cpu_gpu.py --experiment quick_separator1_v2 --skip_gpu
+python ./Model_AIIC_refactor/compare_optimizations.py --experiment quick_separator1_v2 --skip_gpu
 ```
 
 ## 14. Policy
 
 - The old `model_config + training_config` CLI pairing is intentionally removed for training.
-- `experiments.yaml` is the supported workflow interface for training and benchmark launches.
+- `configs/v2/experiments.yaml` is the supported workflow interface for training and benchmark launches.
+- Task/model/training_strategy components are the supported source of truth for new runs.
+- `full_mlp`, `separator1`, and `separator2` all share the same internal normalize-input / restore-output energy contract when `normalize_energy=true`.
 - For manual export, the project standardizes on single-checkpoint export CLIs.
 - This file is the only maintained help-style guide for `Model_AIIC_refactor`.

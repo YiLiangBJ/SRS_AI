@@ -139,6 +139,27 @@ class TestTraining(unittest.TestCase):
         self.assertAlmostEqual(trainer.scheduler.factor, 0.9)
         self.assertEqual(trainer.scheduler.patience, 50)
 
+    def test_trainer_train_short_with_full_mlp(self):
+        """Test short training run with the full MLP baseline."""
+        model = create_model('full_mlp', self.config)
+        trainer = Trainer(
+            model,
+            learning_rate=0.01,
+            loss_type='nmse',
+            device='cpu'
+        )
+
+        losses = trainer.train(
+            num_batches=2,
+            batch_size=16,
+            snr_config=parse_snr_config({'type': 'range', 'min': 10, 'max': 20}),
+            pos_values=[0, 3, 6, 9],
+            print_interval=1
+        )
+
+        self.assertEqual(len(losses), 2)
+        self.assertTrue(all(isinstance(loss, float) for loss in losses))
+
 
 if __name__ == '__main__':
     unittest.main()

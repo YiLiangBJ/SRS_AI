@@ -4,7 +4,7 @@ Unit tests for models.
 
 import unittest
 import torch
-from models import create_model, list_models, Separator1, Separator2
+from models import create_model, list_models, FullMLP, Separator1, Separator2
 
 
 class TestModels(unittest.TestCase):
@@ -25,9 +25,19 @@ class TestModels(unittest.TestCase):
     def test_list_models(self):
         """Test listing available models"""
         models = list_models()
+        self.assertIn('full_mlp', models)
         self.assertIn('separator1', models)
         self.assertIn('separator2', models)
         self.assertGreater(len(models), 0)
+
+    def test_create_full_mlp(self):
+        """Test FullMLP creation."""
+        model = create_model('full_mlp', self.config)
+        self.assertIsInstance(model, FullMLP)
+        self.assertTrue(model.normalize_energy)
+
+        num_params = sum(p.numel() for p in model.parameters())
+        self.assertGreater(num_params, 0)
     
     def test_create_separator1(self):
         """Test Separator1 creation"""
@@ -103,6 +113,27 @@ class TestModels(unittest.TestCase):
         # Check output shape: (B, P, L*2)
         expected_shape = (self.batch_size, self.config['num_ports'], self.config['seq_len'] * 2)
         self.assertEqual(h.shape, expected_shape)
+
+    def test_full_mlp_forward_real(self):
+        """Test FullMLP forward pass with real stacked input."""
+        model = create_model('full_mlp', self.config)
+        y = torch.randn(self.batch_size, self.config['seq_len'] * 2)
+
+        h = model(y)
+
+        expected_shape = (self.batch_size, self.config['num_ports'], self.config['seq_len'] * 2)
+        self.assertEqual(h.shape, expected_shape)
+
+    def test_full_mlp_forward_complex(self):
+        """Test FullMLP forward pass with complex input."""
+        model = create_model('full_mlp', self.config)
+        y = torch.randn(self.batch_size, self.config['seq_len'], dtype=torch.complex64)
+
+        h = model(y)
+
+        expected_shape = (self.batch_size, self.config['num_ports'], self.config['seq_len'])
+        self.assertEqual(h.shape, expected_shape)
+        self.assertTrue(h.dtype in [torch.complex64, torch.complex128])
     
     def test_model_info(self):
         """Test get_model_info method"""
@@ -139,6 +170,17 @@ class TestModels(unittest.TestCase):
             scaled = model(y * 3.0)
 
         self.assertTrue(torch.allclose(scaled, reference * 3.0, atol=1e-4, rtol=1e-4))
+
+    def test_full_mlp_is_scale_equivariant_with_internal_normalization(self):
+        model = create_model('full_mlp', self.config)
+        model.eval()
+
+        y = torch.randn(self.batch_size, self.config['seq_len'] * 2)
+        with torch.no_grad():
+            reference = model(y)
+            scaled = model(y * 5.0)
+
+        self.assertTrue(torch.allclose(scaled, reference * 5.0, atol=1e-4, rtol=1e-4))
     
     def test_from_config(self):
         """Test from_config class method"""

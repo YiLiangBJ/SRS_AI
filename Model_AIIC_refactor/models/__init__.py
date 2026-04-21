@@ -16,11 +16,12 @@ Usage:
 """
 
 from .base_model import BaseSeparatorModel
+from .full_mlp import FullMLP
 from .separator1 import Separator1
 from .separator2 import Separator2
 
 __version__ = '2.0.0'
-__all__ = ['BaseSeparatorModel', 'Separator1', 'Separator2', 
+__all__ = ['BaseSeparatorModel', 'FullMLP', 'Separator1', 'Separator2', 
            'create_model', 'list_models', 'register_model']
 
 
@@ -29,13 +30,9 @@ __all__ = ['BaseSeparatorModel', 'Separator1', 'Separator2',
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 MODEL_REGISTRY = {
+    'full_mlp': FullMLP,
     'separator1': Separator1,
     'separator2': Separator2,
-    # Aliases for compatibility
-    'dual_path': Separator1,
-    'complex_linear': Separator2,
-    'type1': Separator1,
-    'type2': Separator2,
 }
 
 
@@ -86,10 +83,6 @@ def create_model(model_name: str, config: dict):
         >>> config = {'seq_len': 12, 'num_ports': 4, 'hidden_dim': 64}
         >>> model = create_model('separator1', config)
     """
-    # Backward compatibility: Convert numeric model_type to string
-    if isinstance(model_name, int):
-        model_name = f'separator{model_name}'
-    
     if model_name not in MODEL_REGISTRY:
         available = ', '.join(MODEL_REGISTRY.keys())
         raise ValueError(

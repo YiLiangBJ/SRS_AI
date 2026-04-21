@@ -11,8 +11,8 @@ DEFAULT_SAVE_DIR = Path(__file__).resolve().parent / 'experiments_refactored'
 
 def build_parser():
     """Build the train CLI parser."""
-    parser = argparse.ArgumentParser(description='Train channel separator models')
-    parser.add_argument('--experiment', type=str, required=True, help='Experiment name from experiments.yaml')
+    parser = argparse.ArgumentParser(description='Run component-based training experiments')
+    parser.add_argument('--experiment', type=str, required=True, help='Experiment name from configs/v2/experiments.yaml')
     parser.add_argument('--batch_size', type=int, default=None, help='Override batch size')
     parser.add_argument('--num_batches', type=int, default=None, help='Override number of batches')
     parser.add_argument('--device', type=str, default='auto', help='Device to use (auto, cpu, cuda, cuda:0, ...)')

@@ -4,16 +4,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
-
 from models import create_model, list_models
-from training import Trainer
+from tasks import create_task
+from training_strategies import create_training_strategy
 from utils import (
     build_experiment_suite,
     default_refactor_experiments_root,
     get_device,
     print_device_info,
-    parse_snr_config,
     print_experiment_plan_summary,
     print_search_space_summary,
     TrainingProgressTracker,
@@ -58,11 +56,42 @@ def _print_suite_overview(suite, experiment_name: str, experiment_output_dir: Pa
 
     print("Training plan:")
     print(f"  Experiment: {suite.experiment_name}")
-    print(f"  Training recipe: {suite.training_recipe_name} ({len(suite.training_variants)} variants)")
+    if suite.task_recipe_name:
+        print(f"  Task recipe: {suite.task_recipe_name} ({max(len(suite.task_labels), 1)} variants)")
+    if suite.schema_version == 'v2':
+        print(f"  Training strategy: {suite.training_recipe_name} ({len(suite.training_variants)} variants)")
+    else:
+        print(f"  Training recipe: {suite.training_recipe_name} ({len(suite.training_variants)} variants)")
     print(f"  Model recipes: {suite.model_recipe_names}")
     print(f"  Available models: {list_models()}")
     print(f"  Planned runs: {len(suite.plan)}")
     print()
+
+    if suite.schema_version == 'v2':
+        if len(suite.task_labels) > 1:
+            print(f"Task variants: {len(suite.task_labels)}")
+            for label in suite.task_labels:
+                print(f"  - {label}")
+            print()
+
+        if len(suite.training_variants) > 1:
+            print(f"Training strategy variants: {len(suite.training_variants)}")
+            for variant in suite.training_variants:
+                print(f"  - {variant.label}")
+            print()
+
+        for model_recipe_name in suite.model_recipe_names:
+            model_variants = suite.model_variants_by_recipe.get(model_recipe_name)
+            if model_variants is None:
+                continue
+            print(f"Model recipe: {model_recipe_name} ({len(model_variants)} variants)")
+            for variant in model_variants:
+                print(f"  - {variant.label}")
+            print()
+
+        print_experiment_plan_summary(suite.plan)
+        print()
+        return
 
     if len(suite.training_variants) > 1:
         print(f"Training search space: {len(suite.training_variants)} variants")
@@ -108,25 +137,16 @@ def _print_training_summary(training_summary: TrainingSummary):
 
 
 def _run_single_plan_item(experiment, suite, request, device, progress_tracker, previous_labels):
+    task = create_task(experiment.task_spec)
+    training_strategy = create_training_strategy(experiment.training_strategy_spec)
     training_spec = experiment.training_spec
     model_spec = experiment.model_spec
     training_label = experiment.training_label
     model_recipe_name = experiment.model_recipe_name
+    task_label = experiment.task_label or experiment.task_recipe_name
 
     batch_size = training_spec['batch_size']
     num_batches = training_spec['num_batches']
-    learning_rate = training_spec['learning_rate']
-    loss_type = training_spec['loss_type']
-    snr_config_dict = training_spec['snr_config']
-    tdl_config = training_spec['tdl_config']
-    print_interval = training_spec['print_interval']
-    val_interval = training_spec.get('validation_interval')
-    validation_batches = training_spec.get('validation_batches', 4)
-    early_stop_loss = training_spec.get('early_stop_loss')
-    patience = training_spec['patience']
-    keep_last_n = training_spec['keep_last_n_checkpoints']
-    scheduler_config = training_spec.get('lr_scheduler')
-    snr_config = parse_snr_config(snr_config_dict)
 
     previous_training_label, previous_model_recipe_name = previous_labels
 
@@ -134,13 +154,14 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         print(f"\n{'='*80}")
         print(f"Training Variant {experiment.training_index}/{experiment.training_total}: {training_label}")
         print(f"{'='*80}")
-        print(f"  Loss type: {loss_type}")
-        print(f"  Learning rate: {learning_rate}")
-        print(f"  SNR: {snr_config}")
+        print(f"  Strategy type: {training_strategy.type}")
+        print(f"  Runtime params: {training_spec}")
         print()
 
     if model_recipe_name != previous_model_recipe_name or training_label != previous_training_label:
         print(f"\n{'='*80}")
+        if experiment.task_recipe_name:
+            print(f"Task: {experiment.task_recipe_name}")
         print(f"Model: {model_recipe_name}")
         if len(suite.training_variants) > 1:
             print(f"Training: {training_label}")
@@ -151,6 +172,8 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         print(f"Model Variant {experiment.model_index}/{experiment.model_total} of {model_recipe_name}")
     if len(suite.training_variants) > 1:
         print(f"Training Variant: {training_label}")
+    if experiment.task_recipe_name and (experiment.task_variant_total or 0) > 1:
+        print(f"Task Variant: {task_label}")
     print(f"{'─'*80}\n")
 
     run_name = experiment.run_name
@@ -170,41 +193,22 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
     experiment_dir = Path(request.save_dir) / run_name
     tensorboard_dir = experiment_dir / 'tensorboard'
 
-    trainer = Trainer(
+    trainer = training_strategy.create_trainer(
         model=model,
-        learning_rate=learning_rate,
-        loss_type=loss_type,
+        training_spec=training_spec,
+        request=request,
         device=device,
-        use_amp=request.use_amp,
-        compile_model=request.compile_model,
         tensorboard_dir=tensorboard_dir,
-        scheduler_config=scheduler_config,
     )
 
     start_time = time.time()
-    save_interval = training_spec.get('save_interval')
-    if save_interval is None and num_batches >= 1000:
-        save_interval = max(1000, num_batches // 20)
-        print(f"  💾 Auto checkpoint: every {save_interval} batches (~{num_batches // save_interval} saves)")
-    elif save_interval:
-        print(f"  💾 Manual checkpoint: every {save_interval} batches (~{num_batches // save_interval} saves)")
-
-    losses = trainer.train(
-        num_batches=num_batches,
-        batch_size=batch_size,
-        snr_config=snr_config,
-        pos_values=model_spec['pos_values'],
-        tdl_config=tdl_config,
-        seq_len=model_spec['seq_len'],
-        print_interval=print_interval,
-        val_interval=val_interval,
-        validation_batches=validation_batches,
-        early_stop_loss=early_stop_loss,
-        patience=patience,
+    losses = training_strategy.run(
+        trainer=trainer,
+        task=task,
+        model_spec=model_spec,
+        training_spec=training_spec,
+        experiment_dir=experiment_dir,
         progress_tracker=progress_tracker,
-        save_interval=save_interval,
-        save_dir=experiment_dir if save_interval is not None else None,
-        keep_last_n=keep_last_n,
     )
     training_duration = time.time() - start_time
 
@@ -212,16 +216,11 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
     print("Final Evaluation")
     print("─" * 80)
 
-    eval_snr = (
-        (snr_config.min_snr + snr_config.max_snr) / 2
-        if snr_config.config_type == 'range'
-        else float(np.mean(snr_config.snr_values))
-    )
-    eval_results = trainer.evaluate(
-        batch_size=200,
-        snr_db=eval_snr,
-        pos_values=model_spec['pos_values'],
-        tdl_config=tdl_config,
+    eval_results = training_strategy.final_evaluate(
+        trainer=trainer,
+        task=task,
+        model_spec=model_spec,
+        training_spec=training_spec,
     )
 
     print(f"  NMSE: {eval_results['nmse']:.6f} ({eval_results['nmse_db']:.2f} dB)")
@@ -229,22 +228,7 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
 
     experiment_dir.mkdir(parents=True, exist_ok=True)
     model_spec_dict = build_model_artifact_spec(model_spec, num_params=num_params)
-    training_spec_dict = build_training_artifact_spec({
-        'loss_type': loss_type,
-        'learning_rate': learning_rate,
-        'num_batches': num_batches,
-        'batch_size': batch_size,
-        'snr_config': snr_config_dict,
-        'tdl_config': tdl_config,
-        'print_interval': print_interval,
-        'validation_interval': val_interval,
-        'validation_batches': validation_batches,
-        'early_stop_loss': early_stop_loss,
-        'patience': patience,
-        'keep_last_n_checkpoints': keep_last_n,
-        'save_interval': save_interval,
-        'lr_scheduler': scheduler_config,
-    })
+    training_spec_dict = build_training_artifact_spec(training_spec)
     metadata_dict = build_run_metadata(
         experiment_name=suite.experiment_name,
         model_recipe_name=model_recipe_name,
@@ -253,26 +237,35 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         training_recipe_name=experiment.training_recipe_name,
         training_label=training_label,
         training_duration=training_duration,
+        task_recipe_name=experiment.task_recipe_name,
+        task_label=task_label,
+        schema_version=suite.schema_version,
     )
+
+    additional_info = {
+        'model_spec': model_spec_dict,
+        'training_spec': training_spec_dict,
+        'metadata': metadata_dict,
+        'eval_results': eval_results,
+    }
+    if experiment.component_specs:
+        additional_info['component_specs'] = experiment.component_specs
 
     trainer.save_checkpoint(
         experiment_dir / 'model.pth',
-        additional_info={
-            'model_spec': model_spec_dict,
-            'training_spec': training_spec_dict,
-            'metadata': metadata_dict,
-            'eval_results': eval_results,
-        },
+        additional_info=additional_info,
     )
     save_run_config(
         run_dir=experiment_dir,
         model_spec=model_spec_dict,
         training_spec=training_spec_dict,
         metadata=metadata_dict,
+        component_specs=experiment.component_specs,
     )
     print(f"✓ Model saved to: {experiment_dir}")
 
     result = {
+        'task_label': task_label,
         'model_recipe_name': model_recipe_name,
         'run_name': run_name,
         'training_label': training_label,
