@@ -2,7 +2,10 @@
 Unit tests for training components.
 """
 
+import tempfile
 import unittest
+from pathlib import Path
+
 import torch
 from models import create_model
 from training import Trainer, calculate_loss, evaluate_model
@@ -159,6 +162,32 @@ class TestTraining(unittest.TestCase):
 
         self.assertEqual(len(losses), 2)
         self.assertTrue(all(isinstance(loss, float) for loss in losses))
+
+    def test_trainer_saves_static_tensorboard_plots(self):
+        """Test short training run saves JPG plots into tensorboard_dir."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            trainer = Trainer(
+                self.model,
+                learning_rate=0.01,
+                loss_type='nmse',
+                device='cpu',
+                tensorboard_dir=temp_dir,
+            )
+
+            trainer.train(
+                num_batches=2,
+                batch_size=16,
+                snr_config=parse_snr_config({'type': 'range', 'min': 10, 'max': 20}),
+                pos_values=[0, 3, 6, 9],
+                print_interval=1,
+                val_interval=1,
+                validation_batches=1,
+            )
+
+            tensorboard_dir = Path(temp_dir)
+            self.assertTrue((tensorboard_dir / 'loss_curves.jpg').exists())
+            self.assertTrue((tensorboard_dir / 'nmse_curves.jpg').exists())
+            self.assertTrue((tensorboard_dir / 'learning_rate.jpg').exists())
 
 
 if __name__ == '__main__':

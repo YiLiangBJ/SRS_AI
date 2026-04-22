@@ -11,6 +11,15 @@ import numpy as np
 from utils import discover_run_dirs, resolve_existing_path
 
 
+def _combined_plot_height(legend_count: int) -> float:
+    """Scale combined-plot height only when the legend becomes long."""
+    base_height = 7.0
+    if legend_count <= 20:
+        return base_height
+    extra_items = legend_count - 20
+    return min(16.0, base_height + extra_items * 0.28)
+
+
 def _place_legend_outside_right(figure, axis, fontsize=10, ncol=1):
     """Place the legend outside the plot area on the right."""
     axis.legend(
@@ -118,7 +127,8 @@ def generate_plots_programmatic(eval_results_path, output_dir):
         generated_files.append(plot_file)
         print(f"  ✓ Generated: {plot_file.name}")
 
-    fig, axis = plt.subplots(figsize=(12, 7))
+    combined_legend_count = len(results['models']) * len(tdl_list)
+    fig, axis = plt.subplots(figsize=(12, _combined_plot_height(combined_legend_count)))
     colors = plt.cm.tab10(np.linspace(0, 1, len(results['models'])))
 
     for index, (model_name, model_data) in enumerate(results['models'].items()):

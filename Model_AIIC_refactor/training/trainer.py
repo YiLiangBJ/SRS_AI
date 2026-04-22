@@ -8,6 +8,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 
@@ -111,6 +114,7 @@ class Trainer:
         
         # ✅ TensorBoard setup
         self.writer = None
+        self.tensorboard_dir = Path(tensorboard_dir) if tensorboard_dir is not None else None
         if tensorboard_dir is not None and TENSORBOARD_AVAILABLE:
             tensorboard_dir = Path(tensorboard_dir)
             tensorboard_dir.mkdir(parents=True, exist_ok=True)
@@ -204,6 +208,15 @@ class Trainer:
         # Training state
         self.losses = []
         self.val_losses = []
+        self.scalar_history = {
+            'Loss/train': [],
+            'Loss/validation': [],
+            'Learning_Rate': [],
+            'NMSE_dB/train': [],
+            'NMSE_dB/validation': [],
+            'Throughput/samples_per_sec': [],
+            'SNR/train': [],
+        }
         self.training_start_time = None
         self.current_batch = 0
         
@@ -211,6 +224,83 @@ class Trainer:
         self.data_gen_time = 0
         self.forward_time = 0
         self.backward_time = 0
+
+    def _record_scalar(self, tag: str, value: float, step: int):
+        """Record one scalar for TensorBoard and later static plot export."""
+        self.scalar_history.setdefault(tag, []).append((int(step), float(value)))
+        if self.writer is not None:
+            self.writer.add_scalar(tag, value, step)
+
+    def _save_scalar_plot(self, output_path: Path, title: str, ylabel: str, series: List[Dict[str, Any]]):
+        """Save one static JPG plot for one or more scalar series."""
+        valid_series = [item for item in series if item['points']]
+        if not valid_series:
+            return
+
+        fig, axis = plt.subplots(figsize=(10, 6))
+        for item in valid_series:
+            steps = [point[0] for point in item['points']]
+            values = [point[1] for point in item['points']]
+            axis.plot(steps, values, marker=item.get('marker', None), linewidth=2, label=item['label'])
+
+        axis.set_xlabel('Batch', fontsize=12)
+        axis.set_ylabel(ylabel, fontsize=12)
+        axis.set_title(title, fontsize=14, fontweight='bold')
+        axis.grid(True, alpha=0.3)
+        if len(valid_series) > 1 or valid_series[0]['label']:
+            axis.legend(loc='best', fontsize=10)
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+
+    def _save_tensorboard_static_plots(self):
+        """Export the most useful TensorBoard scalar curves as static JPG files."""
+        if self.tensorboard_dir is None:
+            return
+
+        self.tensorboard_dir.mkdir(parents=True, exist_ok=True)
+        self._save_scalar_plot(
+            output_path=self.tensorboard_dir / 'loss_curves.jpg',
+            title='Loss During Training',
+            ylabel='Loss',
+            series=[
+                {'label': 'Train Loss', 'points': self.scalar_history.get('Loss/train', []), 'marker': None},
+                {'label': 'Validation Loss', 'points': self.scalar_history.get('Loss/validation', []), 'marker': 'o'},
+            ],
+        )
+        self._save_scalar_plot(
+            output_path=self.tensorboard_dir / 'nmse_curves.jpg',
+            title='NMSE During Training',
+            ylabel='NMSE (dB)',
+            series=[
+                {'label': 'Train NMSE (dB)', 'points': self.scalar_history.get('NMSE_dB/train', []), 'marker': None},
+                {'label': 'Validation NMSE (dB)', 'points': self.scalar_history.get('NMSE_dB/validation', []), 'marker': 'o'},
+            ],
+        )
+        self._save_scalar_plot(
+            output_path=self.tensorboard_dir / 'learning_rate.jpg',
+            title='Learning Rate During Training',
+            ylabel='Learning Rate',
+            series=[
+                {'label': 'Learning Rate', 'points': self.scalar_history.get('Learning_Rate', []), 'marker': None},
+            ],
+        )
+        self._save_scalar_plot(
+            output_path=self.tensorboard_dir / 'throughput.jpg',
+            title='Training Throughput',
+            ylabel='Samples / s',
+            series=[
+                {'label': 'Throughput', 'points': self.scalar_history.get('Throughput/samples_per_sec', []), 'marker': None},
+            ],
+        )
+        self._save_scalar_plot(
+            output_path=self.tensorboard_dir / 'snr.jpg',
+            title='Sampled Training SNR',
+            ylabel='SNR (dB)',
+            series=[
+                {'label': 'SNR', 'points': self.scalar_history.get('SNR/train', []), 'marker': None},
+            ],
+        )
 
     def _generate_batch(
         self,
@@ -291,6 +381,8 @@ class Trainer:
         self.model.train()
         self.training_start_time = time.time()
         self.losses = []
+        for key in self.scalar_history:
+            self.scalar_history[key] = []
         
         # Reset timing counters
         self.data_gen_time = 0
@@ -370,10 +462,9 @@ class Trainer:
             self.losses.append(loss_value)
             
             # ✅ Log to TensorBoard
-            if self.writer is not None:
-                self.writer.add_scalar('Loss/train', loss_value, batch_idx)
-                self.writer.add_scalar('SNR/train', actual_snr, batch_idx)
-                self.writer.add_scalar('Learning_Rate', self.optimizer.param_groups[0]['lr'], batch_idx)
+            self._record_scalar('Loss/train', loss_value, batch_idx)
+            self._record_scalar('SNR/train', actual_snr, batch_idx)
+            self._record_scalar('Learning_Rate', self.optimizer.param_groups[0]['lr'], batch_idx)
             
             # Check if progress tracker should report (every 5 minutes)
             if progress_tracker:
@@ -394,7 +485,7 @@ class Trainer:
                 # ✅ Log NMSE to TensorBoard
                 if self.writer is not None:
                     self.writer.add_scalar('NMSE/train', nmse, batch_idx)
-                    self.writer.add_scalar('NMSE_dB/train', nmse_db, batch_idx)
+                self._record_scalar('NMSE_dB/train', nmse_db, batch_idx)
                 
                 # ✅ Calculate throughput: only samples since last print
                 current_time = time.time()
@@ -407,8 +498,8 @@ class Trainer:
                     samples_per_sec = 0
                 
                 # ✅ Log throughput to TensorBoard
-                if self.writer is not None and samples_per_sec > 0:
-                    self.writer.add_scalar('Throughput/samples_per_sec', samples_per_sec, batch_idx)
+                if samples_per_sec > 0:
+                    self._record_scalar('Throughput/samples_per_sec', samples_per_sec, batch_idx)
                 
                 # Update for next print
                 last_print_batch = batch_idx
@@ -478,9 +569,8 @@ class Trainer:
                 print(f"  Validation ({validation_batches} batches): Loss:{val_loss:.6f}, NMSE:{val_nmse_db:.2f}dB")
                 
                 # ✅ Log validation loss to TensorBoard
-                if self.writer is not None:
-                    self.writer.add_scalar('Loss/validation', val_loss, batch_idx)
-                    self.writer.add_scalar('NMSE_dB/validation', val_nmse_db, batch_idx)
+                self._record_scalar('Loss/validation', val_loss, batch_idx)
+                self._record_scalar('NMSE_dB/validation', val_nmse_db, batch_idx)
                 
                 # Early stopping
                 if early_stop_loss and val_loss < early_stop_loss:
@@ -495,6 +585,9 @@ class Trainer:
         print(f"\n✓ Training completed in {training_duration:.1f}s")
         print(f"  Final loss: {self.losses[-1]:.6f}")
         print(f"  Min loss: {min(self.losses):.6f}")
+        self._save_tensorboard_static_plots()
+        if self.tensorboard_dir is not None:
+            print(f"  📈 Static training curves saved: {self.tensorboard_dir}")
         
         # ✅ Close TensorBoard writer
         if self.writer is not None:

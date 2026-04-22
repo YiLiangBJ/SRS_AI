@@ -374,6 +374,12 @@ Model_AIIC_refactor/
         MODEL_FLOW.md
         model_flow.json
         tensorboard/
+          events.out.tfevents...
+          loss_curves.jpg
+          nmse_curves.jpg
+          learning_rate.jpg
+          throughput.jpg
+          snr.jpg
         stage_artifacts/
           <stage_name>/
             stage_summary.json
@@ -400,6 +406,14 @@ Model_AIIC_refactor/
         EVALUATION_SUMMARY.md
         plots/
 ```
+
+      The `tensorboard/` directory is now useful even if you never launch TensorBoard itself:
+
+      - `loss_curves.jpg`: train loss and validation loss when available
+      - `nmse_curves.jpg`: train and validation NMSE in dB when available
+      - `learning_rate.jpg`: learning-rate schedule over training
+      - `throughput.jpg`: sampled throughput over training
+      - `snr.jpg`: sampled training SNR over batches
 
 Example for a multi-run experiment:
 
