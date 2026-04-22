@@ -44,6 +44,11 @@ from .model_flow import (
     render_model_flow_markdown,
     save_model_flow_artifacts,
 )
+from .model_complexity import (
+    generate_model_complexity_spec,
+    render_model_complexity_markdown,
+    save_model_complexity_artifacts,
+)
 from .checkpoint_resume import (
     compare_model_specs,
     format_model_spec_mismatches,
@@ -94,6 +99,9 @@ __all__ = [
     'generate_model_flow_spec',
     'render_model_flow_markdown',
     'save_model_flow_artifacts',
+    'generate_model_complexity_spec',
+    'render_model_complexity_markdown',
+    'save_model_complexity_artifacts',
     'compare_model_specs',
     'format_model_spec_mismatches',
     'load_initial_checkpoint_state',

@@ -19,6 +19,7 @@ from utils import (
     build_training_artifact_spec,
     build_run_metadata,
     load_initial_checkpoint_state,
+    save_model_complexity_artifacts,
     save_model_flow_artifacts,
     save_run_config,
 )
@@ -280,6 +281,12 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         model_spec=model_spec_dict,
         component_specs=experiment.component_specs,
     )
+    complexity_artifacts = save_model_complexity_artifacts(
+        output_dir=experiment_dir,
+        model=effective_trainer.model,
+        model_spec=model_spec_dict,
+        component_specs=experiment.component_specs,
+    )
     print(f"✓ Model saved to: {experiment_dir}")
 
     result = {
@@ -299,6 +306,7 @@ def _run_single_plan_item(experiment, suite, request, device, progress_tracker, 
         'init_checkpoint_path': str(init_checkpoint_artifacts.checkpoint_path) if init_checkpoint_artifacts else None,
         'stage_summaries': getattr(training_strategy, '_stage_summaries', []),
         'model_flow_markdown_path': flow_artifacts['markdown_path'],
+        'model_complexity_markdown_path': complexity_artifacts['markdown_path'],
         'avg_training_throughput': (batch_size * num_batches / training_duration) if training_duration > 0 else 0.0,
         'timing_breakdown': {
             'data_gen_time': effective_trainer.data_gen_time,

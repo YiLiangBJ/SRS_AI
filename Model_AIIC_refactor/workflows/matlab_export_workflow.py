@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from scipy.io import savemat
 
-from utils import build_dummy_input, load_trained_model_from_checkpoint, load_trained_model_from_run, resolve_run_selection, save_model_flow_artifacts
+from utils import build_dummy_input, load_trained_model_from_checkpoint, load_trained_model_from_run, resolve_run_selection, save_model_complexity_artifacts, save_model_flow_artifacts
 
 
 def _to_numpy(tensor: torch.Tensor) -> np.ndarray:
@@ -167,6 +167,12 @@ def export_run_to_matlab_bundle(
         model_spec=model_spec,
         component_specs=artifacts.component_specs,
     )
+    complexity_artifacts = save_model_complexity_artifacts(
+        output_dir=run_output_dir,
+        model=model,
+        model_spec=model_spec,
+        component_specs=artifacts.component_specs,
+    )
 
     manifest = {
         'timestamp': datetime.now().isoformat(),
@@ -198,6 +204,9 @@ def export_run_to_matlab_bundle(
         'model_flow': flow_artifacts['flow_spec'],
         'model_flow_json_path': flow_artifacts['json_path'],
         'model_flow_markdown_path': flow_artifacts['markdown_path'],
+        'model_complexity': complexity_artifacts['complexity_spec'],
+        'model_complexity_json_path': complexity_artifacts['json_path'],
+        'model_complexity_markdown_path': complexity_artifacts['markdown_path'],
         'input_normalization': {
             'enabled': bool(model_spec.get('normalize_energy', False)),
             'rule': 'Per-sample RMS over the complex sequence; output is rescaled by the same factor after separation.',
@@ -267,6 +276,12 @@ def export_checkpoint_to_matlab_bundle(
         model_spec=model_spec,
         component_specs=artifacts.component_specs,
     )
+    complexity_artifacts = save_model_complexity_artifacts(
+        output_dir=run_output_dir,
+        model=model,
+        model_spec=model_spec,
+        component_specs=artifacts.component_specs,
+    )
 
     manifest = {
         'timestamp': datetime.now().isoformat(),
@@ -298,6 +313,9 @@ def export_checkpoint_to_matlab_bundle(
         'model_flow': flow_artifacts['flow_spec'],
         'model_flow_json_path': flow_artifacts['json_path'],
         'model_flow_markdown_path': flow_artifacts['markdown_path'],
+        'model_complexity': complexity_artifacts['complexity_spec'],
+        'model_complexity_json_path': complexity_artifacts['json_path'],
+        'model_complexity_markdown_path': complexity_artifacts['markdown_path'],
         'input_normalization': {
             'enabled': bool(model_spec.get('normalize_energy', False)),
             'rule': 'Per-sample RMS over the complex sequence; output is rescaled by the same factor after separation.',

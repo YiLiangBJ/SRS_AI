@@ -14,7 +14,7 @@ import yaml
 from scipy.io import loadmat
 
 from models import create_model
-from utils import compare_model_specs, find_checkpoint_path, load_initial_checkpoint_state, load_run_artifacts, save_model_flow_artifacts
+from utils import compare_model_specs, find_checkpoint_path, load_initial_checkpoint_state, load_run_artifacts, save_model_complexity_artifacts, save_model_flow_artifacts
 from workflows.evaluation_workflow import evaluate_models_programmatic, resolve_evaluation_output_dir
 from workflows.export_workflow import export_checkpoint_to_onnx, export_run_to_onnx, export_runs_to_onnx
 from workflows.matlab_export_workflow import export_checkpoint_to_matlab_bundle, export_run_to_matlab_bundle, export_runs_to_matlab_bundle
@@ -339,6 +339,21 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertIn('param_count_per_occurrence', artifacts['flow_spec']['nodes'][0])
         self.assertIn('why', artifacts['flow_spec']['nodes'][0])
 
+    def test_save_model_complexity_artifacts_writes_human_readable_files(self):
+        model = create_model('separator1', self.model_spec)
+        artifacts = save_model_complexity_artifacts(
+            output_dir=self.run_dir,
+            model=model,
+            model_spec=self.model_spec,
+            component_specs=self.component_specs,
+        )
+
+        self.assertTrue(Path(artifacts['json_path']).exists())
+        self.assertTrue(Path(artifacts['markdown_path']).exists())
+        self.assertGreater(artifacts['complexity_spec']['summary']['trainable_parameters'], 0)
+        self.assertIn('macs_per_sample', artifacts['complexity_spec']['summary'])
+        self.assertIn('flops_per_sample_estimate', artifacts['complexity_spec']['summary'])
+
     def test_compare_model_specs_reports_mismatch(self):
         mismatches = compare_model_specs(
             self.model_spec,
@@ -500,6 +515,8 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(manifest['matlab_notes']['normalize_energy'])
         self.assertTrue(Path(manifest['model_flow_json_path']).exists())
         self.assertTrue(Path(manifest['model_flow_markdown_path']).exists())
+        self.assertTrue(Path(manifest['model_complexity_json_path']).exists())
+        self.assertTrue(Path(manifest['model_complexity_markdown_path']).exists())
 
     def test_export_run_to_onnx_supports_full_mlp(self):
         run_dir = self._create_run(
@@ -548,6 +565,8 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertEqual(manifest['sample_input_shape'][0], 1)
         self.assertTrue(Path(manifest['model_flow_json_path']).exists())
         self.assertTrue(Path(manifest['model_flow_markdown_path']).exists())
+        self.assertTrue(Path(manifest['model_complexity_json_path']).exists())
+        self.assertTrue(Path(manifest['model_complexity_markdown_path']).exists())
 
     def test_export_checkpoint_to_matlab_bundle_respects_explicit_checkpoint(self):
         manifest = export_checkpoint_to_matlab_bundle(checkpoint_path=self.explicit_checkpoint_path)

@@ -11,6 +11,18 @@ import numpy as np
 from utils import discover_run_dirs, resolve_existing_path
 
 
+def _place_legend_outside_right(figure, axis, fontsize=10, ncol=1):
+    """Place the legend outside the plot area on the right."""
+    axis.legend(
+        loc='center left',
+        bbox_to_anchor=(1.02, 0.5),
+        borderaxespad=0.0,
+        fontsize=fontsize,
+        ncol=ncol,
+    )
+    figure.tight_layout(rect=(0, 0, 0.82, 1))
+
+
 def _resolve_input_path(path_value) -> Path:
     """Resolve a plotting input path against the project roots."""
     resolved = resolve_existing_path(path_value)
@@ -97,7 +109,7 @@ def generate_plots_programmatic(eval_results_path, output_dir):
         axis.set_ylabel('NMSE (dB)', fontsize=12)
         axis.set_title(f'NMSE vs SNR - TDL-{tdl_config}', fontsize=14, fontweight='bold')
         axis.grid(True, alpha=0.3)
-        axis.legend(fontsize=10)
+        _place_legend_outside_right(fig, axis, fontsize=10)
 
         plot_file = output_dir / f'nmse_vs_snr_TDL_{tdl_config.replace("-", "_")}.png'
         plt.savefig(plot_file, dpi=150, bbox_inches='tight')
@@ -127,7 +139,7 @@ def generate_plots_programmatic(eval_results_path, output_dir):
     axis.set_ylabel('NMSE (dB)', fontsize=12)
     axis.set_title('NMSE vs SNR - All Configurations', fontsize=14, fontweight='bold')
     axis.grid(True, alpha=0.3)
-    axis.legend(fontsize=9, ncol=2)
+    _place_legend_outside_right(fig, axis, fontsize=9, ncol=1)
 
     combined_plot = output_dir / 'nmse_vs_snr_combined.png'
     plt.savefig(combined_plot, dpi=150, bbox_inches='tight')
