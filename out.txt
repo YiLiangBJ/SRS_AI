@@ -10,15 +10,39 @@ Warmup iterations: 20
 Measure iterations: 50
 
 Traceback (most recent call last):
-  File "/home/liangyi/SRS_AI/./Model_AIIC_refactor/benchmark_latency.py", line 74, in <module>
+  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1116, in mkdir
+    os.mkdir(self, mode)
+FileNotFoundError: [Errno 2] No such file or directory: '/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/latency/20260422_074230_full_mlp_capacity_search_hd128_depth2_full_mlp_capacity_search_hd128_depth3_full_mlp_capacity_search_hd128_depth4_full_mlp_capacity_search_hd128_depth5_full_mlp_capacity_search_hd256_depth2_full_mlp_capacity_search_hd256_depth3_full_mlp_capacity_search_hd256_depth4_full_mlp_capacity_search_hd256_depth5_full_mlp_capacity_search_hd32_depth2_full_mlp_capacity_search_hd32_depth3_full_mlp_capacity_search_hd32_depth4_full_mlp_capacity_search_hd32_depth5_full_mlp_capacity_search_hd512_depth2_full_mlp_capacity_search_hd512_depth3_full_mlp_capacity_search_hd512_depth4_full_mlp_capacity_search_hd512_depth5_full_mlp_capacity_search_hd64_depth2_full_mlp_capacity_search_hd64_depth3_full_mlp_capacity_search_hd64_depth4_full_mlp_capacity_search_hd64_depth5_cpu'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1116, in mkdir
+    os.mkdir(self, mode)
+OSError: [Errno 36] File name too long: '/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/latency/20260422_074230_full_mlp_capacity_search_hd128_depth2_full_mlp_capacity_search_hd128_depth3_full_mlp_capacity_search_hd128_depth4_full_mlp_capacity_search_hd128_depth5_full_mlp_capacity_search_hd256_depth2_full_mlp_capacity_search_hd256_depth3_full_mlp_capacity_search_hd256_depth4_full_mlp_capacity_search_hd256_depth5_full_mlp_capacity_search_hd32_depth2_full_mlp_capacity_search_hd32_depth3_full_mlp_capacity_search_hd32_depth4_full_mlp_capacity_search_hd32_depth5_full_mlp_capacity_search_hd512_depth2_full_mlp_capacity_search_hd512_depth3_full_mlp_capacity_search_hd512_depth4_full_mlp_capacity_search_hd512_depth5_full_mlp_capacity_search_hd64_depth2_full_mlp_capacity_search_hd64_depth3_full_mlp_capacity_search_hd64_depth4_full_mlp_capacity_search_hd64_depth5_cpu'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/liangyi/SRS_AI/./Model_AIIC_refactor/benchmark_latency.py", line 78, in <module>
     main()
-  File "/home/liangyi/SRS_AI/./Model_AIIC_refactor/benchmark_latency.py", line 53, in main
+  File "/home/liangyi/SRS_AI/./Model_AIIC_refactor/benchmark_latency.py", line 57, in main
     artifacts = benchmark_latency_programmatic(
                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/liangyi/SRS_AI/Model_AIIC_refactor/benchmarks/workflow.py", line 683, in benchmark_latency_programmatic
-    target_dirs = resolve_run_selection(exp_dir=exp_dir, run_dir=run_dir, run_dirs=run_dirs, runs=runs)
-                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/liangyi/SRS_AI/Model_AIIC_refactor/utils/run_selection.py", line 117, in resolve_run_selection
-    raise FileNotFoundError(
-FileNotFoundError: Missing evaluable checkpoint in the following directories:
-/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2
+  File "/home/liangyi/SRS_AI/Model_AIIC_refactor/benchmarks/workflow.py", line 783, in benchmark_latency_programmatic
+    aggregate_artifacts = save_latency_results(aggregate_payload, aggregate_output_dir, aggregate=True)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/liangyi/SRS_AI/Model_AIIC_refactor/benchmarks/workflow.py", line 671, in save_latency_results
+    output_dir.mkdir(parents=True, exist_ok=True)
+  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1121, in mkdir
+    self.mkdir(mode, parents=False, exist_ok=exist_ok)
+  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1125, in mkdir
+    if not exist_ok or not self.is_dir():
+                           ^^^^^^^^^^^^^
+  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1250, in is_dir
+    return S_ISDIR(self.stat().st_mode)
+                   ^^^^^^^^^^^
+  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1013, in stat
+    return os.stat(self, follow_symlinks=follow_symlinks)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 36] File name too long: '/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/latency/20260422_074230_full_mlp_capacity_search_hd128_depth2_full_mlp_capacity_search_hd128_depth3_full_mlp_capacity_search_hd128_depth4_full_mlp_capacity_search_hd128_depth5_full_mlp_capacity_search_hd256_depth2_full_mlp_capacity_search_hd256_depth3_full_mlp_capacity_search_hd256_depth4_full_mlp_capacity_search_hd256_depth5_full_mlp_capacity_search_hd32_depth2_full_mlp_capacity_search_hd32_depth3_full_mlp_capacity_search_hd32_depth4_full_mlp_capacity_search_hd32_depth5_full_mlp_capacity_search_hd512_depth2_full_mlp_capacity_search_hd512_depth3_full_mlp_capacity_search_hd512_depth4_full_mlp_capacity_search_hd512_depth5_full_mlp_capacity_search_hd64_depth2_full_mlp_capacity_search_hd64_depth3_full_mlp_capacity_search_hd64_depth4_full_mlp_capacity_search_hd64_depth5_cpu'

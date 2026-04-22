@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import multiprocessing as mp
 import os
@@ -131,7 +132,9 @@ def _build_scope_label(run_dirs: List[Path]) -> str:
         return 'no-runs'
     if len(run_dirs) == 1:
         return run_dirs[0].name
-    return '_'.join(run_dir.name for run_dir in run_dirs)
+    joined_names = '|'.join(run_dir.name for run_dir in sorted(run_dirs, key=lambda path: path.name))
+    digest = hashlib.sha1(joined_names.encode('utf-8')).hexdigest()[:10]
+    return f'all-runs_{len(run_dirs)}runs_{digest}'
 
 
 def resolve_latency_output_dir(exp_dir: Path | None = None, run_dirs: Optional[List[Path]] = None, explicit_output=None, device_type: str = 'cpu', benchmark_id: Optional[str] = None) -> Path:
@@ -741,11 +744,23 @@ def benchmark_latency_programmatic(
         warmup_iters=warmup_iters,
         measure_iters=measure_iters,
     )
+    print(f'Benchmark tasks: {len(tasks)} total')
 
     per_run_results: Dict[str, List[Dict[str, Any]]] = {run_dir.name: [] for run_dir in target_dirs}
     aggregate_results: List[Dict[str, Any]] = []
-    for task in tasks:
+    for task_index, task in enumerate(tasks, start=1):
+        print(
+            f"[{task_index}/{len(tasks)}] Benchmarking run={Path(task.run_dir).name} "
+            f"device={task.device} precision={task.precision} batch={task.batch_size} threads={task.num_threads}"
+        )
         result = execute_latency_task(task)
+        if result.get('status') == 'ok':
+            print(
+                f"  -> done: p50={result['p50_latency_ms']:.3f} ms, "
+                f"throughput={result['throughput_samples_per_sec']:.3f} samples/s"
+            )
+        else:
+            print(f"  -> skipped: {result.get('skip_reason', 'unknown reason')}")
         per_run_results[Path(task.run_dir).name].append(result)
         aggregate_results.append(result)
 

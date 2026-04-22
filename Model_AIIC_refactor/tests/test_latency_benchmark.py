@@ -1,6 +1,7 @@
 """Tests for standalone latency benchmarking workflow."""
 
 import json
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -125,6 +126,18 @@ class TestLatencyBenchmark(unittest.TestCase):
         output_dir = resolve_latency_output_dir(exp_dir=self.exp_dir, run_dirs=[self.run_dir], device_type='cpu', benchmark_id='20260422_000000')
         self.assertEqual(output_dir.parent, self.exp_dir / 'latency')
         self.assertEqual(output_dir.name, '20260422_000000_demo_run_cpu')
+
+    def test_resolve_latency_output_dir_shortens_multi_run_scope_label(self):
+        second_run_dir = self.exp_dir / 'demo_run_b'
+        second_run_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = resolve_latency_output_dir(
+            exp_dir=self.exp_dir,
+            run_dirs=[self.run_dir, second_run_dir],
+            device_type='cpu',
+            benchmark_id='20260422_000000',
+        )
+        self.assertEqual(output_dir.parent, self.exp_dir / 'latency')
+        self.assertRegex(output_dir.name, r'^20260422_000000_all-runs_2runs_[0-9a-f]{10}_cpu$')
 
     def test_normalize_latency_selection_accepts_experiment_path_via_run_dir(self):
         exp_dir, run_dir, run_dirs, runs = normalize_latency_selection(run_dir=str(self.exp_dir))
@@ -385,7 +398,7 @@ class TestLatencyBenchmark(unittest.TestCase):
             },
         ]
 
-        with patch('benchmarks.workflow.execute_latency_task', side_effect=fake_results):
+        with patch('benchmarks.workflow.execute_latency_task', side_effect=fake_results), patch('sys.stdout', new_callable=io.StringIO) as stdout:
             artifacts = benchmark_latency_programmatic(
                 exp_dir=self.exp_dir,
                 device='cpu',
@@ -395,6 +408,7 @@ class TestLatencyBenchmark(unittest.TestCase):
                 warmup_iters=1,
                 measure_iters=2,
             )
+        console_text = stdout.getvalue()
 
         self.assertIn(self.run_dir.name, artifacts['per_run_artifacts'])
         run_report = Path(artifacts['per_run_artifacts'][self.run_dir.name]['report_path'])
@@ -413,6 +427,9 @@ class TestLatencyBenchmark(unittest.TestCase):
         self.assertIn('Model complexity JSON', report_text)
         self.assertIn('Best throughput config', report_text)
         self.assertIn('Lowest batch-1 p50 latency', report_text)
+        self.assertIn('Benchmark tasks: 8 total', console_text)
+        self.assertIn('[1/8] Benchmarking run=demo_run device=cpu precision=fp32 batch=1 threads=1', console_text)
+        self.assertIn('-> done: p50=1.000 ms', console_text)
         plot_files = artifacts['aggregate_artifacts']['plot_files']
         self.assertTrue(any(path.endswith('bs1_p50_comparison.jpg') for path in plot_files))
         self.assertTrue(any('p50_latency_vs_batch_threads_1.jpg' in path for path in plot_files))
