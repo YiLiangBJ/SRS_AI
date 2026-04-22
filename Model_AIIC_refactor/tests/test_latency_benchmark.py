@@ -11,6 +11,7 @@ import torch
 import yaml
 
 import benchmark_latency
+import plot_latency_benchmark
 from benchmarks.workflow import (
     LatencyTask,
     benchmark_latency_programmatic,
@@ -18,9 +19,11 @@ from benchmarks.workflow import (
     default_thread_counts,
     normalize_latency_selection,
     parse_csv_ints,
+    parse_execution_modes,
     parse_precision_profiles,
     resolve_latency_output_dir,
 )
+from benchmarks.plotting import generate_latency_comparison_plots
 from models import create_model
 from utils import save_model_complexity_artifacts
 
@@ -98,7 +101,19 @@ class TestLatencyBenchmark(unittest.TestCase):
         args = parser.parse_args(['--run_dir', str(self.run_dir)])
         self.assertEqual(args.device, 'cpu')
         self.assertEqual(args.batch_sizes, '1,2,4,8,16,32,64,128')
+        self.assertIsNone(args.execution_modes)
         self.assertIsNone(args.thread_counts)
+
+    def test_plot_latency_benchmark_parser_defaults(self):
+        parser = plot_latency_benchmark.build_parser()
+        args = parser.parse_args(['--input', str(self.run_dir)])
+        self.assertEqual(args.metric, 'p50_latency_ms')
+        self.assertIsNone(args.output)
+        self.assertIsNone(args.runs)
+
+    def test_execution_modes_default_by_device(self):
+        self.assertEqual(parse_execution_modes('cpu', None), ['eager', 'jit', 'compile'])
+        self.assertEqual(parse_execution_modes('cuda', None), ['eager'])
 
     def test_precision_profiles_default_by_device(self):
         self.assertEqual(parse_precision_profiles('cpu', None), ['fp32', 'bf16'])
@@ -113,14 +128,16 @@ class TestLatencyBenchmark(unittest.TestCase):
         tasks = build_latency_task_matrix(
             run_dirs=[self.run_dir],
             device=torch.device('cpu'),
+            execution_modes=['eager', 'jit'],
             precision_profiles=['fp32'],
             batch_sizes=[1, 8],
             thread_counts=[1, 4],
             warmup_iters=2,
             measure_iters=3,
         )
-        self.assertEqual(len(tasks), 4)
+        self.assertEqual(len(tasks), 8)
         self.assertIsInstance(tasks[0], LatencyTask)
+        self.assertEqual(tasks[0].execution_mode, 'eager')
 
     def test_resolve_latency_output_dir_prefers_experiment_dir(self):
         output_dir = resolve_latency_output_dir(exp_dir=self.exp_dir, run_dirs=[self.run_dir], device_type='cpu', benchmark_id='20260422_000000')
@@ -186,8 +203,10 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'run_dir': str(self.run_dir),
                 'run_name': self.run_dir.name,
                 'device': 'cpu',
+                'execution_mode': 'eager',
                 'requested_precision_profile': 'fp32',
                 'effective_execution_dtype': 'float32',
+                'graph_prep_time_ms': 0.0,
                 'batch_size': 1,
                 'num_threads': 1,
                 'warmup_iters': 1,
@@ -213,8 +232,10 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'run_dir': str(self.run_dir),
                 'run_name': self.run_dir.name,
                 'device': 'cpu',
+                'execution_mode': 'eager',
                 'requested_precision_profile': 'fp32',
                 'effective_execution_dtype': 'float32',
+                'graph_prep_time_ms': 0.0,
                 'batch_size': 1,
                 'num_threads': 4,
                 'warmup_iters': 1,
@@ -240,8 +261,10 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'run_dir': str(self.run_dir),
                 'run_name': self.run_dir.name,
                 'device': 'cpu',
+                'execution_mode': 'eager',
                 'requested_precision_profile': 'fp32',
                 'effective_execution_dtype': 'float32',
+                'graph_prep_time_ms': 0.0,
                 'batch_size': 8,
                 'num_threads': 4,
                 'warmup_iters': 1,
@@ -267,8 +290,10 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'run_dir': str(second_run_dir),
                 'run_name': second_run_dir.name,
                 'device': 'cpu',
+                'execution_mode': 'eager',
                 'requested_precision_profile': 'fp32',
                 'effective_execution_dtype': 'float32',
+                'graph_prep_time_ms': 0.0,
                 'batch_size': 1,
                 'num_threads': 1,
                 'warmup_iters': 1,
@@ -294,8 +319,10 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'run_dir': str(second_run_dir),
                 'run_name': second_run_dir.name,
                 'device': 'cpu',
+                'execution_mode': 'eager',
                 'requested_precision_profile': 'fp32',
                 'effective_execution_dtype': 'float32',
+                'graph_prep_time_ms': 0.0,
                 'batch_size': 8,
                 'num_threads': 4,
                 'warmup_iters': 1,
@@ -321,8 +348,10 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'run_dir': str(second_run_dir),
                 'run_name': second_run_dir.name,
                 'device': 'cpu',
+                'execution_mode': 'eager',
                 'requested_precision_profile': 'fp32',
                 'effective_execution_dtype': 'float32',
+                'graph_prep_time_ms': 0.0,
                 'batch_size': 1,
                 'num_threads': 4,
                 'warmup_iters': 1,
@@ -348,8 +377,10 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'run_dir': str(self.run_dir),
                 'run_name': self.run_dir.name,
                 'device': 'cpu',
+                'execution_mode': 'eager',
                 'requested_precision_profile': 'fp32',
                 'effective_execution_dtype': 'float32',
+                'graph_prep_time_ms': 0.0,
                 'batch_size': 8,
                 'num_threads': 1,
                 'warmup_iters': 1,
@@ -375,8 +406,10 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'run_dir': str(second_run_dir),
                 'run_name': second_run_dir.name,
                 'device': 'cpu',
+                'execution_mode': 'eager',
                 'requested_precision_profile': 'fp32',
                 'effective_execution_dtype': 'float32',
+                'graph_prep_time_ms': 0.0,
                 'batch_size': 8,
                 'num_threads': 1,
                 'warmup_iters': 1,
@@ -402,6 +435,7 @@ class TestLatencyBenchmark(unittest.TestCase):
             artifacts = benchmark_latency_programmatic(
                 exp_dir=self.exp_dir,
                 device='cpu',
+                execution_modes='eager',
                 precision_profiles='fp32',
                 batch_sizes='1,8',
                 thread_counts='1,4',
@@ -418,6 +452,7 @@ class TestLatencyBenchmark(unittest.TestCase):
         with open(Path(artifacts['aggregate_artifacts']['json_path']), 'r', encoding='utf-8') as input_file:
             saved = json.load(input_file)
         self.assertEqual(saved['device'], 'cpu')
+        self.assertEqual(saved['execution_modes'], ['eager'])
         self.assertEqual(saved['precision_profiles'], ['fp32'])
         self.assertEqual(saved['batch_sizes'], [1, 8])
         self.assertIn('cpu_thread_scaling_summaries', saved)
@@ -425,15 +460,116 @@ class TestLatencyBenchmark(unittest.TestCase):
             report_text = input_file.read()
         self.assertIn('Trainable parameters', report_text)
         self.assertIn('Model complexity JSON', report_text)
+        self.assertIn('Execution mode: `eager`', report_text)
         self.assertIn('Best throughput config', report_text)
         self.assertIn('Lowest batch-1 p50 latency', report_text)
         self.assertIn('Benchmark tasks: 8 total', console_text)
-        self.assertIn('[1/8] Benchmarking run=demo_run device=cpu precision=fp32 batch=1 threads=1', console_text)
-        self.assertIn('-> done: p50=1.000 ms', console_text)
+        self.assertIn('[1/8] Benchmarking run=demo_run device=cpu mode=eager precision=fp32 batch=1 threads=1', console_text)
+        self.assertIn('-> done: prep=0.000 ms, p50=1.000 ms', console_text)
         plot_files = artifacts['aggregate_artifacts']['plot_files']
         self.assertTrue(any(path.endswith('bs1_p50_comparison.jpg') for path in plot_files))
         self.assertTrue(any('p50_latency_vs_batch_threads_1.jpg' in path for path in plot_files))
         self.assertTrue(any('throughput_vs_batch_threads_1.jpg' in path for path in plot_files))
+
+    def test_generate_latency_comparison_plots_creates_both_subplot_views(self):
+        latency_dir = self.root / 'latency_case'
+        latency_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            'device': 'cpu',
+            'execution_modes': ['eager', 'jit'],
+            'precision_profiles': ['fp32', 'bf16'],
+            'batch_sizes': [1, 8],
+            'thread_counts': [1],
+            'results': [
+                {
+                    'status': 'ok',
+                    'run_name': 'model_a',
+                    'execution_mode': 'eager',
+                    'requested_precision_profile': 'fp32',
+                    'batch_size': 1,
+                    'num_threads': 1,
+                    'p50_latency_ms': 1.0,
+                    'throughput_samples_per_sec': 1000.0,
+                },
+                {
+                    'status': 'ok',
+                    'run_name': 'model_a',
+                    'execution_mode': 'jit',
+                    'requested_precision_profile': 'fp32',
+                    'batch_size': 1,
+                    'num_threads': 1,
+                    'p50_latency_ms': 0.8,
+                    'throughput_samples_per_sec': 1200.0,
+                },
+                {
+                    'status': 'ok',
+                    'run_name': 'model_b',
+                    'execution_mode': 'eager',
+                    'requested_precision_profile': 'bf16',
+                    'batch_size': 1,
+                    'num_threads': 1,
+                    'p50_latency_ms': 0.9,
+                    'throughput_samples_per_sec': 1100.0,
+                },
+                {
+                    'status': 'ok',
+                    'run_name': 'model_b',
+                    'execution_mode': 'jit',
+                    'requested_precision_profile': 'bf16',
+                    'batch_size': 1,
+                    'num_threads': 1,
+                    'p50_latency_ms': 0.7,
+                    'throughput_samples_per_sec': 1300.0,
+                },
+                {
+                    'status': 'ok',
+                    'run_name': 'model_a',
+                    'execution_mode': 'eager',
+                    'requested_precision_profile': 'fp32',
+                    'batch_size': 8,
+                    'num_threads': 1,
+                    'p50_latency_ms': 2.0,
+                    'throughput_samples_per_sec': 4000.0,
+                },
+                {
+                    'status': 'ok',
+                    'run_name': 'model_a',
+                    'execution_mode': 'jit',
+                    'requested_precision_profile': 'fp32',
+                    'batch_size': 8,
+                    'num_threads': 1,
+                    'p50_latency_ms': 1.7,
+                    'throughput_samples_per_sec': 4700.0,
+                },
+                {
+                    'status': 'ok',
+                    'run_name': 'model_b',
+                    'execution_mode': 'eager',
+                    'requested_precision_profile': 'bf16',
+                    'batch_size': 8,
+                    'num_threads': 1,
+                    'p50_latency_ms': 1.8,
+                    'throughput_samples_per_sec': 4400.0,
+                },
+                {
+                    'status': 'ok',
+                    'run_name': 'model_b',
+                    'execution_mode': 'jit',
+                    'requested_precision_profile': 'bf16',
+                    'batch_size': 8,
+                    'num_threads': 1,
+                    'p50_latency_ms': 1.5,
+                    'throughput_samples_per_sec': 5000.0,
+                },
+            ],
+        }
+        with open(latency_dir / 'latency_results.json', 'w', encoding='utf-8') as output_file:
+            json.dump(payload, output_file)
+
+        generated = generate_latency_comparison_plots(latency_dir)
+        names = {Path(path).name for path in generated}
+        self.assertIn('mode_panels_p50_latency_ms_threads_1.jpg', names)
+        self.assertIn('model_precision_panels_p50_latency_ms_threads_1.jpg', names)
 
 
 if __name__ == '__main__':

@@ -61,6 +61,7 @@ class TestCliDefaults(unittest.TestCase):
         args = parser.parse_args(['--run_dir', './experiments_refactored/demo'])
         self.assertEqual(args.device, 'cpu')
         self.assertEqual(args.batch_sizes, '1,2,4,8,16,32,64,128')
+        self.assertIsNone(args.execution_modes)
         self.assertEqual(args.warmup_iters, 20)
         self.assertEqual(args.measure_iters, 50)
         self.assertIsNone(args.thread_counts)

@@ -3,46 +3,104 @@ nohup: ignoring input
 Latency Benchmark
 ================================================================================
 Device: cpu
+Execution modes: ['eager', 'jit', 'compile']
 Precision profiles: ['fp32', 'bf16']
 Batch sizes: 1,2,4,8,16,32,64,128
 Thread counts: [1, 2, 4, 8, 64]
 Warmup iterations: 20
 Measure iterations: 50
 
-Traceback (most recent call last):
-  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1116, in mkdir
-    os.mkdir(self, mode)
-FileNotFoundError: [Errno 2] No such file or directory: '/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/latency/20260422_074230_full_mlp_capacity_search_hd128_depth2_full_mlp_capacity_search_hd128_depth3_full_mlp_capacity_search_hd128_depth4_full_mlp_capacity_search_hd128_depth5_full_mlp_capacity_search_hd256_depth2_full_mlp_capacity_search_hd256_depth3_full_mlp_capacity_search_hd256_depth4_full_mlp_capacity_search_hd256_depth5_full_mlp_capacity_search_hd32_depth2_full_mlp_capacity_search_hd32_depth3_full_mlp_capacity_search_hd32_depth4_full_mlp_capacity_search_hd32_depth5_full_mlp_capacity_search_hd512_depth2_full_mlp_capacity_search_hd512_depth3_full_mlp_capacity_search_hd512_depth4_full_mlp_capacity_search_hd512_depth5_full_mlp_capacity_search_hd64_depth2_full_mlp_capacity_search_hd64_depth3_full_mlp_capacity_search_hd64_depth4_full_mlp_capacity_search_hd64_depth5_cpu'
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1116, in mkdir
-    os.mkdir(self, mode)
-OSError: [Errno 36] File name too long: '/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/latency/20260422_074230_full_mlp_capacity_search_hd128_depth2_full_mlp_capacity_search_hd128_depth3_full_mlp_capacity_search_hd128_depth4_full_mlp_capacity_search_hd128_depth5_full_mlp_capacity_search_hd256_depth2_full_mlp_capacity_search_hd256_depth3_full_mlp_capacity_search_hd256_depth4_full_mlp_capacity_search_hd256_depth5_full_mlp_capacity_search_hd32_depth2_full_mlp_capacity_search_hd32_depth3_full_mlp_capacity_search_hd32_depth4_full_mlp_capacity_search_hd32_depth5_full_mlp_capacity_search_hd512_depth2_full_mlp_capacity_search_hd512_depth3_full_mlp_capacity_search_hd512_depth4_full_mlp_capacity_search_hd512_depth5_full_mlp_capacity_search_hd64_depth2_full_mlp_capacity_search_hd64_depth3_full_mlp_capacity_search_hd64_depth4_full_mlp_capacity_search_hd64_depth5_cpu'
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/liangyi/SRS_AI/./Model_AIIC_refactor/benchmark_latency.py", line 78, in <module>
-    main()
-  File "/home/liangyi/SRS_AI/./Model_AIIC_refactor/benchmark_latency.py", line 57, in main
-    artifacts = benchmark_latency_programmatic(
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/liangyi/SRS_AI/Model_AIIC_refactor/benchmarks/workflow.py", line 783, in benchmark_latency_programmatic
-    aggregate_artifacts = save_latency_results(aggregate_payload, aggregate_output_dir, aggregate=True)
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/liangyi/SRS_AI/Model_AIIC_refactor/benchmarks/workflow.py", line 671, in save_latency_results
-    output_dir.mkdir(parents=True, exist_ok=True)
-  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1121, in mkdir
-    self.mkdir(mode, parents=False, exist_ok=exist_ok)
-  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1125, in mkdir
-    if not exist_ok or not self.is_dir():
-                           ^^^^^^^^^^^^^
-  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1250, in is_dir
-    return S_ISDIR(self.stat().st_mode)
-                   ^^^^^^^^^^^
-  File "/home/liangyi/.local/share/uv/python/cpython-3.11.9-linux-x86_64-gnu/lib/python3.11/pathlib.py", line 1013, in stat
-    return os.stat(self, follow_symlinks=follow_symlinks)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-OSError: [Errno 36] File name too long: '/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/latency/20260422_074230_full_mlp_capacity_search_hd128_depth2_full_mlp_capacity_search_hd128_depth3_full_mlp_capacity_search_hd128_depth4_full_mlp_capacity_search_hd128_depth5_full_mlp_capacity_search_hd256_depth2_full_mlp_capacity_search_hd256_depth3_full_mlp_capacity_search_hd256_depth4_full_mlp_capacity_search_hd256_depth5_full_mlp_capacity_search_hd32_depth2_full_mlp_capacity_search_hd32_depth3_full_mlp_capacity_search_hd32_depth4_full_mlp_capacity_search_hd32_depth5_full_mlp_capacity_search_hd512_depth2_full_mlp_capacity_search_hd512_depth3_full_mlp_capacity_search_hd512_depth4_full_mlp_capacity_search_hd512_depth5_full_mlp_capacity_search_hd64_depth2_full_mlp_capacity_search_hd64_depth3_full_mlp_capacity_search_hd64_depth4_full_mlp_capacity_search_hd64_depth5_cpu'
+Benchmark tasks: 4800 total
+[1/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=1 threads=1
+  -> done: prep=0.000 ms, p50=0.059 ms, throughput=16728.741 samples/s
+[2/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=1 threads=2
+  -> done: prep=0.000 ms, p50=0.057 ms, throughput=17225.698 samples/s
+[3/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=1 threads=4
+  -> done: prep=0.000 ms, p50=0.057 ms, throughput=17391.897 samples/s
+[4/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=1 threads=8
+  -> done: prep=0.000 ms, p50=0.056 ms, throughput=17817.848 samples/s
+[5/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=1 threads=64
+  -> done: prep=0.000 ms, p50=0.059 ms, throughput=16796.882 samples/s
+[6/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=2 threads=1
+  -> done: prep=0.000 ms, p50=0.072 ms, throughput=27806.983 samples/s
+[7/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=2 threads=2
+  -> done: prep=0.000 ms, p50=0.071 ms, throughput=27888.487 samples/s
+[8/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=2 threads=4
+  -> done: prep=0.000 ms, p50=0.071 ms, throughput=27884.257 samples/s
+[9/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=2 threads=8
+  -> done: prep=0.000 ms, p50=0.083 ms, throughput=23834.709 samples/s
+[10/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=2 threads=64
+  -> done: prep=0.000 ms, p50=0.067 ms, throughput=29637.392 samples/s
+[11/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=4 threads=1
+  -> done: prep=0.000 ms, p50=0.068 ms, throughput=58577.281 samples/s
+[12/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=4 threads=2
+  -> done: prep=0.000 ms, p50=0.068 ms, throughput=58322.386 samples/s
+[13/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=4 threads=4
+  -> done: prep=0.000 ms, p50=0.067 ms, throughput=59001.245 samples/s
+[14/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=4 threads=8
+  -> done: prep=0.000 ms, p50=0.073 ms, throughput=54681.906 samples/s
+[15/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=4 threads=64
+  -> done: prep=0.000 ms, p50=0.070 ms, throughput=56475.909 samples/s
+[16/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=8 threads=1
+  -> done: prep=0.000 ms, p50=0.068 ms, throughput=116435.547 samples/s
+[17/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=8 threads=2
+  -> done: prep=0.000 ms, p50=0.072 ms, throughput=110030.520 samples/s
+[18/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=8 threads=4
+  -> done: prep=0.000 ms, p50=0.073 ms, throughput=109776.323 samples/s
+[19/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=8 threads=8
+  -> done: prep=0.000 ms, p50=0.068 ms, throughput=116236.089 samples/s
+[20/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=8 threads=64
+  -> done: prep=0.000 ms, p50=0.068 ms, throughput=116091.097 samples/s
+[21/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=16 threads=1
+  -> done: prep=0.000 ms, p50=0.075 ms, throughput=211786.221 samples/s
+[22/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=16 threads=2
+  -> done: prep=0.000 ms, p50=0.069 ms, throughput=229727.285 samples/s
+[23/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=16 threads=4
+  -> done: prep=0.000 ms, p50=0.070 ms, throughput=227381.509 samples/s
+[24/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=16 threads=8
+  -> done: prep=0.000 ms, p50=0.070 ms, throughput=227944.581 samples/s
+[25/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=16 threads=64
+  -> done: prep=0.000 ms, p50=0.071 ms, throughput=223473.987 samples/s
+[26/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=32 threads=1
+  -> done: prep=0.000 ms, p50=0.071 ms, throughput=448612.050 samples/s
+[27/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=32 threads=2
+  -> done: prep=0.000 ms, p50=0.072 ms, throughput=442553.879 samples/s
+[28/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=32 threads=4
+  -> done: prep=0.000 ms, p50=0.075 ms, throughput=424886.449 samples/s
+[29/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=32 threads=8
+  -> done: prep=0.000 ms, p50=0.072 ms, throughput=444297.086 samples/s
+[30/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=32 threads=64
+  -> done: prep=0.000 ms, p50=0.074 ms, throughput=430151.467 samples/s
+[31/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=64 threads=1
+  -> done: prep=0.000 ms, p50=0.079 ms, throughput=804448.399 samples/s
+[32/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=64 threads=2
+  -> done: prep=0.000 ms, p50=0.095 ms, throughput=671470.478 samples/s
+[33/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=64 threads=4
+  -> done: prep=0.000 ms, p50=0.093 ms, throughput=686387.877 samples/s
+[34/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=64 threads=8
+  -> done: prep=0.000 ms, p50=0.076 ms, throughput=834655.088 samples/s
+[35/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=64 threads=64
+  -> done: prep=0.000 ms, p50=0.074 ms, throughput=859255.782 samples/s
+[36/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=128 threads=1
+  -> done: prep=0.000 ms, p50=0.084 ms, throughput=1499365.581 samples/s
+[37/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=128 threads=2
+  -> done: prep=0.000 ms, p50=0.120 ms, throughput=1062918.285 samples/s
+[38/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=128 threads=4
+  -> done: prep=0.000 ms, p50=0.117 ms, throughput=1090430.231 samples/s
+[39/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=128 threads=8
+  -> done: prep=0.000 ms, p50=0.109 ms, throughput=1169903.858 samples/s
+[40/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=fp32 batch=128 threads=64
+  -> done: prep=0.000 ms, p50=0.154 ms, throughput=829767.709 samples/s
+[41/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=bf16 batch=1 threads=1
+  -> done: prep=0.000 ms, p50=0.073 ms, throughput=13548.751 samples/s
+[42/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=bf16 batch=1 threads=2
+  -> done: prep=0.000 ms, p50=0.073 ms, throughput=13548.821 samples/s
+[43/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=bf16 batch=1 threads=4
+  -> done: prep=0.000 ms, p50=0.069 ms, throughput=14440.275 samples/s
+[44/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=bf16 batch=1 threads=8
+  -> done: prep=0.000 ms, p50=0.071 ms, throughput=13945.655 samples/s
+[45/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=bf16 batch=1 threads=64
+  -> done: prep=0.000 ms, p50=0.074 ms, throughput=13512.900 samples/s
+[46/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=bf16 batch=2 threads=1
+  -> done: prep=0.000 ms, p50=0.112 ms, throughput=17571.515 samples/s
+[47/4800] Benchmarking run=full_mlp_capacity_search_hd128_depth2 device=cpu mode=eager precision=bf16 batch=2 threads=2

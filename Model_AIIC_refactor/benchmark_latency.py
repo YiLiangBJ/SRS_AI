@@ -2,7 +2,7 @@
 
 import argparse
 
-from benchmarks.workflow import benchmark_latency_programmatic, default_thread_counts, normalize_latency_selection, parse_precision_profiles, resolve_latency_device
+from benchmarks.workflow import benchmark_latency_programmatic, default_thread_counts, normalize_latency_selection, parse_execution_modes, parse_precision_profiles, resolve_latency_device
 from utils import discover_run_dirs
 
 
@@ -14,6 +14,7 @@ def build_parser():
     parser.add_argument('--runs', type=str, default=None, help='Run names inside --exp_dir, comma-separated')
     parser.add_argument('--list_runs', action='store_true', help='List benchmarkable runs inside --exp_dir and exit')
     parser.add_argument('--device', type=str, default='cpu', help='cpu, cuda, cuda:0, or auto')
+    parser.add_argument('--execution_modes', type=str, default=None, help='Comma-separated execution modes. Defaults: cpu->eager,jit,compile; cuda->eager')
     parser.add_argument('--precision_profiles', type=str, default=None, help='Comma-separated precision profiles. Defaults: cpu->fp32,bf16; cuda->fp32,fp16,bf16')
     parser.add_argument('--batch_sizes', type=str, default='1,2,4,8,16,32,64,128', help='Comma-separated batch sizes')
     parser.add_argument('--thread_counts', type=str, default=None, help='Comma-separated CPU thread/core counts. Supports all-physical token.')
@@ -42,11 +43,13 @@ def main():
         return
 
     resolved_device = resolve_latency_device(args.device)
+    resolved_execution_modes = parse_execution_modes(resolved_device.type, args.execution_modes)
     resolved_precisions = parse_precision_profiles(resolved_device.type, args.precision_profiles)
     print('=' * 80)
     print('Latency Benchmark')
     print('=' * 80)
     print(f'Device: {resolved_device}')
+    print(f'Execution modes: {resolved_execution_modes}')
     print(f'Precision profiles: {resolved_precisions}')
     print(f'Batch sizes: {args.batch_sizes}')
     print(f'Thread counts: {args.thread_counts or default_thread_counts(resolved_device.type)}')
@@ -60,6 +63,7 @@ def main():
         run_dirs=args.run_dirs,
         runs=args.runs,
         device=str(resolved_device),
+        execution_modes=args.execution_modes,
         precision_profiles=args.precision_profiles,
         batch_sizes=args.batch_sizes,
         thread_counts=args.thread_counts,

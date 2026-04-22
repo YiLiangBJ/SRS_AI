@@ -1056,6 +1056,7 @@ Latency benchmarking is a separate task from training, evaluation, and plotting.
 Supported first-version benchmark dimensions:
 
 - device: CPU-first by default; CUDA interface is available but not the current default focus
+- execution mode: CPU defaults to `eager`, `jit`, and `compile`; CUDA currently defaults to `eager`
 - precision profile: `fp32`, plus device-specific lower-precision profiles when supported
 - batch size: default `1,2,4,8,16,32,64,128`
 - CPU threads / cores: default `1,2,4,8,all-physical`
@@ -1063,6 +1064,7 @@ Supported first-version benchmark dimensions:
 Current default behavior is intentionally CPU-centric:
 
 - `benchmark_latency.py` defaults to `--device cpu`
+- `benchmark_latency.py` defaults to CPU execution modes `eager,jit,compile`
 - CPU is the primary path for current validation and regression coverage
 - CUDA interface is kept available for later expansion, but it is not the first-version default benchmark path
 
@@ -1072,6 +1074,24 @@ Example: benchmark one run on CPU across the default batch and thread profiles:
 python ./Model_AIIC_refactor/benchmark_latency.py \
   --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
   --device cpu
+```
+
+Example: benchmark one run on CPU with only TorchScript JIT mode:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu \
+  --execution_modes jit
+```
+
+Example: benchmark one run on CPU across eager, JIT, and compile modes:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu \
+  --execution_modes eager,jit,compile
 ```
 
 Example: benchmark a whole experiment on CUDA with selected precision profiles:
@@ -1107,6 +1127,7 @@ and experiment-level aggregate comparisons under:
 Each latency directory contains:
 
 - `latency_results.json`: structured summary with device, precision, batch, threads, percentile latencies, throughput, and skip reasons
+- `latency_results.json`: also records `execution_mode` and graph preparation time per benchmark configuration
 - `latency_samples.npz`: raw latency samples for each measured configuration
 - `hardware_manifest.json`: captured environment and hardware information
 - `LATENCY_REPORT.md`: human-readable summary for implementation teams
@@ -1123,7 +1144,62 @@ CPU plot outputs now include both run-local and aggregate-friendly views:
 - experiment aggregate: `bs1_p50_comparison.jpg`
 - experiment aggregate at fixed threads: `p50_latency_vs_batch_threads_<N>.jpg`, `throughput_vs_batch_threads_<N>.jpg`
 
-### 13.2 Training Perf Utilities
+If you want a detailed conceptual explanation of how `eager`, `jit`, and `compile` differ on CPU with oneDNN underneath, see:
+
+- `Model_AIIC_refactor/ONEDNN_CPU_BENCHMARK_TUTORIAL.md`
+
+### 13.2 Re-Plot Saved Latency Results
+
+You can generate new comparison figures later from an existing latency directory without rerunning the benchmark.
+
+Use:
+
+```bash
+python ./Model_AIIC_refactor/plot_latency_benchmark.py \
+  --input "./Model_AIIC_refactor/experiments_refactored/<experiment>/latency/<timestamp>_<scope>_cpu"
+```
+
+The input can be either:
+
+- a latency directory containing `latency_results.json`
+- a `latency_results.json` file directly
+
+The script generates two subplot-oriented comparison views for each selected thread count:
+
+- `mode_panels_<metric>_threads_<N>.jpg`
+  each subplot fixes one execution mode, and compares different models / precision profiles inside that mode
+- `model_precision_panels_<metric>_threads_<N>.jpg`
+  each subplot fixes one model + precision combination, and compares different execution modes inside that combination
+
+Example: draw throughput instead of p50 latency:
+
+```bash
+python ./Model_AIIC_refactor/plot_latency_benchmark.py \
+  --input "./Model_AIIC_refactor/experiments_refactored/<experiment>/latency/<timestamp>_<scope>_cpu" \
+  --metric throughput_samples_per_sec
+```
+
+Example: only draw a subset of execution modes and one thread count:
+
+```bash
+python ./Model_AIIC_refactor/plot_latency_benchmark.py \
+  --input "./Model_AIIC_refactor/experiments_refactored/<experiment>/latency/<timestamp>_<scope>_cpu" \
+  --execution_modes eager,jit \
+  --thread_counts 1
+```
+
+Example: only draw a subset of runs and precision profiles:
+
+```bash
+python ./Model_AIIC_refactor/plot_latency_benchmark.py \
+  --input "./Model_AIIC_refactor/experiments_refactored/<experiment>/latency/<timestamp>_<scope>_cpu" \
+  --runs run_a,run_b \
+  --precision_profiles fp32,bf16
+```
+
+The new plots are written under a separate `plots_custom/` directory beside the input latency results so they do not overwrite the benchmark's default plots.
+
+### 13.3 Training Perf Utilities
 
 ```bash
 python ./Model_AIIC_refactor/compare_cpu_gpu.py --experiment quick_separator1_v2 --skip_gpu
