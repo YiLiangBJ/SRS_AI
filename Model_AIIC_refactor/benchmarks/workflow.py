@@ -22,7 +22,10 @@ import torch
 
 from utils import (
     build_dummy_input,
+    discover_run_dirs,
+    find_checkpoint_path,
     load_trained_model_from_run,
+    resolve_existing_path,
     resolve_run_selection,
 )
 
@@ -41,6 +44,33 @@ class LatencyTask:
     num_threads: int
     warmup_iters: int
     measure_iters: int
+
+
+def normalize_latency_selection(exp_dir=None, run_dir=None, run_dirs=None, runs=None):
+    """Normalize selectors for latency benchmarking with benchmark-specific ergonomics."""
+    if runs and not exp_dir:
+        raise ValueError('--runs requires --exp_dir')
+
+    if run_dir is not None:
+        resolved = resolve_existing_path(run_dir)
+        if isinstance(resolved, tuple):
+            return exp_dir, run_dir, run_dirs, runs
+        if resolved.is_dir() and find_checkpoint_path(resolved) is None:
+            nested_run_dirs = discover_run_dirs(resolved)
+            if nested_run_dirs:
+                return str(resolved), None, None, runs
+
+    if exp_dir is not None:
+        resolved = resolve_existing_path(exp_dir)
+        if not isinstance(resolved, tuple):
+            benchmarkable_runs = discover_run_dirs(resolved)
+            if not benchmarkable_runs:
+                raise FileNotFoundError(
+                    'No benchmarkable run directories were found under the given experiment directory. '
+                    'Expected child run directories containing model checkpoints.'
+                )
+
+    return exp_dir, run_dir, run_dirs, runs
 
 
 def _available_cpu_count() -> int:
@@ -678,6 +708,12 @@ def benchmark_latency_programmatic(
     measure_iters: int = 50,
     output_dir=None,
 ) -> Dict[str, Any]:
+    exp_dir, run_dir, run_dirs, runs = normalize_latency_selection(
+        exp_dir=exp_dir,
+        run_dir=run_dir,
+        run_dirs=run_dirs,
+        runs=runs,
+    )
     resolved_device = resolve_latency_device(device)
     benchmark_id = datetime.now().strftime('%Y%m%d_%H%M%S')
     target_dirs = resolve_run_selection(exp_dir=exp_dir, run_dir=run_dir, run_dirs=run_dirs, runs=runs)

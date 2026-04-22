@@ -15,6 +15,7 @@ from benchmarks.workflow import (
     benchmark_latency_programmatic,
     build_latency_task_matrix,
     default_thread_counts,
+    normalize_latency_selection,
     parse_csv_ints,
     parse_precision_profiles,
     resolve_latency_output_dir,
@@ -124,6 +125,19 @@ class TestLatencyBenchmark(unittest.TestCase):
         output_dir = resolve_latency_output_dir(exp_dir=self.exp_dir, run_dirs=[self.run_dir], device_type='cpu', benchmark_id='20260422_000000')
         self.assertEqual(output_dir.parent, self.exp_dir / 'latency')
         self.assertEqual(output_dir.name, '20260422_000000_demo_run_cpu')
+
+    def test_normalize_latency_selection_accepts_experiment_path_via_run_dir(self):
+        exp_dir, run_dir, run_dirs, runs = normalize_latency_selection(run_dir=str(self.exp_dir))
+        self.assertEqual(Path(exp_dir), self.exp_dir)
+        self.assertIsNone(run_dir)
+        self.assertIsNone(run_dirs)
+        self.assertIsNone(runs)
+
+    def test_normalize_latency_selection_rejects_empty_experiment(self):
+        empty_exp = self.root / 'empty_experiment'
+        empty_exp.mkdir(parents=True, exist_ok=True)
+        with self.assertRaisesRegex(FileNotFoundError, 'No benchmarkable run directories were found'):
+            normalize_latency_selection(exp_dir=str(empty_exp))
 
     def test_benchmark_latency_programmatic_writes_run_and_aggregate_outputs(self):
         second_run_dir = self.exp_dir / 'demo_run_b'

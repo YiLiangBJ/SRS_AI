@@ -2,7 +2,7 @@
 
 import argparse
 
-from benchmarks.workflow import benchmark_latency_programmatic, default_thread_counts, parse_precision_profiles, resolve_latency_device
+from benchmarks.workflow import benchmark_latency_programmatic, default_thread_counts, normalize_latency_selection, parse_precision_profiles, resolve_latency_device
 from utils import discover_run_dirs
 
 
@@ -25,8 +25,12 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
-    if args.runs and not args.exp_dir:
-        raise ValueError('--runs requires --exp_dir')
+    args.exp_dir, args.run_dir, args.run_dirs, args.runs = normalize_latency_selection(
+        exp_dir=args.exp_dir,
+        run_dir=args.run_dir,
+        run_dirs=args.run_dirs,
+        runs=args.runs,
+    )
 
     if args.list_runs:
         if not args.exp_dir:
