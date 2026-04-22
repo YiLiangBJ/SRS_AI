@@ -3,6 +3,7 @@
 import unittest
 from pathlib import Path
 
+import benchmark_latency
 import evaluate_models_refactored
 import export_matlab_bundle
 import export_onnx
@@ -54,6 +55,15 @@ class TestCliDefaults(unittest.TestCase):
         args = parser.parse_args(['--checkpoint', './experiments_refactored/demo/model.pth'])
         self.assertEqual(args.checkpoint, './experiments_refactored/demo/model.pth')
         self.assertIsNone(args.output)
+
+    def test_benchmark_latency_cli_defaults(self):
+        parser = benchmark_latency.build_parser()
+        args = parser.parse_args(['--run_dir', './experiments_refactored/demo'])
+        self.assertEqual(args.device, 'cpu')
+        self.assertEqual(args.batch_sizes, '1,2,4,8,16,32,64,128')
+        self.assertEqual(args.warmup_iters, 20)
+        self.assertEqual(args.measure_iters, 50)
+        self.assertIsNone(args.thread_counts)
 
     def test_resolve_evaluation_output_dir_prefers_experiment_dir(self):
         output_dir = resolve_evaluation_output_dir(exp_dir=Path('/tmp/demo_exp'))

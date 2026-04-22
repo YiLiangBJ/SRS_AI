@@ -399,6 +399,13 @@ Model_AIIC_refactor/
           matlab_model_bundle_manifest.json
           MODEL_FLOW.md
           model_flow.json
+        latency/
+          <timestamp>_<device>/
+            latency_results.json
+            latency_samples.npz
+            hardware_manifest.json
+            LATENCY_REPORT.md
+            plots/
     evaluations/
       <timestamp>_<scope>/
         evaluation_results.json
@@ -414,6 +421,13 @@ Model_AIIC_refactor/
       - `learning_rate.jpg`: learning-rate schedule over training
       - `throughput.jpg`: sampled throughput over training
       - `snr.jpg`: sampled training SNR over batches
+
+      The `latency/` directory is a standalone benchmark artifact root:
+
+      - it is not part of train, eval, or plot postprocessing
+      - single-run benchmark results live under each run directory
+      - experiment-wide comparison results also live under the experiment directory
+      - reports include latency statistics together with references to the run's complexity and flow artifacts
 
 Example for a multi-run experiment:
 
@@ -1034,6 +1048,82 @@ Runtime behavior:
 - final `model.pth`, `config.yaml`, `MODEL_FLOW.md`, and exports still live at the run root as usual
 
 ## 13. Benchmark Entry Points
+
+### 13.1 Standalone Latency Benchmark
+
+Latency benchmarking is a separate task from training, evaluation, and plotting.
+
+Supported first-version benchmark dimensions:
+
+- device: CPU-first by default; CUDA interface is available but not the current default focus
+- precision profile: `fp32`, plus device-specific lower-precision profiles when supported
+- batch size: default `1,2,4,8,16,32,64,128`
+- CPU threads / cores: default `1,2,4,8,all-physical`
+
+Current default behavior is intentionally CPU-centric:
+
+- `benchmark_latency.py` defaults to `--device cpu`
+- CPU is the primary path for current validation and regression coverage
+- CUDA interface is kept available for later expansion, but it is not the first-version default benchmark path
+
+Example: benchmark one run on CPU across the default batch and thread profiles:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu
+```
+
+Example: benchmark a whole experiment on CUDA with selected precision profiles:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --exp_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>" \
+  --device cuda \
+  --precision_profiles fp32,fp16,bf16
+```
+
+Example: benchmark one run on CPU with an explicit wider batch sweep:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu \
+  --batch_sizes 1,2,4,8,16,32,64,128
+```
+
+The benchmark writes run-local results under:
+
+```text
+<run_dir>/latency/<timestamp>_<device>/
+```
+
+and experiment-level aggregate comparisons under:
+
+```text
+<experiment_dir>/latency/<timestamp>_<scope>_<device>/
+```
+
+Each latency directory contains:
+
+- `latency_results.json`: structured summary with device, precision, batch, threads, percentile latencies, throughput, and skip reasons
+- `latency_samples.npz`: raw latency samples for each measured configuration
+- `hardware_manifest.json`: captured environment and hardware information
+- `LATENCY_REPORT.md`: human-readable summary for implementation teams
+- `plots/`: static latency and throughput plots
+
+For CPU benchmarks, `LATENCY_REPORT.md` now also includes thread-scaling highlights per run:
+
+- best throughput configuration: the thread count and batch size that reached the highest measured samples/s
+- lowest batch-1 p50 latency: the thread count that minimized batch-1 p50 latency
+
+CPU plot outputs now include both run-local and aggregate-friendly views:
+
+- run-local: `p50_latency_vs_batch.jpg`, `throughput_vs_batch.jpg`, `p50_latency_vs_threads.jpg`
+- experiment aggregate: `bs1_p50_comparison.jpg`
+- experiment aggregate at fixed threads: `p50_latency_vs_batch_threads_<N>.jpg`, `throughput_vs_batch_threads_<N>.jpg`
+
+### 13.2 Training Perf Utilities
 
 ```bash
 python ./Model_AIIC_refactor/compare_cpu_gpu.py --experiment quick_separator1_v2 --skip_gpu
