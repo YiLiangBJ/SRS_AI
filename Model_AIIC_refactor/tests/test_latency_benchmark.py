@@ -2,6 +2,7 @@
 
 import json
 import io
+import csv
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,12 +12,15 @@ import torch
 import yaml
 
 import benchmark_latency
+import export_latency_csv
 import plot_latency_benchmark
 from benchmarks.workflow import (
     LatencyTask,
+    backfill_latency_csv_tree,
     benchmark_latency_programmatic,
     build_latency_task_matrix,
     default_thread_counts,
+    export_latency_csv_from_results,
     normalize_latency_selection,
     parse_csv_ints,
     parse_execution_modes,
@@ -110,6 +114,12 @@ class TestLatencyBenchmark(unittest.TestCase):
         self.assertEqual(args.metric, 'p50_latency_ms')
         self.assertIsNone(args.output)
         self.assertIsNone(args.runs)
+
+    def test_export_latency_csv_parser_defaults(self):
+        parser = export_latency_csv.build_parser()
+        args = parser.parse_args(['--input', str(self.run_dir)])
+        self.assertFalse(args.recursive)
+        self.assertIsNone(args.output)
 
     def test_execution_modes_default_by_device(self):
         self.assertEqual(parse_execution_modes('cpu', None), ['eager', 'jit', 'compile'])
@@ -221,7 +231,23 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'max_latency_ms': 1.2,
                 'throughput_samples_per_sec': 900.0,
                 'latency_samples_ms': [1.0, 1.2],
-                'hardware_manifest': {'device': 'cpu', 'num_threads': 1},
+                'hardware_manifest': {
+                    'device': 'cpu',
+                    'num_threads': 1,
+                    'hostname': 'test-host',
+                    'cpu_model_name': 'Test CPU',
+                    'cpu_capability': 'AVX2',
+                    'cpu_flag_summary': ['avx2', 'fma'],
+                    'mkldnn_available': True,
+                    'mkldnn_enabled': True,
+                    'onednn_version': '3.1.1',
+                    'torch_compile_available': True,
+                    'logical_cpu_count': 8,
+                    'physical_cpu_count': 4,
+                    'python_version': '3.11',
+                    'pytorch_version': '2.1.2',
+                    'env': {'OMP_NUM_THREADS': '1'},
+                },
                 'model_spec': self.model_spec,
                 'metadata': self.metadata,
                 'component_specs': self.component_specs,
@@ -250,7 +276,23 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'max_latency_ms': 1.4,
                 'throughput_samples_per_sec': 760.0,
                 'latency_samples_ms': [1.3, 1.4],
-                'hardware_manifest': {'device': 'cpu', 'num_threads': 4},
+                'hardware_manifest': {
+                    'device': 'cpu',
+                    'num_threads': 4,
+                    'hostname': 'test-host',
+                    'cpu_model_name': 'Test CPU',
+                    'cpu_capability': 'AVX2',
+                    'cpu_flag_summary': ['avx2', 'fma'],
+                    'mkldnn_available': True,
+                    'mkldnn_enabled': True,
+                    'onednn_version': '3.1.1',
+                    'torch_compile_available': True,
+                    'logical_cpu_count': 8,
+                    'physical_cpu_count': 4,
+                    'python_version': '3.11',
+                    'pytorch_version': '2.1.2',
+                    'env': {'OMP_NUM_THREADS': '4'},
+                },
                 'model_spec': self.model_spec,
                 'metadata': self.metadata,
                 'component_specs': self.component_specs,
@@ -279,7 +321,23 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'max_latency_ms': 1.9,
                 'throughput_samples_per_sec': 4200.0,
                 'latency_samples_ms': [1.8, 1.9],
-                'hardware_manifest': {'device': 'cpu', 'num_threads': 4},
+                'hardware_manifest': {
+                    'device': 'cpu',
+                    'num_threads': 4,
+                    'hostname': 'test-host',
+                    'cpu_model_name': 'Test CPU',
+                    'cpu_capability': 'AVX2',
+                    'cpu_flag_summary': ['avx2', 'fma'],
+                    'mkldnn_available': True,
+                    'mkldnn_enabled': True,
+                    'onednn_version': '3.1.1',
+                    'torch_compile_available': True,
+                    'logical_cpu_count': 8,
+                    'physical_cpu_count': 4,
+                    'python_version': '3.11',
+                    'pytorch_version': '2.1.2',
+                    'env': {'OMP_NUM_THREADS': '4'},
+                },
                 'model_spec': self.model_spec,
                 'metadata': self.metadata,
                 'component_specs': self.component_specs,
@@ -308,7 +366,23 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'max_latency_ms': 1.5,
                 'throughput_samples_per_sec': 700.0,
                 'latency_samples_ms': [1.4, 1.5],
-                'hardware_manifest': {'device': 'cpu', 'num_threads': 1},
+                'hardware_manifest': {
+                    'device': 'cpu',
+                    'num_threads': 1,
+                    'hostname': 'test-host',
+                    'cpu_model_name': 'Test CPU',
+                    'cpu_capability': 'AVX2',
+                    'cpu_flag_summary': ['avx2', 'fma'],
+                    'mkldnn_available': True,
+                    'mkldnn_enabled': True,
+                    'onednn_version': '3.1.1',
+                    'torch_compile_available': True,
+                    'logical_cpu_count': 8,
+                    'physical_cpu_count': 4,
+                    'python_version': '3.11',
+                    'pytorch_version': '2.1.2',
+                    'env': {'OMP_NUM_THREADS': '1'},
+                },
                 'model_spec': self.model_spec,
                 'metadata': second_metadata,
                 'component_specs': self.component_specs,
@@ -337,7 +411,23 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'max_latency_ms': 2.3,
                 'throughput_samples_per_sec': 3600.0,
                 'latency_samples_ms': [2.2, 2.3],
-                'hardware_manifest': {'device': 'cpu', 'num_threads': 4},
+                'hardware_manifest': {
+                    'device': 'cpu',
+                    'num_threads': 4,
+                    'hostname': 'test-host',
+                    'cpu_model_name': 'Test CPU',
+                    'cpu_capability': 'AVX2',
+                    'cpu_flag_summary': ['avx2', 'fma'],
+                    'mkldnn_available': True,
+                    'mkldnn_enabled': True,
+                    'onednn_version': '3.1.1',
+                    'torch_compile_available': True,
+                    'logical_cpu_count': 8,
+                    'physical_cpu_count': 4,
+                    'python_version': '3.11',
+                    'pytorch_version': '2.1.2',
+                    'env': {'OMP_NUM_THREADS': '4'},
+                },
                 'model_spec': self.model_spec,
                 'metadata': second_metadata,
                 'component_specs': self.component_specs,
@@ -366,7 +456,23 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'max_latency_ms': 1.2,
                 'throughput_samples_per_sec': 830.0,
                 'latency_samples_ms': [1.1, 1.2],
-                'hardware_manifest': {'device': 'cpu', 'num_threads': 4},
+                'hardware_manifest': {
+                    'device': 'cpu',
+                    'num_threads': 4,
+                    'hostname': 'test-host',
+                    'cpu_model_name': 'Test CPU',
+                    'cpu_capability': 'AVX2',
+                    'cpu_flag_summary': ['avx2', 'fma'],
+                    'mkldnn_available': True,
+                    'mkldnn_enabled': True,
+                    'onednn_version': '3.1.1',
+                    'torch_compile_available': True,
+                    'logical_cpu_count': 8,
+                    'physical_cpu_count': 4,
+                    'python_version': '3.11',
+                    'pytorch_version': '2.1.2',
+                    'env': {'OMP_NUM_THREADS': '4'},
+                },
                 'model_spec': self.model_spec,
                 'metadata': second_metadata,
                 'component_specs': self.component_specs,
@@ -395,7 +501,23 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'max_latency_ms': 3.1,
                 'throughput_samples_per_sec': 2600.0,
                 'latency_samples_ms': [3.0, 3.1],
-                'hardware_manifest': {'device': 'cpu', 'num_threads': 1},
+                'hardware_manifest': {
+                    'device': 'cpu',
+                    'num_threads': 1,
+                    'hostname': 'test-host',
+                    'cpu_model_name': 'Test CPU',
+                    'cpu_capability': 'AVX2',
+                    'cpu_flag_summary': ['avx2', 'fma'],
+                    'mkldnn_available': True,
+                    'mkldnn_enabled': True,
+                    'onednn_version': '3.1.1',
+                    'torch_compile_available': True,
+                    'logical_cpu_count': 8,
+                    'physical_cpu_count': 4,
+                    'python_version': '3.11',
+                    'pytorch_version': '2.1.2',
+                    'env': {'OMP_NUM_THREADS': '1'},
+                },
                 'model_spec': self.model_spec,
                 'metadata': self.metadata,
                 'component_specs': self.component_specs,
@@ -424,7 +546,23 @@ class TestLatencyBenchmark(unittest.TestCase):
                 'max_latency_ms': 3.5,
                 'throughput_samples_per_sec': 2300.0,
                 'latency_samples_ms': [3.4, 3.5],
-                'hardware_manifest': {'device': 'cpu', 'num_threads': 1},
+                'hardware_manifest': {
+                    'device': 'cpu',
+                    'num_threads': 1,
+                    'hostname': 'test-host',
+                    'cpu_model_name': 'Test CPU',
+                    'cpu_capability': 'AVX2',
+                    'cpu_flag_summary': ['avx2', 'fma'],
+                    'mkldnn_available': True,
+                    'mkldnn_enabled': True,
+                    'onednn_version': '3.1.1',
+                    'torch_compile_available': True,
+                    'logical_cpu_count': 8,
+                    'physical_cpu_count': 4,
+                    'python_version': '3.11',
+                    'pytorch_version': '2.1.2',
+                    'env': {'OMP_NUM_THREADS': '1'},
+                },
                 'model_spec': self.model_spec,
                 'metadata': second_metadata,
                 'component_specs': self.component_specs,
@@ -448,7 +586,9 @@ class TestLatencyBenchmark(unittest.TestCase):
         run_report = Path(artifacts['per_run_artifacts'][self.run_dir.name]['report_path'])
         self.assertTrue(run_report.exists())
         aggregate_report = Path(artifacts['aggregate_artifacts']['report_path'])
+        aggregate_csv = Path(artifacts['aggregate_artifacts']['csv_path'])
         self.assertTrue(aggregate_report.exists())
+        self.assertTrue(aggregate_csv.exists())
         with open(Path(artifacts['aggregate_artifacts']['json_path']), 'r', encoding='utf-8') as input_file:
             saved = json.load(input_file)
         self.assertEqual(saved['device'], 'cpu')
@@ -463,13 +603,112 @@ class TestLatencyBenchmark(unittest.TestCase):
         self.assertIn('Execution mode: `eager`', report_text)
         self.assertIn('Best throughput config', report_text)
         self.assertIn('Lowest batch-1 p50 latency', report_text)
+        self.assertIn('CPU model: `Test CPU`', report_text)
+        self.assertIn('mkldnn enabled: `True`', report_text)
+        self.assertIn('oneDNN version: `3.1.1`', report_text)
         self.assertIn('Benchmark tasks: 8 total', console_text)
         self.assertIn('[1/8] Benchmarking run=demo_run device=cpu mode=eager precision=fp32 batch=1 threads=1', console_text)
         self.assertIn('-> done: prep=0.000 ms, p50=1.000 ms', console_text)
+        with open(aggregate_csv, 'r', encoding='utf-8', newline='') as input_file:
+            reader = csv.DictReader(input_file)
+            rows = list(reader)
+        self.assertEqual(len(rows), 8)
+        self.assertIn('trainable_parameters', reader.fieldnames)
+        self.assertIn('macs_per_sample', reader.fieldnames)
+        self.assertIn('flops_per_sample_estimate', reader.fieldnames)
+        self.assertIn('cpu_model_name', reader.fieldnames)
+        self.assertIn('samples_per_ms', reader.fieldnames)
+        self.assertIn('latency_per_sample_us', reader.fieldnames)
+        self.assertIn('thread_group', reader.fieldnames)
+        self.assertEqual(rows[0]['cpu_model_name'], 'Test CPU')
+        self.assertEqual(rows[0]['trainable_parameters'], '2400')
+        self.assertEqual(rows[0]['thread_group'], 'single-thread')
+        self.assertEqual(rows[0]['latency_per_sample_us'], '1000.0')
         plot_files = artifacts['aggregate_artifacts']['plot_files']
         self.assertTrue(any(path.endswith('bs1_p50_comparison.jpg') for path in plot_files))
         self.assertTrue(any('p50_latency_vs_batch_threads_1.jpg' in path for path in plot_files))
         self.assertTrue(any('throughput_vs_batch_threads_1.jpg' in path for path in plot_files))
+
+    def test_export_latency_csv_from_existing_json(self):
+        latency_dir = self.root / 'backfill_case'
+        latency_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            'benchmark_id': 'demo-bench',
+            'timestamp': '2026-04-23T00:00:00',
+            'device': 'cpu',
+            'run_references': {
+                'demo_run': {
+                    'run_dir': str(self.run_dir),
+                    'model_complexity': {
+                        'summary': {
+                            'trainable_parameters': 2400,
+                            'macs_per_sample': 2304,
+                            'flops_per_sample_estimate': 4728,
+                        },
+                    },
+                },
+            },
+            'results': [
+                {
+                    'status': 'ok',
+                    'run_name': 'demo_run',
+                    'run_dir': str(self.run_dir),
+                    'execution_mode': 'eager',
+                    'requested_precision_profile': 'fp32',
+                    'effective_execution_dtype': 'float32',
+                    'batch_size': 4,
+                    'num_threads': 4,
+                    'graph_prep_time_ms': 0.0,
+                    'mean_latency_ms': 1.2,
+                    'std_latency_ms': 0.1,
+                    'min_latency_ms': 1.1,
+                    'p50_latency_ms': 1.2,
+                    'p90_latency_ms': 1.3,
+                    'p95_latency_ms': 1.4,
+                    'p99_latency_ms': 1.5,
+                    'max_latency_ms': 1.6,
+                    'throughput_samples_per_sec': 3333.0,
+                    'hardware_manifest': {
+                        'cpu_model_name': 'Test CPU',
+                        'cpu_capability': 'AVX2',
+                        'cpu_flag_summary': ['avx2'],
+                        'mkldnn_available': True,
+                        'mkldnn_enabled': True,
+                        'onednn_version': '3.1.1',
+                        'logical_cpu_count': 8,
+                        'physical_cpu_count': 4,
+                        'hostname': 'host-a',
+                        'python_version': '3.11',
+                        'pytorch_version': '2.1.2',
+                    },
+                    'metadata': {'experiment_name': 'demo_exp', 'model_label': 'mlp', 'training_label': 'train-a'},
+                    'model_spec': {'model_type': 'full_mlp', 'seq_len': 12, 'num_ports': 4},
+                },
+            ],
+        }
+        with open(latency_dir / 'latency_results.json', 'w', encoding='utf-8') as output_file:
+            json.dump(payload, output_file)
+
+        csv_path = export_latency_csv_from_results(latency_dir)
+        self.assertTrue(csv_path.exists())
+        with open(csv_path, 'r', encoding='utf-8', newline='') as input_file:
+            reader = csv.DictReader(input_file)
+            rows = list(reader)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['thread_group'], 'all-physical')
+        self.assertEqual(rows[0]['samples_per_ms'], '3.333')
+        self.assertEqual(rows[0]['latency_per_sample_us'], '300.0')
+
+    def test_backfill_latency_csv_tree_scans_recursively(self):
+        root_dir = self.root / 'recursive_backfill'
+        latency_dir = root_dir / 'latency_a'
+        latency_dir.mkdir(parents=True, exist_ok=True)
+        with open(latency_dir / 'latency_results.json', 'w', encoding='utf-8') as output_file:
+            json.dump({'results': [], 'run_references': {}}, output_file)
+
+        generated = backfill_latency_csv_tree(root_dir)
+        self.assertEqual(len(generated), 1)
+        self.assertTrue(generated[0].exists())
 
     def test_generate_latency_comparison_plots_creates_both_subplot_views(self):
         latency_dir = self.root / 'latency_case'

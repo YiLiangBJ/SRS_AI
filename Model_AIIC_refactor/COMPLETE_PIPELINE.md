@@ -1128,10 +1128,23 @@ Each latency directory contains:
 
 - `latency_results.json`: structured summary with device, precision, batch, threads, percentile latencies, throughput, and skip reasons
 - `latency_results.json`: also records `execution_mode` and graph preparation time per benchmark configuration
+- `latency_results.csv`: flattened table for Excel / CSV workflows; one row per benchmark configuration
 - `latency_samples.npz`: raw latency samples for each measured configuration
 - `hardware_manifest.json`: captured environment and hardware information
 - `LATENCY_REPORT.md`: human-readable summary for implementation teams
 - `plots/`: static latency and throughput plots
+
+The CSV export is generated automatically during every new latency benchmark run.
+
+Important CSV columns include:
+
+- benchmark dimensions: run, execution mode, precision, batch size, threads
+- latency stats: mean, std, min, p50, p90, p95, p99, max
+- throughput stats: `throughput_samples_per_sec`, `samples_per_ms`, `throughput_per_thread`
+- per-sample view: `p50_latency_us`, `latency_per_sample_us`
+- model complexity: `trainable_parameters`, `macs_per_sample`, `flops_per_sample_estimate`
+- thread grouping helpers: `thread_group`, `threads_per_physical_core_ratio`, `threads_per_logical_cpu_ratio`
+- hardware context: CPU model, CPU capability, mkldnn/oneDNN fields, Python and PyTorch versions
 
 For CPU benchmarks, `LATENCY_REPORT.md` now also includes thread-scaling highlights per run:
 
@@ -1148,7 +1161,34 @@ If you want a detailed conceptual explanation of how `eager`, `jit`, and `compil
 
 - `Model_AIIC_refactor/ONEDNN_CPU_BENCHMARK_TUTORIAL.md`
 
-### 13.2 Re-Plot Saved Latency Results
+### 13.2 Backfill CSV For Existing Latency Results
+
+If you already have historical latency directories containing only `latency_results.json`, you can generate `latency_results.csv` later without rerunning the benchmark.
+
+Export one latency directory or one `latency_results.json` file:
+
+```bash
+python ./Model_AIIC_refactor/export_latency_csv.py \
+  --input "./Model_AIIC_refactor/experiments_refactored/<experiment>/latency/<timestamp>_<scope>_cpu"
+```
+
+Or export one file to an explicit output path:
+
+```bash
+python ./Model_AIIC_refactor/export_latency_csv.py \
+  --input "./Model_AIIC_refactor/experiments_refactored/<experiment>/latency/<timestamp>_<scope>_cpu/latency_results.json" \
+  --output "./somewhere/latency_table.csv"
+```
+
+Recursively backfill every `latency_results.json` under one directory tree:
+
+```bash
+python ./Model_AIIC_refactor/export_latency_csv.py \
+  --input "./Model_AIIC_refactor/experiments_refactored/<experiment>" \
+  --recursive
+```
+
+### 13.3 Re-Plot Saved Latency Results
 
 You can generate new comparison figures later from an existing latency directory without rerunning the benchmark.
 
@@ -1199,7 +1239,7 @@ python ./Model_AIIC_refactor/plot_latency_benchmark.py \
 
 The new plots are written under a separate `plots_custom/` directory beside the input latency results so they do not overwrite the benchmark's default plots.
 
-### 13.3 Training Perf Utilities
+### 13.4 Training Perf Utilities
 
 ```bash
 python ./Model_AIIC_refactor/compare_cpu_gpu.py --experiment quick_separator1_v2 --skip_gpu

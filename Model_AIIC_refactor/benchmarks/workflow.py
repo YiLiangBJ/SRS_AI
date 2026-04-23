@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import multiprocessing as mp
 import os
 import platform
+import re
 import socket
 import statistics
 import time
@@ -200,7 +202,52 @@ def _torch_config_summary() -> str:
         return 'Unavailable'
 
 
+def _cpu_model_name() -> Optional[str]:
+    cpuinfo_path = Path('/proc/cpuinfo')
+    if not cpuinfo_path.exists():
+        return None
+    with open(cpuinfo_path, 'r', encoding='utf-8', errors='ignore') as input_file:
+        for line in input_file:
+            if line.lower().startswith('model name'):
+                return line.split(':', 1)[1].strip()
+    return None
+
+
+def _cpu_flags() -> List[str]:
+    cpuinfo_path = Path('/proc/cpuinfo')
+    if not cpuinfo_path.exists():
+        return []
+    with open(cpuinfo_path, 'r', encoding='utf-8', errors='ignore') as input_file:
+        for line in input_file:
+            if line.lower().startswith('flags'):
+                return line.split(':', 1)[1].strip().split()
+    return []
+
+
+def _cpu_capability() -> Optional[str]:
+    backend = getattr(torch.backends, 'cpu', None)
+    getter = getattr(backend, 'get_cpu_capability', None)
+    if getter is None:
+        return None
+    try:
+        return str(getter())
+    except Exception:
+        return None
+
+
+def _onednn_version(torch_config_summary: str) -> Optional[str]:
+    match = re.search(r'Intel MKL-DNN v([^\s]+)', torch_config_summary)
+    if match:
+        return match.group(1)
+    match = re.search(r'oneDNN v([^\s]+)', torch_config_summary)
+    if match:
+        return match.group(1)
+    return None
+
+
 def _hardware_manifest(device: torch.device, num_threads: int, precision: str) -> Dict[str, Any]:
+    torch_config_summary = _torch_config_summary()
+    cpu_flags = _cpu_flags()
     manifest: Dict[str, Any] = {
         'hostname': socket.gethostname(),
         'python_version': platform.python_version(),
@@ -210,8 +257,15 @@ def _hardware_manifest(device: torch.device, num_threads: int, precision: str) -
         'num_threads': int(num_threads),
         'logical_cpu_count': _available_cpu_count(),
         'physical_cpu_count': _physical_cpu_count(),
+        'cpu_model_name': _cpu_model_name(),
+        'cpu_capability': _cpu_capability(),
+        'cpu_flags': cpu_flags,
+        'cpu_flag_summary': [flag for flag in ['avx2', 'avx512f', 'avx512bw', 'avx512vl', 'avx512_vnni', 'avx512_bf16', 'amx_bf16', 'amx_int8', 'amx_tile', 'fma'] if flag in cpu_flags],
+        'mkldnn_available': bool(hasattr(torch.backends, 'mkldnn')),
         'mkldnn_enabled': bool(getattr(torch.backends, 'mkldnn', None) and torch.backends.mkldnn.enabled),
-        'torch_config_summary': _torch_config_summary(),
+        'onednn_version': _onednn_version(torch_config_summary),
+        'torch_compile_available': bool(hasattr(torch, 'compile')),
+        'torch_config_summary': torch_config_summary,
         'env': {
             key: os.environ.get(key)
             for key in ['OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'KMP_AFFINITY', 'CUDA_VISIBLE_DEVICES']
@@ -487,6 +541,198 @@ def _build_run_references(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     return references
 
 
+def resolve_latency_results_json(input_path) -> Path:
+    resolved = resolve_existing_path(input_path)
+    if isinstance(resolved, tuple):
+        _, candidates = resolved
+        candidate_text = '\n'.join(str(path) for path in candidates)
+        raise FileNotFoundError('Latency results input not found. Checked:\n' + candidate_text)
+
+    resolved = Path(resolved)
+    if resolved.is_file():
+        if resolved.name != 'latency_results.json':
+            raise ValueError('Latency results input file must be latency_results.json')
+        return resolved
+
+    json_path = resolved / 'latency_results.json'
+    if not json_path.exists():
+        raise FileNotFoundError('Expected latency_results.json inside the provided latency directory')
+    return json_path
+
+
+def _thread_group(num_threads: Any, physical_cpu_count: Any, logical_cpu_count: Any) -> Optional[str]:
+    if num_threads is None:
+        return None
+    num_threads = int(num_threads)
+    physical = int(physical_cpu_count) if physical_cpu_count not in (None, '') else None
+    logical = int(logical_cpu_count) if logical_cpu_count not in (None, '') else None
+    if num_threads == 1:
+        return 'single-thread'
+    if physical is not None:
+        if num_threads < physical:
+            return 'sub-physical'
+        if num_threads == physical:
+            return 'all-physical'
+    if logical is not None and num_threads == logical:
+        return 'all-logical'
+    if physical is not None and num_threads > physical:
+        return 'beyond-physical'
+    return 'scaled'
+
+
+def _safe_ratio(numerator: Any, denominator: Any) -> Optional[float]:
+    if numerator in (None, '') or denominator in (None, '', 0):
+        return None
+    denominator = float(denominator)
+    if denominator == 0.0:
+        return None
+    return float(numerator) / denominator
+
+
+def _flatten_result_rows(results_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    run_references = results_payload.get('run_references', {})
+    flattened_rows: List[Dict[str, Any]] = []
+    for item in results_payload['results']:
+        reference = run_references.get(item['run_name'], {})
+        complexity_summary = ((reference.get('model_complexity') or {}).get('summary') or {})
+        metadata = item.get('metadata') or {}
+        model_spec = item.get('model_spec') or {}
+        hardware_manifest = item.get('hardware_manifest') or {}
+        batch_size = item.get('batch_size')
+        num_threads = item.get('num_threads')
+        p50_latency_ms = item.get('p50_latency_ms')
+        throughput = item.get('throughput_samples_per_sec')
+        logical_cpu_count = hardware_manifest.get('logical_cpu_count')
+        physical_cpu_count = hardware_manifest.get('physical_cpu_count')
+        flattened_rows.append({
+            'benchmark_id': results_payload.get('benchmark_id'),
+            'timestamp': results_payload.get('timestamp'),
+            'device': results_payload.get('device'),
+            'run_name': item.get('run_name'),
+            'run_dir': item.get('run_dir'),
+            'experiment_name': metadata.get('experiment_name'),
+            'model_label': metadata.get('model_label'),
+            'training_label': metadata.get('training_label'),
+            'model_type': model_spec.get('model_type'),
+            'seq_len': model_spec.get('seq_len'),
+            'num_ports': model_spec.get('num_ports'),
+            'execution_mode': item.get('execution_mode'),
+            'requested_precision_profile': item.get('requested_precision_profile'),
+            'effective_execution_dtype': item.get('effective_execution_dtype'),
+            'batch_size': batch_size,
+            'num_threads': num_threads,
+            'status': item.get('status'),
+            'skip_reason': item.get('skip_reason'),
+            'graph_prep_time_ms': item.get('graph_prep_time_ms'),
+            'warmup_iters': item.get('warmup_iters'),
+            'measure_iters': item.get('measure_iters'),
+            'mean_latency_ms': item.get('mean_latency_ms'),
+            'std_latency_ms': item.get('std_latency_ms'),
+            'min_latency_ms': item.get('min_latency_ms'),
+            'p50_latency_ms': item.get('p50_latency_ms'),
+            'p90_latency_ms': item.get('p90_latency_ms'),
+            'p95_latency_ms': item.get('p95_latency_ms'),
+            'p99_latency_ms': item.get('p99_latency_ms'),
+            'max_latency_ms': item.get('max_latency_ms'),
+            'throughput_samples_per_sec': throughput,
+            'samples_per_ms': None if throughput in (None, '') else float(throughput) / 1000.0,
+            'p50_latency_us': None if p50_latency_ms in (None, '') else float(p50_latency_ms) * 1000.0,
+            'latency_per_sample_us': None if p50_latency_ms in (None, '') or batch_size in (None, '', 0) else (float(p50_latency_ms) * 1000.0) / float(batch_size),
+            'throughput_per_thread': None if throughput in (None, '') or num_threads in (None, '', 0) else float(throughput) / float(num_threads),
+            'trainable_parameters': complexity_summary.get('trainable_parameters'),
+            'macs_per_sample': complexity_summary.get('macs_per_sample'),
+            'flops_per_sample_estimate': complexity_summary.get('flops_per_sample_estimate'),
+            'thread_group': _thread_group(num_threads, physical_cpu_count, logical_cpu_count),
+            'threads_per_physical_core_ratio': _safe_ratio(num_threads, physical_cpu_count),
+            'threads_per_logical_cpu_ratio': _safe_ratio(num_threads, logical_cpu_count),
+            'cpu_model_name': hardware_manifest.get('cpu_model_name'),
+            'cpu_capability': hardware_manifest.get('cpu_capability'),
+            'cpu_flag_summary': ','.join(hardware_manifest.get('cpu_flag_summary') or []),
+            'mkldnn_available': hardware_manifest.get('mkldnn_available'),
+            'mkldnn_enabled': hardware_manifest.get('mkldnn_enabled'),
+            'onednn_version': hardware_manifest.get('onednn_version'),
+            'logical_cpu_count': hardware_manifest.get('logical_cpu_count'),
+            'physical_cpu_count': hardware_manifest.get('physical_cpu_count'),
+            'hostname': hardware_manifest.get('hostname'),
+            'python_version': hardware_manifest.get('python_version'),
+            'pytorch_version': hardware_manifest.get('pytorch_version'),
+        })
+    return flattened_rows
+
+
+def _save_latency_csv(results_payload: Dict[str, Any], output_dir: Path) -> Path:
+    rows = _flatten_result_rows(results_payload)
+    output_path = output_dir / 'latency_results.csv'
+    if not rows:
+        with open(output_path, 'w', encoding='utf-8', newline='') as output_file:
+            output_file.write('')
+        return output_path
+
+    fieldnames = list(rows[0].keys())
+    with open(output_path, 'w', encoding='utf-8', newline='') as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return output_path
+
+
+def export_latency_csv_from_results(input_path, output_path=None) -> Path:
+    json_path = resolve_latency_results_json(input_path)
+    with open(json_path, 'r', encoding='utf-8') as input_file:
+        payload = json.load(input_file)
+    output_dir = json_path.parent if output_path is None else Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = _save_latency_csv(payload, output_dir)
+    if output_path is not None:
+        requested_output = Path(output_path)
+        if requested_output != csv_path:
+            requested_output.write_text(csv_path.read_text(encoding='utf-8'), encoding='utf-8')
+            return requested_output
+    return csv_path
+
+
+def backfill_latency_csv_tree(root_path) -> List[Path]:
+    resolved = resolve_existing_path(root_path)
+    if isinstance(resolved, tuple):
+        _, candidates = resolved
+        candidate_text = '\n'.join(str(path) for path in candidates)
+        raise FileNotFoundError('Backfill root not found. Checked:\n' + candidate_text)
+    resolved = Path(resolved)
+    json_paths = sorted(resolved.rglob('latency_results.json')) if resolved.is_dir() else [resolve_latency_results_json(resolved)]
+    generated: List[Path] = []
+    for json_path in json_paths:
+        generated.append(export_latency_csv_from_results(json_path))
+    return generated
+
+
+def _render_hardware_summary(results_payload: Dict[str, Any]) -> List[str]:
+    manifests = [item.get('hardware_manifest') for item in results_payload['results'] if item.get('hardware_manifest')]
+    if not manifests:
+        return []
+    manifest = manifests[0]
+    lines = [
+        '## Hardware Summary',
+        '',
+        f"- Hostname: `{manifest.get('hostname', '-')}`",
+        f"- CPU model: `{manifest.get('cpu_model_name', '-')}`",
+        f"- CPU capability: `{manifest.get('cpu_capability', '-')}`",
+        f"- CPU flag summary: `{manifest.get('cpu_flag_summary', [])}`",
+        f"- Logical CPU count: `{manifest.get('logical_cpu_count', '-')}`",
+        f"- Physical CPU count: `{manifest.get('physical_cpu_count', '-')}`",
+        f"- mkldnn available: `{manifest.get('mkldnn_available', '-')}`",
+        f"- mkldnn enabled: `{manifest.get('mkldnn_enabled', '-')}`",
+        f"- oneDNN version: `{manifest.get('onednn_version', '-')}`",
+        f"- torch.compile available: `{manifest.get('torch_compile_available', '-')}`",
+        f"- Python: `{manifest.get('python_version', '-')}`",
+        f"- PyTorch: `{manifest.get('pytorch_version', '-')}`",
+    ]
+    env = manifest.get('env') or {}
+    if env:
+        lines.append(f"- Relevant env: `{env}`")
+    lines.append('')
+    return lines
+
+
 def _build_cpu_thread_scaling_summary(results: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     summaries: Dict[str, Dict[str, Any]] = {}
     ok_results = [item for item in _group_ok_results(results) if item.get('device', '').startswith('cpu')]
@@ -686,6 +932,7 @@ def render_latency_report(results_payload: Dict[str, Any]) -> str:
         f"- Thread counts: `{results_payload['thread_counts']}`",
         '',
     ]
+    lines.extend(_render_hardware_summary(results_payload))
     cpu_thread_summaries = results_payload.get('cpu_thread_scaling_summaries', {})
     if cpu_thread_summaries:
         lines.extend([
@@ -749,6 +996,8 @@ def save_latency_results(results_payload: Dict[str, Any], output_dir: Path, aggr
     with open(json_path, 'w', encoding='utf-8') as output_file:
         json.dump(results_payload, output_file, indent=2, ensure_ascii=False)
 
+    csv_path = _save_latency_csv(results_payload, output_dir)
+
     samples_path = _save_latency_samples(results_payload['results'], output_dir)
     report_path = output_dir / 'LATENCY_REPORT.md'
     with open(report_path, 'w', encoding='utf-8') as output_file:
@@ -764,6 +1013,7 @@ def save_latency_results(results_payload: Dict[str, Any], output_dir: Path, aggr
     plot_files = _plot_aggregate_latency(results_payload['results'], plots_dir) if aggregate else _plot_run_latency(results_payload['results'], plots_dir)
     return {
         'json_path': str(json_path),
+        'csv_path': str(csv_path),
         'samples_path': str(samples_path),
         'report_path': str(report_path),
         'hardware_manifest_path': str(hardware_path),
