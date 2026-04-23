@@ -88,6 +88,26 @@ def _append_tokens(label: str, tokens: Sequence[str]) -> str:
     return f"{label}_{'_'.join(tokens)}"
 
 
+def _normalize_local_variant(
+    recipe_name: str,
+    base_payload: Dict[str, Any],
+    raw_spec: Dict[str, Any],
+    tokens: Sequence[str],
+) -> tuple[Dict[str, Any], List[str]]:
+    """Normalize locally expanded variants to remove semantically duplicate combinations."""
+    normalized_spec = deepcopy(raw_spec)
+    normalized_tokens = list(tokens)
+
+    if normalized_spec.get('type') == 'full_mlp':
+        params = normalized_spec.get('params', {})
+        if int(params.get('mlp_depth', 3)) == 2:
+            base_hidden_dim = _nested_get(base_payload, 'params', 'hidden_dim', default=params.get('hidden_dim'))
+            params['hidden_dim'] = base_hidden_dim
+            normalized_tokens = [token for token in normalized_tokens if not token.startswith('hd')]
+
+    return normalized_spec, normalized_tokens
+
+
 def _expand_local_sweeps(
     recipe_name: str,
     base_payload: Dict[str, Any],
@@ -106,13 +126,25 @@ def _expand_local_sweeps(
         parsed_sweeps.append((target, alias, values))
 
     variants = []
+    seen_variant_keys = set()
     for combination in product(*[values for _, _, values in parsed_sweeps]):
         raw_spec = deepcopy(base_payload)
         tokens: List[str] = []
         for (target, alias, _), selected_value in zip(parsed_sweeps, combination):
             _set_nested_value(raw_spec, target, selected_value)
             tokens.append(f"{alias}{_format_name_value(selected_value)}")
-        variants.append({'label': _append_tokens(recipe_name, tokens), 'raw_spec': raw_spec})
+
+        normalized_spec, normalized_tokens = _normalize_local_variant(
+            recipe_name=recipe_name,
+            base_payload=base_payload,
+            raw_spec=raw_spec,
+            tokens=tokens,
+        )
+        variant_key = yaml.safe_dump(normalized_spec, sort_keys=True)
+        if variant_key in seen_variant_keys:
+            continue
+        seen_variant_keys.add(variant_key)
+        variants.append({'label': _append_tokens(recipe_name, normalized_tokens), 'raw_spec': normalized_spec})
 
     return variants
 
