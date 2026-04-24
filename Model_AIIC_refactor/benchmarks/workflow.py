@@ -283,15 +283,20 @@ def _hardware_manifest(device: torch.device, num_threads: int, precision: str) -
     return manifest
 
 
-def _precision_context(device: torch.device, precision: str):
+def _materialize_precision(
+    device: torch.device,
+    precision: str,
+    model: torch.nn.Module,
+    dummy_input: torch.Tensor,
+):
     if precision == 'fp32':
-        return None, 'float32'
+        return model, dummy_input, None, 'float32'
     if device.type == 'cpu' and precision == 'bf16':
-        return torch.autocast(device_type='cpu', dtype=torch.bfloat16), 'bfloat16'
+        return model.to(dtype=torch.bfloat16), dummy_input.to(dtype=torch.bfloat16), None, 'bfloat16'
     if device.type == 'cuda' and precision == 'fp16':
-        return torch.autocast(device_type='cuda', dtype=torch.float16), 'float16'
+        return model, dummy_input, torch.autocast(device_type='cuda', dtype=torch.float16), 'float16'
     if device.type == 'cuda' and precision == 'bf16':
-        return torch.autocast(device_type='cuda', dtype=torch.bfloat16), 'bfloat16'
+        return model, dummy_input, torch.autocast(device_type='cuda', dtype=torch.bfloat16), 'bfloat16'
     raise ValueError(f'Unsupported precision profile {precision!r} for device {device}')
 
 
@@ -404,8 +409,13 @@ def _measure_model(task: LatencyTask) -> Dict[str, Any]:
         batch_size=task.batch_size,
         component_specs=artifacts.component_specs,
     ).to(device)
+    model, dummy_input, autocast_context, effective_dtype = _materialize_precision(
+        device=device,
+        precision=task.precision,
+        model=model,
+        dummy_input=dummy_input,
+    )
     model, graph_prep_time_ms = _prepare_model_for_execution_mode(model, dummy_input, task.execution_mode)
-    autocast_context, effective_dtype = _precision_context(device, task.precision)
 
     def _run_once() -> None:
         with torch.inference_mode():

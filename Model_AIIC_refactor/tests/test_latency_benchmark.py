@@ -16,6 +16,7 @@ import export_latency_csv
 import plot_latency_benchmark
 from benchmarks.workflow import (
     LatencyTask,
+    _materialize_precision,
     backfill_latency_csv_tree,
     benchmark_latency_programmatic,
     build_latency_task_matrix,
@@ -133,6 +134,23 @@ class TestLatencyBenchmark(unittest.TestCase):
         counts = parse_csv_ints('1,4,all-physical', default_thread_counts('cpu'))
         self.assertGreaterEqual(len(counts), 2)
         self.assertEqual(counts[0], 1)
+
+    def test_cpu_bf16_precision_materializes_model_and_input_without_autocast(self):
+        model = create_model('full_mlp', self.model_spec)
+        dummy_input = torch.randn(2, self.model_spec['seq_len'] * 2)
+
+        converted_model, converted_input, autocast_context, effective_dtype = _materialize_precision(
+            device=torch.device('cpu'),
+            precision='bf16',
+            model=model,
+            dummy_input=dummy_input,
+        )
+
+        self.assertIsNone(autocast_context)
+        self.assertEqual(effective_dtype, 'bfloat16')
+        self.assertEqual(converted_input.dtype, torch.bfloat16)
+        first_param = next(converted_model.parameters())
+        self.assertEqual(first_param.dtype, torch.bfloat16)
 
     def test_build_latency_task_matrix_for_cpu(self):
         tasks = build_latency_task_matrix(
