@@ -1069,6 +1069,10 @@ Current default behavior is intentionally CPU-centric:
 - CPU is the primary path for current validation and regression coverage
 - CUDA interface is kept available for later expansion, but it is not the first-version default benchmark path
 
+For a complete deployment-oriented setup and reproduction guide covering `uv` environment management, `onnxruntime`, `openvino`, install commands, and focused CPU benchmark recipes, see:
+
+- `Model_AIIC_refactor/CPU_DEPLOYMENT_BENCHMARK_GUIDE.md`
+
 Example: benchmark one run on CPU across the default batch and thread profiles:
 
 ```bash
