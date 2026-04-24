@@ -191,6 +191,22 @@ class TestLatencyBenchmark(unittest.TestCase):
         self.assertEqual([task.runtime_backend for task in tasks], ['pytorch', 'pytorch', 'onnxruntime'])
         self.assertEqual(tasks[-1].execution_mode, 'onnxruntime')
 
+    def test_build_latency_task_matrix_expands_openvino_backend(self):
+        tasks = build_latency_task_matrix(
+            run_dirs=[self.run_dir],
+            device=torch.device('cpu'),
+            runtime_backends=['pytorch', 'openvino'],
+            execution_modes=['jit'],
+            precision_profiles=['fp32'],
+            batch_sizes=[1],
+            thread_counts=[1],
+            warmup_iters=1,
+            measure_iters=1,
+        )
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual([task.runtime_backend for task in tasks], ['pytorch', 'openvino'])
+        self.assertEqual(tasks[-1].execution_mode, 'openvino')
+
     def test_resolve_latency_output_dir_prefers_experiment_dir(self):
         output_dir = resolve_latency_output_dir(exp_dir=self.exp_dir, run_dirs=[self.run_dir], device_type='cpu', benchmark_id='20260422_000000')
         self.assertEqual(output_dir.parent, self.exp_dir / 'latency')

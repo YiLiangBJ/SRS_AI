@@ -45,6 +45,16 @@ DEFAULT_CPU_RUNTIME_BACKENDS = ['pytorch']
 DEFAULT_CUDA_RUNTIME_BACKENDS = ['pytorch']
 
 
+def _runtime_backend_execution_modes(runtime_backend: str, execution_modes: List[str]) -> List[str]:
+    if runtime_backend == 'pytorch':
+        return execution_modes
+    if runtime_backend == 'onnxruntime':
+        return ['onnxruntime']
+    if runtime_backend == 'openvino':
+        return ['openvino']
+    return execution_modes
+
+
 @dataclass(frozen=True)
 class LatencyTask:
     run_dir: str
@@ -193,7 +203,7 @@ def build_latency_task_matrix(
     active_threads = thread_counts if device.type == 'cpu' else [1]
     for run_dir in run_dirs:
         for runtime_backend in runtime_backends:
-            backend_execution_modes = execution_modes if runtime_backend == 'pytorch' else ['onnxruntime']
+            backend_execution_modes = _runtime_backend_execution_modes(runtime_backend, execution_modes)
             for execution_mode in backend_execution_modes:
                 for precision in precision_profiles:
                     for batch_size in batch_sizes:
@@ -300,6 +310,9 @@ def _hardware_manifest(device: torch.device, num_threads: int, precision: str, r
     if runtime_backend == 'onnxruntime':
         manifest['onnxruntime_available'] = importlib.util.find_spec('onnxruntime') is not None
         manifest['onnxruntime_version'] = _optional_package_version('onnxruntime')
+    if runtime_backend == 'openvino':
+        manifest['openvino_available'] = importlib.util.find_spec('openvino') is not None
+        manifest['openvino_version'] = _optional_package_version('openvino')
     if device.type == 'cuda' and torch.cuda.is_available():
         manifest['cuda'] = {
             'device_name': torch.cuda.get_device_name(device),
@@ -346,6 +359,12 @@ def _validate_runtime_backend_support(device: torch.device, runtime_backend: str
         if importlib.util.find_spec('onnxruntime') is None:
             return 'onnxruntime is not installed in the current Python environment'
         return None
+    if runtime_backend == 'openvino':
+        if device.type != 'cpu':
+            return 'OpenVINO benchmark currently supports CPU only'
+        if importlib.util.find_spec('openvino') is None:
+            return 'openvino is not installed in the current Python environment'
+        return None
     return f'Unsupported runtime backend {runtime_backend!r}'
 
 
@@ -379,6 +398,10 @@ def _validate_precision_support(device: torch.device, precision: str, runtime_ba
     if runtime_backend == 'onnxruntime':
         if precision != 'fp32':
             return 'ONNX Runtime benchmark currently supports precision profile fp32 only'
+        return None
+    if runtime_backend == 'openvino':
+        if precision != 'fp32':
+            return 'OpenVINO benchmark currently supports precision profile fp32 only'
         return None
     if precision == 'fp32':
         return None
@@ -440,6 +463,10 @@ def _ensure_onnxruntime_export(run_dir: Path) -> Dict[str, Any]:
         dynamic_batch=True,
         validate=False,
     )
+
+
+def _ensure_openvino_export(run_dir: Path) -> Dict[str, Any]:
+    return _ensure_onnxruntime_export(run_dir)
 
 
 def _measure_pytorch_model(task: LatencyTask, device: torch.device) -> Dict[str, Any]:
@@ -615,6 +642,86 @@ def _measure_onnxruntime_model(task: LatencyTask, device: torch.device) -> Dict[
     }
 
 
+def _measure_openvino_model(task: LatencyTask, device: torch.device) -> Dict[str, Any]:
+    skip_reason = _validate_precision_support(device, task.precision, runtime_backend=task.runtime_backend)
+    if skip_reason is not None:
+        return _build_skipped_result(task, device, skip_reason)
+
+    import importlib
+
+    run_dir = Path(task.run_dir)
+    artifacts = load_run_artifacts(run_dir, device='cpu')
+    export_manifest = _ensure_openvino_export(run_dir)
+    dummy_input = build_dummy_input(
+        artifacts.model_spec,
+        batch_size=task.batch_size,
+        component_specs=artifacts.component_specs,
+    ).cpu()
+    input_feed = {export_manifest['input_names'][0]: dummy_input.detach().numpy()}
+
+    ov_module = importlib.import_module('openvino')
+    core_factory = getattr(ov_module, 'Core', None)
+    if core_factory is None:
+        runtime_module = importlib.import_module('openvino.runtime')
+        core_factory = getattr(runtime_module, 'Core')
+    core = core_factory()
+    start_ns = time.perf_counter_ns()
+    ov_model = core.read_model(model=export_manifest['onnx_path'])
+    compiled_model = core.compile_model(ov_model, 'CPU')
+    graph_prep_time_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+
+    def _run_once() -> None:
+        compiled_model(input_feed)
+
+    for _ in range(task.warmup_iters):
+        _run_once()
+
+    samples_ns: List[int] = []
+    for _ in range(task.measure_iters):
+        start_ns = time.perf_counter_ns()
+        _run_once()
+        end_ns = time.perf_counter_ns()
+        samples_ns.append(end_ns - start_ns)
+
+    latency_ms = [sample / 1_000_000.0 for sample in samples_ns]
+    mean_ms = statistics.mean(latency_ms)
+    throughput = task.batch_size / (mean_ms / 1000.0) if mean_ms > 0 else 0.0
+    hardware_manifest = _hardware_manifest(device, task.num_threads, task.precision, runtime_backend=task.runtime_backend)
+    hardware_manifest['openvino_version'] = _optional_package_version('openvino')
+    hardware_manifest['openvino_device'] = 'CPU'
+
+    return {
+        'status': 'ok',
+        'skip_reason': None,
+        'run_dir': task.run_dir,
+        'run_name': Path(task.run_dir).name,
+        'device': task.device,
+        'runtime_backend': task.runtime_backend,
+        'execution_mode': task.execution_mode,
+        'requested_precision_profile': task.precision,
+        'effective_execution_dtype': 'float32',
+        'graph_prep_time_ms': float(graph_prep_time_ms),
+        'batch_size': task.batch_size,
+        'num_threads': task.num_threads,
+        'warmup_iters': task.warmup_iters,
+        'measure_iters': task.measure_iters,
+        'p50_latency_ms': float(np.percentile(latency_ms, 50)),
+        'p90_latency_ms': float(np.percentile(latency_ms, 90)),
+        'p95_latency_ms': float(np.percentile(latency_ms, 95)),
+        'p99_latency_ms': float(np.percentile(latency_ms, 99)),
+        'mean_latency_ms': float(mean_ms),
+        'std_latency_ms': float(statistics.pstdev(latency_ms) if len(latency_ms) > 1 else 0.0),
+        'min_latency_ms': float(min(latency_ms)),
+        'max_latency_ms': float(max(latency_ms)),
+        'throughput_samples_per_sec': float(throughput),
+        'latency_samples_ms': latency_ms,
+        'hardware_manifest': hardware_manifest,
+        'model_spec': artifacts.model_spec,
+        'metadata': artifacts.metadata,
+        'component_specs': artifacts.component_specs,
+    }
+
+
 def _measure_model(task: LatencyTask) -> Dict[str, Any]:
     device = torch.device(task.device)
     backend_skip_reason = _validate_runtime_backend_support(device, task.runtime_backend)
@@ -622,6 +729,8 @@ def _measure_model(task: LatencyTask) -> Dict[str, Any]:
         return _build_skipped_result(task, device, backend_skip_reason)
     if task.runtime_backend == 'onnxruntime':
         return _measure_onnxruntime_model(task, device)
+    if task.runtime_backend == 'openvino':
+        return _measure_openvino_model(task, device)
     return _measure_pytorch_model(task, device)
 
 
@@ -814,6 +923,8 @@ def _flatten_result_rows(results_payload: Dict[str, Any]) -> List[Dict[str, Any]
             'onednn_version': hardware_manifest.get('onednn_version'),
             'onnxruntime_version': hardware_manifest.get('onnxruntime_version'),
             'onnxruntime_providers': ','.join(hardware_manifest.get('onnxruntime_providers') or []),
+            'openvino_version': hardware_manifest.get('openvino_version'),
+            'openvino_device': hardware_manifest.get('openvino_device'),
             'logical_cpu_count': hardware_manifest.get('logical_cpu_count'),
             'physical_cpu_count': hardware_manifest.get('physical_cpu_count'),
             'hostname': hardware_manifest.get('hostname'),
@@ -894,6 +1005,10 @@ def _render_hardware_summary(results_payload: Dict[str, Any]) -> List[str]:
         lines.append(f"- ONNX Runtime version: `{manifest.get('onnxruntime_version', '-')}`")
     if manifest.get('onnxruntime_providers'):
         lines.append(f"- ONNX Runtime providers: `{manifest.get('onnxruntime_providers', [])}`")
+    if manifest.get('openvino_version'):
+        lines.append(f"- OpenVINO version: `{manifest.get('openvino_version', '-')}`")
+    if manifest.get('openvino_device'):
+        lines.append(f"- OpenVINO device: `{manifest.get('openvino_device', '-')}`")
     env = manifest.get('env') or {}
     if env:
         lines.append(f"- Relevant env: `{env}`")

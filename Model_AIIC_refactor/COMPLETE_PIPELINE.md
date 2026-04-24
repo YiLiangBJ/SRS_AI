@@ -1112,6 +1112,24 @@ Notes for ONNX Runtime backend:
 - the benchmark reuses or creates `run_dir/onnx_exports/export_manifest.json` and the matching `.onnx` export as needed
 - results are reported with `runtime_backend=onnxruntime` and `execution_mode=onnxruntime`
 
+Example: benchmark one run on CPU with OpenVINO as a deployment-oriented backend:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu \
+  --runtime_backends openvino \
+  --precision_profiles fp32
+```
+
+Notes for OpenVINO backend:
+
+- current first-version support is CPU only
+- current first-version support is `fp32` only
+- the benchmark reuses or creates `run_dir/onnx_exports/export_manifest.json` and the matching `.onnx` export as needed
+- this is a standalone OpenVINO runtime path, not ONNX Runtime with OpenVINO Execution Provider
+- results are reported with `runtime_backend=openvino` and `execution_mode=openvino`
+
 Example: benchmark a whole experiment on CUDA with selected precision profiles:
 
 ```bash
