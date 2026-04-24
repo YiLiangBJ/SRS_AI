@@ -1064,6 +1064,7 @@ Supported first-version benchmark dimensions:
 Current default behavior is intentionally CPU-centric:
 
 - `benchmark_latency.py` defaults to `--device cpu`
+- `benchmark_latency.py` defaults to `--runtime_backends pytorch`
 - `benchmark_latency.py` defaults to CPU execution modes `eager,jit,compile`
 - CPU is the primary path for current validation and regression coverage
 - CUDA interface is kept available for later expansion, but it is not the first-version default benchmark path
@@ -1093,6 +1094,23 @@ python ./Model_AIIC_refactor/benchmark_latency.py \
   --device cpu \
   --execution_modes eager,jit,compile
 ```
+
+Example: benchmark one run on CPU with ONNX Runtime as a deployment-oriented backend:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu \
+  --runtime_backends onnxruntime \
+  --precision_profiles fp32
+```
+
+Notes for ONNX Runtime backend:
+
+- current first-version support is CPU only
+- current first-version support is `fp32` only
+- the benchmark reuses or creates `run_dir/onnx_exports/export_manifest.json` and the matching `.onnx` export as needed
+- results are reported with `runtime_backend=onnxruntime` and `execution_mode=onnxruntime`
 
 Example: benchmark a whole experiment on CUDA with selected precision profiles:
 
@@ -1138,7 +1156,7 @@ The CSV export is generated automatically during every new latency benchmark run
 
 Important CSV columns include:
 
-- benchmark dimensions: run, execution mode, precision, batch size, threads
+- benchmark dimensions: run, runtime backend, execution mode, precision, batch size, threads
 - latency stats: mean, std, min, p50, p90, p95, p99, max
 - throughput stats: `throughput_samples_per_sec`, `samples_per_ms`, `throughput_per_thread`
 - per-sample view: `p50_latency_us`, `latency_per_sample_us`

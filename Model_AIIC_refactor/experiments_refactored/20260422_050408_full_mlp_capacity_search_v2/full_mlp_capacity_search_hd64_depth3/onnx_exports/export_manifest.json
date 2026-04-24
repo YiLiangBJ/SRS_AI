@@ -1,0 +1,566 @@
+{
+  "timestamp": "2026-04-24T10:49:23.055722",
+  "run_name": "full_mlp_capacity_search_hd64_depth3",
+  "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd64_depth3",
+  "checkpoint_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd64_depth3/model.pth",
+  "onnx_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd64_depth3/onnx_exports/full_mlp_capacity_search_hd64_depth3.onnx",
+  "model_spec": {
+    "seq_len": 12,
+    "pos_values": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "normalize_energy": true,
+    "hidden_dim": 64,
+    "mlp_depth": 3,
+    "model_type": "full_mlp",
+    "num_ports": 6,
+    "num_params": 10960
+  },
+  "training_spec": {
+    "batch_size": 4096,
+    "num_batches": 100000,
+    "learning_rate": 0.01,
+    "loss_type": "nmse",
+    "print_interval": 100,
+    "validation_batches": 4,
+    "patience": 5,
+    "keep_last_n_checkpoints": 2,
+    "lr_scheduler": {
+      "enabled": true,
+      "factor": 0.8,
+      "patience": 30,
+      "threshold": 0.005,
+      "threshold_mode": "abs",
+      "cooldown": 10,
+      "min_lr": 1e-06
+    },
+    "optimizer": {
+      "type": "adam"
+    },
+    "validation_interval": 100,
+    "early_stop_loss": null,
+    "save_interval": 1000,
+    "strategy_type": "standard_supervised"
+  },
+  "metadata": {
+    "experiment_name": "full_mlp_capacity_search_v2",
+    "schema_version": "v2",
+    "task_recipe_name": "channel_separator_6port_standard",
+    "task_label": "channel_separator_6port_standard",
+    "model_recipe_name": "full_mlp_capacity_search",
+    "model_label": "full_mlp_capacity_search_hd64_depth3",
+    "run_name": "full_mlp_capacity_search_hd64_depth3",
+    "training_recipe_name": "supervised_nmse_plateau",
+    "training_label": "supervised_nmse_plateau",
+    "training_duration": 351.1304965019226,
+    "init_checkpoint_path": null,
+    "timestamp": "2026-04-22T05:39:56.366022"
+  },
+  "input_names": [
+    "mixed_signal"
+  ],
+  "output_names": [
+    "separated_channels"
+  ],
+  "dummy_input_shape": [
+    1,
+    24
+  ],
+  "dummy_output_shape": [
+    1,
+    6,
+    24
+  ],
+  "opset_version": 13,
+  "dynamic_batch": true,
+  "validation": {},
+  "model_flow": {
+    "format": "srs_ai_model_flow_v1",
+    "model_type": "full_mlp",
+    "input_layout": "N x (2*seq_len) real-stacked float32 = [real_part, imag_part]",
+    "output_layout": "N x num_ports x (2*seq_len) real-stacked float32",
+    "dynamic_dimension_convention": "Dynamic dimensions are written as -1.",
+    "input_shape": [
+      -1,
+      24
+    ],
+    "output_shape": [
+      -1,
+      6,
+      24
+    ],
+    "input_shape_string": "[-1, 24]",
+    "output_shape_string": "[-1, 6, 24]",
+    "model_spec": {
+      "seq_len": 12,
+      "pos_values": [
+        0,
+        2,
+        4,
+        6,
+        8,
+        10
+      ],
+      "normalize_energy": true,
+      "hidden_dim": 64,
+      "mlp_depth": 3,
+      "model_type": "full_mlp",
+      "num_ports": 6,
+      "num_params": 10960
+    },
+    "component_specs": {
+      "task": {
+        "type": "channel_separator",
+        "params": {
+          "seq_len": 12,
+          "pos_values": [
+            0,
+            2,
+            4,
+            6,
+            8,
+            10
+          ],
+          "snr_config": {
+            "type": "range",
+            "min": 0,
+            "max": 30,
+            "per_sample": true,
+            "sampling": "stratified",
+            "num_bins": 10
+          },
+          "tdl_config": [
+            "A-30",
+            "B-100",
+            "C-300"
+          ]
+        }
+      },
+      "model": {
+        "type": "full_mlp",
+        "params": {
+          "normalize_energy": true,
+          "hidden_dim": 64,
+          "mlp_depth": 3
+        },
+        "sweeps": [
+          {
+            "target": "params.hidden_dim",
+            "alias": "hd",
+            "values": [
+              32,
+              64,
+              128,
+              256,
+              512
+            ]
+          },
+          {
+            "target": "params.mlp_depth",
+            "alias": "depth",
+            "values": [
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        ]
+      },
+      "training_strategy": {
+        "type": "standard_supervised",
+        "params": {
+          "batch_size": 4096,
+          "num_batches": 100000,
+          "optimizer": {
+            "type": "adam",
+            "params": {
+              "learning_rate": 0.01
+            }
+          },
+          "loss": {
+            "type": "nmse"
+          },
+          "validation": {
+            "interval": 100,
+            "batches": 4
+          },
+          "early_stop": {
+            "patience": 5
+          },
+          "logging": {
+            "print_interval": 100
+          },
+          "checkpoints": {
+            "save_interval": 1000,
+            "keep_last_n": 2
+          },
+          "scheduler": {
+            "type": "reduce_on_plateau",
+            "params": {
+              "factor": 0.8,
+              "patience": 30,
+              "threshold": 0.005,
+              "threshold_mode": "abs",
+              "cooldown": 10,
+              "min_lr": 1e-06
+            }
+          }
+        }
+      }
+    },
+    "family": "full_mlp",
+    "loop_summary": "One joint MLP processes the mixed signal once and reshapes the output into all ports.",
+    "total_trainable_params": 10960,
+    "total_trainable_params_string": "10,960",
+    "nodes": [
+      {
+        "name": "mixed_signal",
+        "shape": [
+          -1,
+          24
+        ],
+        "shape_string": "[-1, 24]",
+        "description": "Real-stacked mixed input [real, imag].",
+        "why": "Task output is one complex sequence flattened into real and imaginary blocks.",
+        "param_count_per_occurrence": 0,
+        "param_count_per_occurrence_string": "0",
+        "effective_total_param_count": 0,
+        "effective_total_param_count_string": "0"
+      },
+      {
+        "name": "normalized_input",
+        "shape": [
+          -1,
+          24
+        ],
+        "shape_string": "[-1, 24]",
+        "description": "Optional per-sample RMS normalization inside the model.",
+        "why": "Normalization rescales values but does not change tensor rank or width.",
+        "param_count_per_occurrence": 0,
+        "param_count_per_occurrence_string": "0",
+        "effective_total_param_count": 0,
+        "effective_total_param_count_string": "0"
+      },
+      {
+        "name": "joint_hidden_1",
+        "shape": [
+          -1,
+          64
+        ],
+        "shape_string": "[-1, 64]",
+        "description": "First hidden linear layer with hidden_dim=64.",
+        "why": "The first affine layer maps the input width 24 into the configured hidden width 64.",
+        "param_count_per_occurrence": 1600,
+        "param_count_per_occurrence_string": "1,600",
+        "effective_total_param_count": 1600,
+        "effective_total_param_count_string": "1,600"
+      },
+      {
+        "name": "joint_hidden_1_relu",
+        "shape": [
+          -1,
+          64
+        ],
+        "shape_string": "[-1, 64]",
+        "description": "ReLU activation after the first hidden layer.",
+        "why": "ReLU is elementwise, so it keeps the hidden shape unchanged.",
+        "param_count_per_occurrence": 0,
+        "param_count_per_occurrence_string": "0",
+        "effective_total_param_count": 0,
+        "effective_total_param_count_string": "0"
+      },
+      {
+        "name": "joint_linear_output",
+        "shape": [
+          -1,
+          144
+        ],
+        "shape_string": "[-1, 144]",
+        "description": "Final linear layer predicts all ports jointly.",
+        "why": "The output affine layer expands hidden width 64 to flat joint output width 144.",
+        "param_count_per_occurrence": 9360,
+        "param_count_per_occurrence_string": "9,360",
+        "effective_total_param_count": 9360,
+        "effective_total_param_count_string": "9,360"
+      },
+      {
+        "name": "reshaped_channels",
+        "shape": [
+          -1,
+          6,
+          24
+        ],
+        "shape_string": "[-1, 6, 24]",
+        "description": "Flat output reshaped into one real-stacked channel tensor per port.",
+        "why": "The flat width 144 is partitioned into 6 port blocks of width 24.",
+        "param_count_per_occurrence": 0,
+        "param_count_per_occurrence_string": "0",
+        "effective_total_param_count": 0,
+        "effective_total_param_count_string": "0"
+      },
+      {
+        "name": "separated_channels",
+        "shape": [
+          -1,
+          6,
+          24
+        ],
+        "shape_string": "[-1, 6, 24]",
+        "description": "Optional output RMS restoration to the original input scale.",
+        "why": "Rescaling restores amplitude but keeps the separated tensor shape unchanged.",
+        "param_count_per_occurrence": 0,
+        "param_count_per_occurrence_string": "0",
+        "effective_total_param_count": 0,
+        "effective_total_param_count_string": "0"
+      }
+    ]
+  },
+  "model_flow_json_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd64_depth3/onnx_exports/model_flow.json",
+  "model_flow_markdown_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd64_depth3/onnx_exports/MODEL_FLOW.md",
+  "model_complexity": {
+    "format": "srs_ai_model_complexity_v1",
+    "model_type": "full_mlp",
+    "input_shape": [
+      -1,
+      24
+    ],
+    "input_shape_string": "[-1, 24]",
+    "output_shape": [
+      -1,
+      6,
+      24
+    ],
+    "output_shape_string": "[-1, 6, 24]",
+    "counting_assumptions": [
+      "All counts are estimated for one forward pass of one sample; multiply by runtime batch size N for a first-order batch estimate.",
+      "MACs and multiply/add counts are counted from affine layers using scalar CPU-style arithmetic.",
+      "Bias accumulation is counted as additions inside the addition totals.",
+      "Normalization, activations, and residual corrections are included as estimated scalar ops where relevant.",
+      "Tensor reshapes, concatenations, indexing, and memory traffic are not counted as arithmetic FLOPs.",
+      "Latency depends on implementation and hardware; these counts are for fast complexity screening only."
+    ],
+    "summary": {
+      "trainable_parameters": 10960,
+      "trainable_parameters_string": "10,960",
+      "parameter_memory_bytes_fp32": 43840,
+      "parameter_memory_bytes_fp32_string": "0.042 MiB (43,840 bytes)",
+      "macs_per_sample": 10752,
+      "macs_per_sample_string": "10,752",
+      "multiplications_per_sample": 10920,
+      "multiplications_per_sample_string": "10,920",
+      "additions_per_sample": 10775,
+      "additions_per_sample_string": "10,775",
+      "other_scalar_ops_per_sample_estimate": 89,
+      "other_scalar_ops_per_sample_estimate_string": "89",
+      "flops_per_sample_estimate": 21784,
+      "flops_per_sample_estimate_string": "21,784",
+      "batch_scaling_rule": "Multiply the per-sample counts by runtime batch size N for a first-order batch estimate."
+    },
+    "entries": [
+      {
+        "name": "input_normalize_restore",
+        "repeat": "once per sample",
+        "why": "Per-sample RMS normalization and output rescaling are applied around the network when normalize_energy=true.",
+        "parameters": 0,
+        "parameters_string": "0",
+        "macs": 0,
+        "macs_string": "0",
+        "multiplications": 168,
+        "multiplications_string": "168",
+        "additions": 23,
+        "additions_string": "23",
+        "other_ops": 25,
+        "other_ops_string": "25",
+        "flops_estimate": 216,
+        "flops_estimate_string": "216"
+      },
+      {
+        "name": "joint_linear_01",
+        "repeat": "once per sample",
+        "why": "Joint affine layer maps width 24 to width 64.",
+        "parameters": 1600,
+        "parameters_string": "1,600",
+        "macs": 1536,
+        "macs_string": "1,536",
+        "multiplications": 1536,
+        "multiplications_string": "1,536",
+        "additions": 1536,
+        "additions_string": "1,536",
+        "other_ops": 0,
+        "other_ops_string": "0",
+        "flops_estimate": 3072,
+        "flops_estimate_string": "3,072"
+      },
+      {
+        "name": "joint_relu_01",
+        "repeat": "once per sample",
+        "why": "ReLU is applied after every hidden affine layer in the joint MLP.",
+        "parameters": 0,
+        "parameters_string": "0",
+        "macs": 0,
+        "macs_string": "0",
+        "multiplications": 0,
+        "multiplications_string": "0",
+        "additions": 0,
+        "additions_string": "0",
+        "other_ops": 64,
+        "other_ops_string": "64",
+        "flops_estimate": 64,
+        "flops_estimate_string": "64"
+      },
+      {
+        "name": "joint_linear_02",
+        "repeat": "once per sample",
+        "why": "Joint affine layer maps width 64 to width 144.",
+        "parameters": 9360,
+        "parameters_string": "9,360",
+        "macs": 9216,
+        "macs_string": "9,216",
+        "multiplications": 9216,
+        "multiplications_string": "9,216",
+        "additions": 9216,
+        "additions_string": "9,216",
+        "other_ops": 0,
+        "other_ops_string": "0",
+        "flops_estimate": 18432,
+        "flops_estimate_string": "18,432"
+      }
+    ],
+    "model_spec": {
+      "seq_len": 12,
+      "pos_values": [
+        0,
+        2,
+        4,
+        6,
+        8,
+        10
+      ],
+      "normalize_energy": true,
+      "hidden_dim": 64,
+      "mlp_depth": 3,
+      "model_type": "full_mlp",
+      "num_ports": 6,
+      "num_params": 10960
+    },
+    "component_specs": {
+      "task": {
+        "type": "channel_separator",
+        "params": {
+          "seq_len": 12,
+          "pos_values": [
+            0,
+            2,
+            4,
+            6,
+            8,
+            10
+          ],
+          "snr_config": {
+            "type": "range",
+            "min": 0,
+            "max": 30,
+            "per_sample": true,
+            "sampling": "stratified",
+            "num_bins": 10
+          },
+          "tdl_config": [
+            "A-30",
+            "B-100",
+            "C-300"
+          ]
+        }
+      },
+      "model": {
+        "type": "full_mlp",
+        "params": {
+          "normalize_energy": true,
+          "hidden_dim": 64,
+          "mlp_depth": 3
+        },
+        "sweeps": [
+          {
+            "target": "params.hidden_dim",
+            "alias": "hd",
+            "values": [
+              32,
+              64,
+              128,
+              256,
+              512
+            ]
+          },
+          {
+            "target": "params.mlp_depth",
+            "alias": "depth",
+            "values": [
+              2,
+              3,
+              4,
+              5
+            ]
+          }
+        ]
+      },
+      "training_strategy": {
+        "type": "standard_supervised",
+        "params": {
+          "batch_size": 4096,
+          "num_batches": 100000,
+          "optimizer": {
+            "type": "adam",
+            "params": {
+              "learning_rate": 0.01
+            }
+          },
+          "loss": {
+            "type": "nmse"
+          },
+          "validation": {
+            "interval": 100,
+            "batches": 4
+          },
+          "early_stop": {
+            "patience": 5
+          },
+          "logging": {
+            "print_interval": 100
+          },
+          "checkpoints": {
+            "save_interval": 1000,
+            "keep_last_n": 2
+          },
+          "scheduler": {
+            "type": "reduce_on_plateau",
+            "params": {
+              "factor": 0.8,
+              "patience": 30,
+              "threshold": 0.005,
+              "threshold_mode": "abs",
+              "cooldown": 10,
+              "min_lr": 1e-06
+            }
+          }
+        }
+      }
+    }
+  },
+  "model_complexity_json_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd64_depth3/onnx_exports/model_complexity.json",
+  "model_complexity_markdown_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd64_depth3/onnx_exports/MODEL_COMPLEXITY.md",
+  "matlab_notes": {
+    "recommended_import": "importNetworkFromONNX",
+    "input_name": "mixed_signal",
+    "output_name": "separated_channels",
+    "input_layout": "N x (2*seq_len) real-stacked float32",
+    "output_layout": "N x num_ports x (2*seq_len) real-stacked float32",
+    "normalize_energy": true,
+    "preprocessing": "Per-sample RMS normalization is inside the exported model when normalize_energy=true."
+  },
+  "manifest_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd64_depth3/onnx_exports/export_manifest.json"
+}

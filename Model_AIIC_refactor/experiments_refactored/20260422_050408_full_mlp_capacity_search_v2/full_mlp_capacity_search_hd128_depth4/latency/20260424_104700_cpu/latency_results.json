@@ -1,0 +1,1482 @@
+{
+  "timestamp": "2026-04-24T10:49:42.434847",
+  "benchmark_id": "20260424_104700",
+  "device": "cpu",
+  "runtime_backends": [
+    "pytorch",
+    "onnxruntime"
+  ],
+  "execution_modes": [
+    "jit"
+  ],
+  "precision_profiles": [
+    "fp32"
+  ],
+  "batch_sizes": [
+    1,
+    128
+  ],
+  "thread_counts": [
+    1
+  ],
+  "run_name": "full_mlp_capacity_search_hd128_depth4",
+  "results": [
+    {
+      "status": "ok",
+      "skip_reason": null,
+      "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd128_depth4",
+      "run_name": "full_mlp_capacity_search_hd128_depth4",
+      "device": "cpu",
+      "runtime_backend": "pytorch",
+      "execution_mode": "jit",
+      "requested_precision_profile": "fp32",
+      "effective_execution_dtype": "float32",
+      "graph_prep_time_ms": 62.885215,
+      "batch_size": 1,
+      "num_threads": 1,
+      "warmup_iters": 3,
+      "measure_iters": 5,
+      "p50_latency_ms": 0.049035,
+      "p90_latency_ms": 0.0555408,
+      "p95_latency_ms": 0.0556704,
+      "p99_latency_ms": 0.055774080000000004,
+      "mean_latency_ms": 0.051142,
+      "std_latency_ms": 0.003633468150403965,
+      "min_latency_ms": 0.046796,
+      "max_latency_ms": 0.0558,
+      "throughput_samples_per_sec": 19553.400336318486,
+      "latency_samples_ms": [
+        0.0558,
+        0.048927,
+        0.049035,
+        0.046796,
+        0.055152
+      ],
+      "hardware_manifest": {
+        "hostname": "nex-flexran-gpu-01",
+        "python_version": "3.11.9",
+        "pytorch_version": "2.1.2+cu121",
+        "device": "cpu",
+        "runtime_backend": "pytorch",
+        "precision_profile": "fp32",
+        "num_threads": 1,
+        "logical_cpu_count": 128,
+        "physical_cpu_count": 64,
+        "cpu_model_name": "Intel(R) Xeon(R) Platinum 8358 CPU $@ $@",
+        "cpu_capability": "AVX512",
+        "cpu_flags": [
+          "fpu",
+          "vme",
+          "de",
+          "pse",
+          "tsc",
+          "msr",
+          "pae",
+          "mce",
+          "cx8",
+          "apic",
+          "sep",
+          "mtrr",
+          "pge",
+          "mca",
+          "cmov",
+          "pat",
+          "pse36",
+          "clflush",
+          "dts",
+          "acpi",
+          "mmx",
+          "fxsr",
+          "sse",
+          "sse2",
+          "ss",
+          "ht",
+          "tm",
+          "pbe",
+          "syscall",
+          "nx",
+          "pdpe1gb",
+          "rdtscp",
+          "lm",
+          "constant_tsc",
+          "art",
+          "arch_perfmon",
+          "pebs",
+          "bts",
+          "rep_good",
+          "nopl",
+          "xtopology",
+          "nonstop_tsc",
+          "cpuid",
+          "aperfmperf",
+          "pni",
+          "pclmulqdq",
+          "dtes64",
+          "monitor",
+          "ds_cpl",
+          "vmx",
+          "smx",
+          "est",
+          "tm2",
+          "ssse3",
+          "sdbg",
+          "fma",
+          "cx16",
+          "xtpr",
+          "pdcm",
+          "pcid",
+          "dca",
+          "sse4_1",
+          "sse4_2",
+          "x2apic",
+          "movbe",
+          "popcnt",
+          "tsc_deadline_timer",
+          "aes",
+          "xsave",
+          "avx",
+          "f16c",
+          "rdrand",
+          "lahf_lm",
+          "abm",
+          "3dnowprefetch",
+          "cpuid_fault",
+          "epb",
+          "cat_l3",
+          "invpcid_single",
+          "intel_ppin",
+          "ssbd",
+          "mba",
+          "ibrs",
+          "ibpb",
+          "stibp",
+          "ibrs_enhanced",
+          "tpr_shadow",
+          "vnmi",
+          "flexpriority",
+          "ept",
+          "vpid",
+          "ept_ad",
+          "fsgsbase",
+          "tsc_adjust",
+          "bmi1",
+          "avx2",
+          "smep",
+          "bmi2",
+          "erms",
+          "invpcid",
+          "cqm",
+          "rdt_a",
+          "avx512f",
+          "avx512dq",
+          "rdseed",
+          "adx",
+          "smap",
+          "avx512ifma",
+          "clflushopt",
+          "clwb",
+          "intel_pt",
+          "avx512cd",
+          "sha_ni",
+          "avx512bw",
+          "avx512vl",
+          "xsaveopt",
+          "xsavec",
+          "xgetbv1",
+          "xsaves",
+          "cqm_llc",
+          "cqm_occup_llc",
+          "cqm_mbm_total",
+          "cqm_mbm_local",
+          "split_lock_detect",
+          "wbnoinvd",
+          "dtherm",
+          "ida",
+          "arat",
+          "pln",
+          "pts",
+          "hwp",
+          "hwp_act_window",
+          "hwp_epp",
+          "hwp_pkg_req",
+          "avx512vbmi",
+          "umip",
+          "pku",
+          "ospke",
+          "avx512_vbmi2",
+          "gfni",
+          "vaes",
+          "vpclmulqdq",
+          "avx512_vnni",
+          "avx512_bitalg",
+          "tme",
+          "avx512_vpopcntdq",
+          "la57",
+          "rdpid",
+          "fsrm",
+          "md_clear",
+          "pconfig",
+          "flush_l1d",
+          "arch_capabilities"
+        ],
+        "cpu_flag_summary": [
+          "avx2",
+          "avx512f",
+          "avx512bw",
+          "avx512vl",
+          "avx512_vnni",
+          "fma"
+        ],
+        "mkldnn_available": true,
+        "mkldnn_enabled": true,
+        "onednn_version": null,
+        "torch_compile_available": true,
+        "torch_config_summary": "PyTorch built with:\n  - GCC 9.3\n  - C++ Version: 201703\n  - Intel(R) oneAPI Math Kernel Library Version 2022.2-Product Build 20220804 for Intel(R) 64 architecture applications\n  - Intel(R) MKL-DNN v3.1.1 (Git Hash 64f6bcbcbab628e96f33a62c3e975f8535a7bde4)\n  - OpenMP 201511 (a.k.a. OpenMP 4.5)\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: AVX512\n  - CUDA Runtime 12.1\n  - NVCC architecture flags: -gencode;arch=compute_50,code=sm_50;-gencode;arch=compute_60,code=sm_60;-gencode;arch=compute_70,code=sm_70;-gencode;arch=compute_75,code=sm_75;-gencode;arch=compute_80,code=sm_80;-gencode;arch=compute_86,code=sm_86;-gencode;arch=compute_90,code=sm_90\n  - CuDNN 8.9.2\n  - Magma 2.6.1\n  - Build settings: BLAS_INFO=mkl, BUILD_TYPE=Release, CUDA_VERSION=12.1, CUDNN_VERSION=8.9.2, CXX_COMPILER=/opt/rh/devtoolset-9/root/usr/bin/c++, CXX_FLAGS= -D_GLIBCXX_USE_CXX11_ABI=0 -fabi-version=11 -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DLIBKINETO_NOROCTRACER -DUSE_FBGEMM -DUSE_QNNPACK -DUSE_PYTORCH_QNNPACK -DUSE_XNNPACK -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -O2 -fPIC -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-type-limits -Wno-array-bounds -Wno-unknown-pragmas -Wno-unused-parameter -Wno-unused-function -Wno-unused-result -Wno-strict-overflow -Wno-strict-aliasing -Wno-stringop-overflow -Wno-psabi -Wno-error=pedantic -Wno-error=old-style-cast -Wno-invalid-partial-specialization -Wno-unused-private-field -Wno-aligned-allocation-unavailable -Wno-missing-braces -fdiagnostics-color=always -faligned-new -Wno-unused-but-set-variable -Wno-maybe-uninitialized -fno-math-errno -fno-trapping-math -Werror=format -Werror=cast-function-type -Wno-stringop-overflow, LAPACK_INFO=mkl, PERF_WITH_AVX=1, PERF_WITH_AVX2=1, PERF_WITH_AVX512=1, TORCH_DISABLE_GPU_ASSERTS=ON, TORCH_VERSION=2.1.2, USE_CUDA=ON, USE_CUDNN=ON, USE_EXCEPTION_PTR=1, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_MKL=ON, USE_MKLDNN=ON, USE_MPI=OFF, USE_NCCL=1, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, \n",
+        "env": {}
+      },
+      "model_spec": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "normalize_energy": true,
+        "hidden_dim": 128,
+        "mlp_depth": 4,
+        "model_type": "full_mlp",
+        "num_ports": 6,
+        "num_params": 38288
+      },
+      "metadata": {
+        "experiment_name": "full_mlp_capacity_search_v2",
+        "schema_version": "v2",
+        "task_recipe_name": "channel_separator_6port_standard",
+        "task_label": "channel_separator_6port_standard",
+        "model_recipe_name": "full_mlp_capacity_search",
+        "model_label": "full_mlp_capacity_search_hd128_depth4",
+        "run_name": "full_mlp_capacity_search_hd128_depth4",
+        "training_recipe_name": "supervised_nmse_plateau",
+        "training_label": "supervised_nmse_plateau",
+        "training_duration": 359.2748670578003,
+        "init_checkpoint_path": null,
+        "timestamp": "2026-04-22T06:09:35.532160"
+      },
+      "component_specs": {
+        "task": {
+          "type": "channel_separator",
+          "params": {
+            "seq_len": 12,
+            "pos_values": [
+              0,
+              2,
+              4,
+              6,
+              8,
+              10
+            ],
+            "snr_config": {
+              "type": "range",
+              "min": 0,
+              "max": 30,
+              "per_sample": true,
+              "sampling": "stratified",
+              "num_bins": 10
+            },
+            "tdl_config": [
+              "A-30",
+              "B-100",
+              "C-300"
+            ]
+          }
+        },
+        "model": {
+          "type": "full_mlp",
+          "params": {
+            "normalize_energy": true,
+            "hidden_dim": 128,
+            "mlp_depth": 4
+          },
+          "sweeps": [
+            {
+              "target": "params.hidden_dim",
+              "alias": "hd",
+              "values": [
+                32,
+                64,
+                128,
+                256,
+                512
+              ]
+            },
+            {
+              "target": "params.mlp_depth",
+              "alias": "depth",
+              "values": [
+                2,
+                3,
+                4,
+                5
+              ]
+            }
+          ]
+        },
+        "training_strategy": {
+          "type": "standard_supervised",
+          "params": {
+            "batch_size": 4096,
+            "num_batches": 100000,
+            "optimizer": {
+              "type": "adam",
+              "params": {
+                "learning_rate": 0.01
+              }
+            },
+            "loss": {
+              "type": "nmse"
+            },
+            "validation": {
+              "interval": 100,
+              "batches": 4
+            },
+            "early_stop": {
+              "patience": 5
+            },
+            "logging": {
+              "print_interval": 100
+            },
+            "checkpoints": {
+              "save_interval": 1000,
+              "keep_last_n": 2
+            },
+            "scheduler": {
+              "type": "reduce_on_plateau",
+              "params": {
+                "factor": 0.8,
+                "patience": 30,
+                "threshold": 0.005,
+                "threshold_mode": "abs",
+                "cooldown": 10,
+                "min_lr": 1e-06
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "status": "ok",
+      "skip_reason": null,
+      "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd128_depth4",
+      "run_name": "full_mlp_capacity_search_hd128_depth4",
+      "device": "cpu",
+      "runtime_backend": "pytorch",
+      "execution_mode": "jit",
+      "requested_precision_profile": "fp32",
+      "effective_execution_dtype": "float32",
+      "graph_prep_time_ms": 64.918131,
+      "batch_size": 128,
+      "num_threads": 1,
+      "warmup_iters": 3,
+      "measure_iters": 5,
+      "p50_latency_ms": 0.128881,
+      "p90_latency_ms": 0.1315958,
+      "p95_latency_ms": 0.1319494,
+      "p99_latency_ms": 0.13223228,
+      "mean_latency_ms": 0.1280634,
+      "std_latency_ms": 0.0033635441783927893,
+      "min_latency_ms": 0.122981,
+      "max_latency_ms": 0.132303,
+      "throughput_samples_per_sec": 999504.9327130157,
+      "latency_samples_ms": [
+        0.130535,
+        0.128881,
+        0.125617,
+        0.122981,
+        0.132303
+      ],
+      "hardware_manifest": {
+        "hostname": "nex-flexran-gpu-01",
+        "python_version": "3.11.9",
+        "pytorch_version": "2.1.2+cu121",
+        "device": "cpu",
+        "runtime_backend": "pytorch",
+        "precision_profile": "fp32",
+        "num_threads": 1,
+        "logical_cpu_count": 128,
+        "physical_cpu_count": 64,
+        "cpu_model_name": "Intel(R) Xeon(R) Platinum 8358 CPU $@ $@",
+        "cpu_capability": "AVX512",
+        "cpu_flags": [
+          "fpu",
+          "vme",
+          "de",
+          "pse",
+          "tsc",
+          "msr",
+          "pae",
+          "mce",
+          "cx8",
+          "apic",
+          "sep",
+          "mtrr",
+          "pge",
+          "mca",
+          "cmov",
+          "pat",
+          "pse36",
+          "clflush",
+          "dts",
+          "acpi",
+          "mmx",
+          "fxsr",
+          "sse",
+          "sse2",
+          "ss",
+          "ht",
+          "tm",
+          "pbe",
+          "syscall",
+          "nx",
+          "pdpe1gb",
+          "rdtscp",
+          "lm",
+          "constant_tsc",
+          "art",
+          "arch_perfmon",
+          "pebs",
+          "bts",
+          "rep_good",
+          "nopl",
+          "xtopology",
+          "nonstop_tsc",
+          "cpuid",
+          "aperfmperf",
+          "pni",
+          "pclmulqdq",
+          "dtes64",
+          "monitor",
+          "ds_cpl",
+          "vmx",
+          "smx",
+          "est",
+          "tm2",
+          "ssse3",
+          "sdbg",
+          "fma",
+          "cx16",
+          "xtpr",
+          "pdcm",
+          "pcid",
+          "dca",
+          "sse4_1",
+          "sse4_2",
+          "x2apic",
+          "movbe",
+          "popcnt",
+          "tsc_deadline_timer",
+          "aes",
+          "xsave",
+          "avx",
+          "f16c",
+          "rdrand",
+          "lahf_lm",
+          "abm",
+          "3dnowprefetch",
+          "cpuid_fault",
+          "epb",
+          "cat_l3",
+          "invpcid_single",
+          "intel_ppin",
+          "ssbd",
+          "mba",
+          "ibrs",
+          "ibpb",
+          "stibp",
+          "ibrs_enhanced",
+          "tpr_shadow",
+          "vnmi",
+          "flexpriority",
+          "ept",
+          "vpid",
+          "ept_ad",
+          "fsgsbase",
+          "tsc_adjust",
+          "bmi1",
+          "avx2",
+          "smep",
+          "bmi2",
+          "erms",
+          "invpcid",
+          "cqm",
+          "rdt_a",
+          "avx512f",
+          "avx512dq",
+          "rdseed",
+          "adx",
+          "smap",
+          "avx512ifma",
+          "clflushopt",
+          "clwb",
+          "intel_pt",
+          "avx512cd",
+          "sha_ni",
+          "avx512bw",
+          "avx512vl",
+          "xsaveopt",
+          "xsavec",
+          "xgetbv1",
+          "xsaves",
+          "cqm_llc",
+          "cqm_occup_llc",
+          "cqm_mbm_total",
+          "cqm_mbm_local",
+          "split_lock_detect",
+          "wbnoinvd",
+          "dtherm",
+          "ida",
+          "arat",
+          "pln",
+          "pts",
+          "hwp",
+          "hwp_act_window",
+          "hwp_epp",
+          "hwp_pkg_req",
+          "avx512vbmi",
+          "umip",
+          "pku",
+          "ospke",
+          "avx512_vbmi2",
+          "gfni",
+          "vaes",
+          "vpclmulqdq",
+          "avx512_vnni",
+          "avx512_bitalg",
+          "tme",
+          "avx512_vpopcntdq",
+          "la57",
+          "rdpid",
+          "fsrm",
+          "md_clear",
+          "pconfig",
+          "flush_l1d",
+          "arch_capabilities"
+        ],
+        "cpu_flag_summary": [
+          "avx2",
+          "avx512f",
+          "avx512bw",
+          "avx512vl",
+          "avx512_vnni",
+          "fma"
+        ],
+        "mkldnn_available": true,
+        "mkldnn_enabled": true,
+        "onednn_version": null,
+        "torch_compile_available": true,
+        "torch_config_summary": "PyTorch built with:\n  - GCC 9.3\n  - C++ Version: 201703\n  - Intel(R) oneAPI Math Kernel Library Version 2022.2-Product Build 20220804 for Intel(R) 64 architecture applications\n  - Intel(R) MKL-DNN v3.1.1 (Git Hash 64f6bcbcbab628e96f33a62c3e975f8535a7bde4)\n  - OpenMP 201511 (a.k.a. OpenMP 4.5)\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: AVX512\n  - CUDA Runtime 12.1\n  - NVCC architecture flags: -gencode;arch=compute_50,code=sm_50;-gencode;arch=compute_60,code=sm_60;-gencode;arch=compute_70,code=sm_70;-gencode;arch=compute_75,code=sm_75;-gencode;arch=compute_80,code=sm_80;-gencode;arch=compute_86,code=sm_86;-gencode;arch=compute_90,code=sm_90\n  - CuDNN 8.9.2\n  - Magma 2.6.1\n  - Build settings: BLAS_INFO=mkl, BUILD_TYPE=Release, CUDA_VERSION=12.1, CUDNN_VERSION=8.9.2, CXX_COMPILER=/opt/rh/devtoolset-9/root/usr/bin/c++, CXX_FLAGS= -D_GLIBCXX_USE_CXX11_ABI=0 -fabi-version=11 -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DLIBKINETO_NOROCTRACER -DUSE_FBGEMM -DUSE_QNNPACK -DUSE_PYTORCH_QNNPACK -DUSE_XNNPACK -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -O2 -fPIC -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-type-limits -Wno-array-bounds -Wno-unknown-pragmas -Wno-unused-parameter -Wno-unused-function -Wno-unused-result -Wno-strict-overflow -Wno-strict-aliasing -Wno-stringop-overflow -Wno-psabi -Wno-error=pedantic -Wno-error=old-style-cast -Wno-invalid-partial-specialization -Wno-unused-private-field -Wno-aligned-allocation-unavailable -Wno-missing-braces -fdiagnostics-color=always -faligned-new -Wno-unused-but-set-variable -Wno-maybe-uninitialized -fno-math-errno -fno-trapping-math -Werror=format -Werror=cast-function-type -Wno-stringop-overflow, LAPACK_INFO=mkl, PERF_WITH_AVX=1, PERF_WITH_AVX2=1, PERF_WITH_AVX512=1, TORCH_DISABLE_GPU_ASSERTS=ON, TORCH_VERSION=2.1.2, USE_CUDA=ON, USE_CUDNN=ON, USE_EXCEPTION_PTR=1, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_MKL=ON, USE_MKLDNN=ON, USE_MPI=OFF, USE_NCCL=1, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, \n",
+        "env": {}
+      },
+      "model_spec": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "normalize_energy": true,
+        "hidden_dim": 128,
+        "mlp_depth": 4,
+        "model_type": "full_mlp",
+        "num_ports": 6,
+        "num_params": 38288
+      },
+      "metadata": {
+        "experiment_name": "full_mlp_capacity_search_v2",
+        "schema_version": "v2",
+        "task_recipe_name": "channel_separator_6port_standard",
+        "task_label": "channel_separator_6port_standard",
+        "model_recipe_name": "full_mlp_capacity_search",
+        "model_label": "full_mlp_capacity_search_hd128_depth4",
+        "run_name": "full_mlp_capacity_search_hd128_depth4",
+        "training_recipe_name": "supervised_nmse_plateau",
+        "training_label": "supervised_nmse_plateau",
+        "training_duration": 359.2748670578003,
+        "init_checkpoint_path": null,
+        "timestamp": "2026-04-22T06:09:35.532160"
+      },
+      "component_specs": {
+        "task": {
+          "type": "channel_separator",
+          "params": {
+            "seq_len": 12,
+            "pos_values": [
+              0,
+              2,
+              4,
+              6,
+              8,
+              10
+            ],
+            "snr_config": {
+              "type": "range",
+              "min": 0,
+              "max": 30,
+              "per_sample": true,
+              "sampling": "stratified",
+              "num_bins": 10
+            },
+            "tdl_config": [
+              "A-30",
+              "B-100",
+              "C-300"
+            ]
+          }
+        },
+        "model": {
+          "type": "full_mlp",
+          "params": {
+            "normalize_energy": true,
+            "hidden_dim": 128,
+            "mlp_depth": 4
+          },
+          "sweeps": [
+            {
+              "target": "params.hidden_dim",
+              "alias": "hd",
+              "values": [
+                32,
+                64,
+                128,
+                256,
+                512
+              ]
+            },
+            {
+              "target": "params.mlp_depth",
+              "alias": "depth",
+              "values": [
+                2,
+                3,
+                4,
+                5
+              ]
+            }
+          ]
+        },
+        "training_strategy": {
+          "type": "standard_supervised",
+          "params": {
+            "batch_size": 4096,
+            "num_batches": 100000,
+            "optimizer": {
+              "type": "adam",
+              "params": {
+                "learning_rate": 0.01
+              }
+            },
+            "loss": {
+              "type": "nmse"
+            },
+            "validation": {
+              "interval": 100,
+              "batches": 4
+            },
+            "early_stop": {
+              "patience": 5
+            },
+            "logging": {
+              "print_interval": 100
+            },
+            "checkpoints": {
+              "save_interval": 1000,
+              "keep_last_n": 2
+            },
+            "scheduler": {
+              "type": "reduce_on_plateau",
+              "params": {
+                "factor": 0.8,
+                "patience": 30,
+                "threshold": 0.005,
+                "threshold_mode": "abs",
+                "cooldown": 10,
+                "min_lr": 1e-06
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "status": "ok",
+      "skip_reason": null,
+      "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd128_depth4",
+      "run_name": "full_mlp_capacity_search_hd128_depth4",
+      "device": "cpu",
+      "runtime_backend": "onnxruntime",
+      "execution_mode": "onnxruntime",
+      "requested_precision_profile": "fp32",
+      "effective_execution_dtype": "float32",
+      "graph_prep_time_ms": 3.442082,
+      "batch_size": 1,
+      "num_threads": 1,
+      "warmup_iters": 3,
+      "measure_iters": 5,
+      "p50_latency_ms": 0.016565,
+      "p90_latency_ms": 0.0188798,
+      "p95_latency_ms": 0.0192554,
+      "p99_latency_ms": 0.019555879999999998,
+      "mean_latency_ms": 0.0171002,
+      "std_latency_ms": 0.0014581370854621315,
+      "min_latency_ms": 0.01572,
+      "max_latency_ms": 0.019631,
+      "throughput_samples_per_sec": 58478.84820060584,
+      "latency_samples_ms": [
+        0.017753,
+        0.016565,
+        0.01572,
+        0.015832,
+        0.019631
+      ],
+      "hardware_manifest": {
+        "hostname": "nex-flexran-gpu-01",
+        "python_version": "3.11.9",
+        "pytorch_version": "2.1.2+cu121",
+        "device": "cpu",
+        "runtime_backend": "onnxruntime",
+        "precision_profile": "fp32",
+        "num_threads": 1,
+        "logical_cpu_count": 128,
+        "physical_cpu_count": 64,
+        "cpu_model_name": "Intel(R) Xeon(R) Platinum 8358 CPU $@ $@",
+        "cpu_capability": "AVX512",
+        "cpu_flags": [
+          "fpu",
+          "vme",
+          "de",
+          "pse",
+          "tsc",
+          "msr",
+          "pae",
+          "mce",
+          "cx8",
+          "apic",
+          "sep",
+          "mtrr",
+          "pge",
+          "mca",
+          "cmov",
+          "pat",
+          "pse36",
+          "clflush",
+          "dts",
+          "acpi",
+          "mmx",
+          "fxsr",
+          "sse",
+          "sse2",
+          "ss",
+          "ht",
+          "tm",
+          "pbe",
+          "syscall",
+          "nx",
+          "pdpe1gb",
+          "rdtscp",
+          "lm",
+          "constant_tsc",
+          "art",
+          "arch_perfmon",
+          "pebs",
+          "bts",
+          "rep_good",
+          "nopl",
+          "xtopology",
+          "nonstop_tsc",
+          "cpuid",
+          "aperfmperf",
+          "pni",
+          "pclmulqdq",
+          "dtes64",
+          "monitor",
+          "ds_cpl",
+          "vmx",
+          "smx",
+          "est",
+          "tm2",
+          "ssse3",
+          "sdbg",
+          "fma",
+          "cx16",
+          "xtpr",
+          "pdcm",
+          "pcid",
+          "dca",
+          "sse4_1",
+          "sse4_2",
+          "x2apic",
+          "movbe",
+          "popcnt",
+          "tsc_deadline_timer",
+          "aes",
+          "xsave",
+          "avx",
+          "f16c",
+          "rdrand",
+          "lahf_lm",
+          "abm",
+          "3dnowprefetch",
+          "cpuid_fault",
+          "epb",
+          "cat_l3",
+          "invpcid_single",
+          "intel_ppin",
+          "ssbd",
+          "mba",
+          "ibrs",
+          "ibpb",
+          "stibp",
+          "ibrs_enhanced",
+          "tpr_shadow",
+          "vnmi",
+          "flexpriority",
+          "ept",
+          "vpid",
+          "ept_ad",
+          "fsgsbase",
+          "tsc_adjust",
+          "bmi1",
+          "avx2",
+          "smep",
+          "bmi2",
+          "erms",
+          "invpcid",
+          "cqm",
+          "rdt_a",
+          "avx512f",
+          "avx512dq",
+          "rdseed",
+          "adx",
+          "smap",
+          "avx512ifma",
+          "clflushopt",
+          "clwb",
+          "intel_pt",
+          "avx512cd",
+          "sha_ni",
+          "avx512bw",
+          "avx512vl",
+          "xsaveopt",
+          "xsavec",
+          "xgetbv1",
+          "xsaves",
+          "cqm_llc",
+          "cqm_occup_llc",
+          "cqm_mbm_total",
+          "cqm_mbm_local",
+          "split_lock_detect",
+          "wbnoinvd",
+          "dtherm",
+          "ida",
+          "arat",
+          "pln",
+          "pts",
+          "hwp",
+          "hwp_act_window",
+          "hwp_epp",
+          "hwp_pkg_req",
+          "avx512vbmi",
+          "umip",
+          "pku",
+          "ospke",
+          "avx512_vbmi2",
+          "gfni",
+          "vaes",
+          "vpclmulqdq",
+          "avx512_vnni",
+          "avx512_bitalg",
+          "tme",
+          "avx512_vpopcntdq",
+          "la57",
+          "rdpid",
+          "fsrm",
+          "md_clear",
+          "pconfig",
+          "flush_l1d",
+          "arch_capabilities"
+        ],
+        "cpu_flag_summary": [
+          "avx2",
+          "avx512f",
+          "avx512bw",
+          "avx512vl",
+          "avx512_vnni",
+          "fma"
+        ],
+        "mkldnn_available": true,
+        "mkldnn_enabled": true,
+        "onednn_version": null,
+        "torch_compile_available": true,
+        "torch_config_summary": "PyTorch built with:\n  - GCC 9.3\n  - C++ Version: 201703\n  - Intel(R) oneAPI Math Kernel Library Version 2022.2-Product Build 20220804 for Intel(R) 64 architecture applications\n  - Intel(R) MKL-DNN v3.1.1 (Git Hash 64f6bcbcbab628e96f33a62c3e975f8535a7bde4)\n  - OpenMP 201511 (a.k.a. OpenMP 4.5)\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: AVX512\n  - CUDA Runtime 12.1\n  - NVCC architecture flags: -gencode;arch=compute_50,code=sm_50;-gencode;arch=compute_60,code=sm_60;-gencode;arch=compute_70,code=sm_70;-gencode;arch=compute_75,code=sm_75;-gencode;arch=compute_80,code=sm_80;-gencode;arch=compute_86,code=sm_86;-gencode;arch=compute_90,code=sm_90\n  - CuDNN 8.9.2\n  - Magma 2.6.1\n  - Build settings: BLAS_INFO=mkl, BUILD_TYPE=Release, CUDA_VERSION=12.1, CUDNN_VERSION=8.9.2, CXX_COMPILER=/opt/rh/devtoolset-9/root/usr/bin/c++, CXX_FLAGS= -D_GLIBCXX_USE_CXX11_ABI=0 -fabi-version=11 -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DLIBKINETO_NOROCTRACER -DUSE_FBGEMM -DUSE_QNNPACK -DUSE_PYTORCH_QNNPACK -DUSE_XNNPACK -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -O2 -fPIC -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-type-limits -Wno-array-bounds -Wno-unknown-pragmas -Wno-unused-parameter -Wno-unused-function -Wno-unused-result -Wno-strict-overflow -Wno-strict-aliasing -Wno-stringop-overflow -Wno-psabi -Wno-error=pedantic -Wno-error=old-style-cast -Wno-invalid-partial-specialization -Wno-unused-private-field -Wno-aligned-allocation-unavailable -Wno-missing-braces -fdiagnostics-color=always -faligned-new -Wno-unused-but-set-variable -Wno-maybe-uninitialized -fno-math-errno -fno-trapping-math -Werror=format -Werror=cast-function-type -Wno-stringop-overflow, LAPACK_INFO=mkl, PERF_WITH_AVX=1, PERF_WITH_AVX2=1, PERF_WITH_AVX512=1, TORCH_DISABLE_GPU_ASSERTS=ON, TORCH_VERSION=2.1.2, USE_CUDA=ON, USE_CUDNN=ON, USE_EXCEPTION_PTR=1, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_MKL=ON, USE_MKLDNN=ON, USE_MPI=OFF, USE_NCCL=1, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, \n",
+        "env": {},
+        "onnxruntime_available": true,
+        "onnxruntime_version": "1.23.2",
+        "onnxruntime_providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "model_spec": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "normalize_energy": true,
+        "hidden_dim": 128,
+        "mlp_depth": 4,
+        "model_type": "full_mlp",
+        "num_ports": 6,
+        "num_params": 38288
+      },
+      "metadata": {
+        "experiment_name": "full_mlp_capacity_search_v2",
+        "schema_version": "v2",
+        "task_recipe_name": "channel_separator_6port_standard",
+        "task_label": "channel_separator_6port_standard",
+        "model_recipe_name": "full_mlp_capacity_search",
+        "model_label": "full_mlp_capacity_search_hd128_depth4",
+        "run_name": "full_mlp_capacity_search_hd128_depth4",
+        "training_recipe_name": "supervised_nmse_plateau",
+        "training_label": "supervised_nmse_plateau",
+        "training_duration": 359.2748670578003,
+        "init_checkpoint_path": null,
+        "timestamp": "2026-04-22T06:09:35.532160"
+      },
+      "component_specs": {
+        "task": {
+          "type": "channel_separator",
+          "params": {
+            "seq_len": 12,
+            "pos_values": [
+              0,
+              2,
+              4,
+              6,
+              8,
+              10
+            ],
+            "snr_config": {
+              "type": "range",
+              "min": 0,
+              "max": 30,
+              "per_sample": true,
+              "sampling": "stratified",
+              "num_bins": 10
+            },
+            "tdl_config": [
+              "A-30",
+              "B-100",
+              "C-300"
+            ]
+          }
+        },
+        "model": {
+          "type": "full_mlp",
+          "params": {
+            "normalize_energy": true,
+            "hidden_dim": 128,
+            "mlp_depth": 4
+          },
+          "sweeps": [
+            {
+              "target": "params.hidden_dim",
+              "alias": "hd",
+              "values": [
+                32,
+                64,
+                128,
+                256,
+                512
+              ]
+            },
+            {
+              "target": "params.mlp_depth",
+              "alias": "depth",
+              "values": [
+                2,
+                3,
+                4,
+                5
+              ]
+            }
+          ]
+        },
+        "training_strategy": {
+          "type": "standard_supervised",
+          "params": {
+            "batch_size": 4096,
+            "num_batches": 100000,
+            "optimizer": {
+              "type": "adam",
+              "params": {
+                "learning_rate": 0.01
+              }
+            },
+            "loss": {
+              "type": "nmse"
+            },
+            "validation": {
+              "interval": 100,
+              "batches": 4
+            },
+            "early_stop": {
+              "patience": 5
+            },
+            "logging": {
+              "print_interval": 100
+            },
+            "checkpoints": {
+              "save_interval": 1000,
+              "keep_last_n": 2
+            },
+            "scheduler": {
+              "type": "reduce_on_plateau",
+              "params": {
+                "factor": 0.8,
+                "patience": 30,
+                "threshold": 0.005,
+                "threshold_mode": "abs",
+                "cooldown": 10,
+                "min_lr": 1e-06
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "status": "ok",
+      "skip_reason": null,
+      "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd128_depth4",
+      "run_name": "full_mlp_capacity_search_hd128_depth4",
+      "device": "cpu",
+      "runtime_backend": "onnxruntime",
+      "execution_mode": "onnxruntime",
+      "requested_precision_profile": "fp32",
+      "effective_execution_dtype": "float32",
+      "graph_prep_time_ms": 3.431379,
+      "batch_size": 128,
+      "num_threads": 1,
+      "warmup_iters": 3,
+      "measure_iters": 5,
+      "p50_latency_ms": 0.093478,
+      "p90_latency_ms": 0.09561739999999999,
+      "p95_latency_ms": 0.0957092,
+      "p99_latency_ms": 0.09578264,
+      "mean_latency_ms": 0.0937828,
+      "std_latency_ms": 0.00154708802593776,
+      "min_latency_ms": 0.092059,
+      "max_latency_ms": 0.095801,
+      "throughput_samples_per_sec": 1364855.815778586,
+      "latency_samples_ms": [
+        0.095342,
+        0.093478,
+        0.092234,
+        0.092059,
+        0.095801
+      ],
+      "hardware_manifest": {
+        "hostname": "nex-flexran-gpu-01",
+        "python_version": "3.11.9",
+        "pytorch_version": "2.1.2+cu121",
+        "device": "cpu",
+        "runtime_backend": "onnxruntime",
+        "precision_profile": "fp32",
+        "num_threads": 1,
+        "logical_cpu_count": 128,
+        "physical_cpu_count": 64,
+        "cpu_model_name": "Intel(R) Xeon(R) Platinum 8358 CPU $@ $@",
+        "cpu_capability": "AVX512",
+        "cpu_flags": [
+          "fpu",
+          "vme",
+          "de",
+          "pse",
+          "tsc",
+          "msr",
+          "pae",
+          "mce",
+          "cx8",
+          "apic",
+          "sep",
+          "mtrr",
+          "pge",
+          "mca",
+          "cmov",
+          "pat",
+          "pse36",
+          "clflush",
+          "dts",
+          "acpi",
+          "mmx",
+          "fxsr",
+          "sse",
+          "sse2",
+          "ss",
+          "ht",
+          "tm",
+          "pbe",
+          "syscall",
+          "nx",
+          "pdpe1gb",
+          "rdtscp",
+          "lm",
+          "constant_tsc",
+          "art",
+          "arch_perfmon",
+          "pebs",
+          "bts",
+          "rep_good",
+          "nopl",
+          "xtopology",
+          "nonstop_tsc",
+          "cpuid",
+          "aperfmperf",
+          "pni",
+          "pclmulqdq",
+          "dtes64",
+          "monitor",
+          "ds_cpl",
+          "vmx",
+          "smx",
+          "est",
+          "tm2",
+          "ssse3",
+          "sdbg",
+          "fma",
+          "cx16",
+          "xtpr",
+          "pdcm",
+          "pcid",
+          "dca",
+          "sse4_1",
+          "sse4_2",
+          "x2apic",
+          "movbe",
+          "popcnt",
+          "tsc_deadline_timer",
+          "aes",
+          "xsave",
+          "avx",
+          "f16c",
+          "rdrand",
+          "lahf_lm",
+          "abm",
+          "3dnowprefetch",
+          "cpuid_fault",
+          "epb",
+          "cat_l3",
+          "invpcid_single",
+          "intel_ppin",
+          "ssbd",
+          "mba",
+          "ibrs",
+          "ibpb",
+          "stibp",
+          "ibrs_enhanced",
+          "tpr_shadow",
+          "vnmi",
+          "flexpriority",
+          "ept",
+          "vpid",
+          "ept_ad",
+          "fsgsbase",
+          "tsc_adjust",
+          "bmi1",
+          "avx2",
+          "smep",
+          "bmi2",
+          "erms",
+          "invpcid",
+          "cqm",
+          "rdt_a",
+          "avx512f",
+          "avx512dq",
+          "rdseed",
+          "adx",
+          "smap",
+          "avx512ifma",
+          "clflushopt",
+          "clwb",
+          "intel_pt",
+          "avx512cd",
+          "sha_ni",
+          "avx512bw",
+          "avx512vl",
+          "xsaveopt",
+          "xsavec",
+          "xgetbv1",
+          "xsaves",
+          "cqm_llc",
+          "cqm_occup_llc",
+          "cqm_mbm_total",
+          "cqm_mbm_local",
+          "split_lock_detect",
+          "wbnoinvd",
+          "dtherm",
+          "ida",
+          "arat",
+          "pln",
+          "pts",
+          "hwp",
+          "hwp_act_window",
+          "hwp_epp",
+          "hwp_pkg_req",
+          "avx512vbmi",
+          "umip",
+          "pku",
+          "ospke",
+          "avx512_vbmi2",
+          "gfni",
+          "vaes",
+          "vpclmulqdq",
+          "avx512_vnni",
+          "avx512_bitalg",
+          "tme",
+          "avx512_vpopcntdq",
+          "la57",
+          "rdpid",
+          "fsrm",
+          "md_clear",
+          "pconfig",
+          "flush_l1d",
+          "arch_capabilities"
+        ],
+        "cpu_flag_summary": [
+          "avx2",
+          "avx512f",
+          "avx512bw",
+          "avx512vl",
+          "avx512_vnni",
+          "fma"
+        ],
+        "mkldnn_available": true,
+        "mkldnn_enabled": true,
+        "onednn_version": null,
+        "torch_compile_available": true,
+        "torch_config_summary": "PyTorch built with:\n  - GCC 9.3\n  - C++ Version: 201703\n  - Intel(R) oneAPI Math Kernel Library Version 2022.2-Product Build 20220804 for Intel(R) 64 architecture applications\n  - Intel(R) MKL-DNN v3.1.1 (Git Hash 64f6bcbcbab628e96f33a62c3e975f8535a7bde4)\n  - OpenMP 201511 (a.k.a. OpenMP 4.5)\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: AVX512\n  - CUDA Runtime 12.1\n  - NVCC architecture flags: -gencode;arch=compute_50,code=sm_50;-gencode;arch=compute_60,code=sm_60;-gencode;arch=compute_70,code=sm_70;-gencode;arch=compute_75,code=sm_75;-gencode;arch=compute_80,code=sm_80;-gencode;arch=compute_86,code=sm_86;-gencode;arch=compute_90,code=sm_90\n  - CuDNN 8.9.2\n  - Magma 2.6.1\n  - Build settings: BLAS_INFO=mkl, BUILD_TYPE=Release, CUDA_VERSION=12.1, CUDNN_VERSION=8.9.2, CXX_COMPILER=/opt/rh/devtoolset-9/root/usr/bin/c++, CXX_FLAGS= -D_GLIBCXX_USE_CXX11_ABI=0 -fabi-version=11 -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DLIBKINETO_NOROCTRACER -DUSE_FBGEMM -DUSE_QNNPACK -DUSE_PYTORCH_QNNPACK -DUSE_XNNPACK -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -O2 -fPIC -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-type-limits -Wno-array-bounds -Wno-unknown-pragmas -Wno-unused-parameter -Wno-unused-function -Wno-unused-result -Wno-strict-overflow -Wno-strict-aliasing -Wno-stringop-overflow -Wno-psabi -Wno-error=pedantic -Wno-error=old-style-cast -Wno-invalid-partial-specialization -Wno-unused-private-field -Wno-aligned-allocation-unavailable -Wno-missing-braces -fdiagnostics-color=always -faligned-new -Wno-unused-but-set-variable -Wno-maybe-uninitialized -fno-math-errno -fno-trapping-math -Werror=format -Werror=cast-function-type -Wno-stringop-overflow, LAPACK_INFO=mkl, PERF_WITH_AVX=1, PERF_WITH_AVX2=1, PERF_WITH_AVX512=1, TORCH_DISABLE_GPU_ASSERTS=ON, TORCH_VERSION=2.1.2, USE_CUDA=ON, USE_CUDNN=ON, USE_EXCEPTION_PTR=1, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_MKL=ON, USE_MKLDNN=ON, USE_MPI=OFF, USE_NCCL=1, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, \n",
+        "env": {},
+        "onnxruntime_available": true,
+        "onnxruntime_version": "1.23.2",
+        "onnxruntime_providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "model_spec": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "normalize_energy": true,
+        "hidden_dim": 128,
+        "mlp_depth": 4,
+        "model_type": "full_mlp",
+        "num_ports": 6,
+        "num_params": 38288
+      },
+      "metadata": {
+        "experiment_name": "full_mlp_capacity_search_v2",
+        "schema_version": "v2",
+        "task_recipe_name": "channel_separator_6port_standard",
+        "task_label": "channel_separator_6port_standard",
+        "model_recipe_name": "full_mlp_capacity_search",
+        "model_label": "full_mlp_capacity_search_hd128_depth4",
+        "run_name": "full_mlp_capacity_search_hd128_depth4",
+        "training_recipe_name": "supervised_nmse_plateau",
+        "training_label": "supervised_nmse_plateau",
+        "training_duration": 359.2748670578003,
+        "init_checkpoint_path": null,
+        "timestamp": "2026-04-22T06:09:35.532160"
+      },
+      "component_specs": {
+        "task": {
+          "type": "channel_separator",
+          "params": {
+            "seq_len": 12,
+            "pos_values": [
+              0,
+              2,
+              4,
+              6,
+              8,
+              10
+            ],
+            "snr_config": {
+              "type": "range",
+              "min": 0,
+              "max": 30,
+              "per_sample": true,
+              "sampling": "stratified",
+              "num_bins": 10
+            },
+            "tdl_config": [
+              "A-30",
+              "B-100",
+              "C-300"
+            ]
+          }
+        },
+        "model": {
+          "type": "full_mlp",
+          "params": {
+            "normalize_energy": true,
+            "hidden_dim": 128,
+            "mlp_depth": 4
+          },
+          "sweeps": [
+            {
+              "target": "params.hidden_dim",
+              "alias": "hd",
+              "values": [
+                32,
+                64,
+                128,
+                256,
+                512
+              ]
+            },
+            {
+              "target": "params.mlp_depth",
+              "alias": "depth",
+              "values": [
+                2,
+                3,
+                4,
+                5
+              ]
+            }
+          ]
+        },
+        "training_strategy": {
+          "type": "standard_supervised",
+          "params": {
+            "batch_size": 4096,
+            "num_batches": 100000,
+            "optimizer": {
+              "type": "adam",
+              "params": {
+                "learning_rate": 0.01
+              }
+            },
+            "loss": {
+              "type": "nmse"
+            },
+            "validation": {
+              "interval": 100,
+              "batches": 4
+            },
+            "early_stop": {
+              "patience": 5
+            },
+            "logging": {
+              "print_interval": 100
+            },
+            "checkpoints": {
+              "save_interval": 1000,
+              "keep_last_n": 2
+            },
+            "scheduler": {
+              "type": "reduce_on_plateau",
+              "params": {
+                "factor": 0.8,
+                "patience": 30,
+                "threshold": 0.005,
+                "threshold_mode": "abs",
+                "cooldown": 10,
+                "min_lr": 1e-06
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "run_references": {
+    "full_mlp_capacity_search_hd128_depth4": {
+      "run_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd128_depth4",
+      "model_flow_markdown_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd128_depth4/MODEL_FLOW.md",
+      "model_complexity": {
+        "json_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd128_depth4/model_complexity.json",
+        "markdown_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260422_050408_full_mlp_capacity_search_v2/full_mlp_capacity_search_hd128_depth4/MODEL_COMPLEXITY.md",
+        "summary": {
+          "trainable_parameters": 38288,
+          "trainable_parameters_string": "38,288",
+          "parameter_memory_bytes_fp32": 153152,
+          "parameter_memory_bytes_fp32_string": "0.146 MiB (153,152 bytes)",
+          "macs_per_sample": 37888,
+          "macs_per_sample_string": "37,888",
+          "multiplications_per_sample": 38056,
+          "multiplications_per_sample_string": "38,056",
+          "additions_per_sample": 37911,
+          "additions_per_sample_string": "37,911",
+          "other_scalar_ops_per_sample_estimate": 281,
+          "other_scalar_ops_per_sample_estimate_string": "281",
+          "flops_per_sample_estimate": 76248,
+          "flops_per_sample_estimate_string": "76,248",
+          "batch_scaling_rule": "Multiply the per-sample counts by runtime batch size N for a first-order batch estimate."
+        }
+      }
+    }
+  },
+  "cpu_thread_scaling_summaries": {
+    "full_mlp_capacity_search_hd128_depth4::pytorch::jit": {
+      "runtime_backend": "pytorch",
+      "execution_mode": "jit",
+      "best_throughput": {
+        "thread_count": 1,
+        "batch_size": 128,
+        "precision": "fp32",
+        "throughput_samples_per_sec": 999504.9327130157,
+        "p50_latency_ms": 0.128881
+      },
+      "min_bs1_latency": {
+        "thread_count": 1,
+        "precision": "fp32",
+        "p50_latency_ms": 0.049035,
+        "throughput_samples_per_sec": 19553.400336318486
+      }
+    },
+    "full_mlp_capacity_search_hd128_depth4::onnxruntime::onnxruntime": {
+      "runtime_backend": "onnxruntime",
+      "execution_mode": "onnxruntime",
+      "best_throughput": {
+        "thread_count": 1,
+        "batch_size": 128,
+        "precision": "fp32",
+        "throughput_samples_per_sec": 1364855.815778586,
+        "p50_latency_ms": 0.093478
+      },
+      "min_bs1_latency": {
+        "thread_count": 1,
+        "precision": "fp32",
+        "p50_latency_ms": 0.016565,
+        "throughput_samples_per_sec": 58478.84820060584
+      }
+    }
+  }
+}

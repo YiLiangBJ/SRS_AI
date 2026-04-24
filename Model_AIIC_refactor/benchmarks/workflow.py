@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import importlib.util
 import json
 import multiprocessing as mp
 import os
@@ -14,6 +15,7 @@ import statistics
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -27,6 +29,7 @@ from utils import (
     build_dummy_input,
     discover_run_dirs,
     find_checkpoint_path,
+    load_run_artifacts,
     load_trained_model_from_run,
     resolve_existing_path,
     resolve_run_selection,
@@ -38,12 +41,15 @@ DEFAULT_CPU_PRECISIONS = ['fp32', 'bf16']
 DEFAULT_CUDA_PRECISIONS = ['fp32', 'fp16', 'bf16']
 DEFAULT_CPU_EXECUTION_MODES = ['eager', 'jit', 'compile']
 DEFAULT_CUDA_EXECUTION_MODES = ['eager']
+DEFAULT_CPU_RUNTIME_BACKENDS = ['pytorch']
+DEFAULT_CUDA_RUNTIME_BACKENDS = ['pytorch']
 
 
 @dataclass(frozen=True)
 class LatencyTask:
     run_dir: str
     device: str
+    runtime_backend: str
     execution_mode: str
     precision: str
     batch_size: int
@@ -133,6 +139,13 @@ def parse_execution_modes(device_type: str, value: Optional[str]) -> List[str]:
     return list(dict.fromkeys(modes))
 
 
+def parse_runtime_backends(device_type: str, value: Optional[str]) -> List[str]:
+    if value is None:
+        return list(DEFAULT_CPU_RUNTIME_BACKENDS if device_type == 'cpu' else DEFAULT_CUDA_RUNTIME_BACKENDS)
+    backends = [token.strip().lower() for token in str(value).split(',') if token.strip()]
+    return list(dict.fromkeys(backends))
+
+
 def resolve_latency_device(device: str) -> torch.device:
     if device == 'auto':
         return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -168,6 +181,7 @@ def resolve_latency_output_dir(exp_dir: Path | None = None, run_dirs: Optional[L
 def build_latency_task_matrix(
     run_dirs: List[Path],
     device: torch.device,
+    runtime_backends: List[str],
     execution_modes: List[str],
     precision_profiles: List[str],
     batch_sizes: List[int],
@@ -178,21 +192,31 @@ def build_latency_task_matrix(
     tasks: List[LatencyTask] = []
     active_threads = thread_counts if device.type == 'cpu' else [1]
     for run_dir in run_dirs:
-        for execution_mode in execution_modes:
-            for precision in precision_profiles:
-                for batch_size in batch_sizes:
-                    for num_threads in active_threads:
-                        tasks.append(LatencyTask(
-                            run_dir=str(run_dir),
-                            device=str(device),
-                            execution_mode=execution_mode,
-                            precision=precision,
-                            batch_size=batch_size,
-                            num_threads=num_threads,
-                            warmup_iters=warmup_iters,
-                            measure_iters=measure_iters,
-                        ))
+        for runtime_backend in runtime_backends:
+            backend_execution_modes = execution_modes if runtime_backend == 'pytorch' else ['onnxruntime']
+            for execution_mode in backend_execution_modes:
+                for precision in precision_profiles:
+                    for batch_size in batch_sizes:
+                        for num_threads in active_threads:
+                            tasks.append(LatencyTask(
+                                run_dir=str(run_dir),
+                                device=str(device),
+                                runtime_backend=runtime_backend,
+                                execution_mode=execution_mode,
+                                precision=precision,
+                                batch_size=batch_size,
+                                num_threads=num_threads,
+                                warmup_iters=warmup_iters,
+                                measure_iters=measure_iters,
+                            ))
     return tasks
+
+
+def _optional_package_version(package_name: str) -> Optional[str]:
+    try:
+        return package_version(package_name)
+    except PackageNotFoundError:
+        return None
 
 
 def _torch_config_summary() -> str:
@@ -245,7 +269,7 @@ def _onednn_version(torch_config_summary: str) -> Optional[str]:
     return None
 
 
-def _hardware_manifest(device: torch.device, num_threads: int, precision: str) -> Dict[str, Any]:
+def _hardware_manifest(device: torch.device, num_threads: int, precision: str, runtime_backend: str = 'pytorch') -> Dict[str, Any]:
     torch_config_summary = _torch_config_summary()
     cpu_flags = _cpu_flags()
     manifest: Dict[str, Any] = {
@@ -253,6 +277,7 @@ def _hardware_manifest(device: torch.device, num_threads: int, precision: str) -
         'python_version': platform.python_version(),
         'pytorch_version': torch.__version__,
         'device': str(device),
+        'runtime_backend': runtime_backend,
         'precision_profile': precision,
         'num_threads': int(num_threads),
         'logical_cpu_count': _available_cpu_count(),
@@ -272,6 +297,9 @@ def _hardware_manifest(device: torch.device, num_threads: int, precision: str) -
             if os.environ.get(key) is not None
         },
     }
+    if runtime_backend == 'onnxruntime':
+        manifest['onnxruntime_available'] = importlib.util.find_spec('onnxruntime') is not None
+        manifest['onnxruntime_version'] = _optional_package_version('onnxruntime')
     if device.type == 'cuda' and torch.cuda.is_available():
         manifest['cuda'] = {
             'device_name': torch.cuda.get_device_name(device),
@@ -309,6 +337,18 @@ def _validate_execution_mode_support(device: torch.device, execution_mode: str) 
     return None
 
 
+def _validate_runtime_backend_support(device: torch.device, runtime_backend: str) -> Optional[str]:
+    if runtime_backend == 'pytorch':
+        return None
+    if runtime_backend == 'onnxruntime':
+        if device.type != 'cpu':
+            return 'ONNX Runtime benchmark currently supports CPU only'
+        if importlib.util.find_spec('onnxruntime') is None:
+            return 'onnxruntime is not installed in the current Python environment'
+        return None
+    return f'Unsupported runtime backend {runtime_backend!r}'
+
+
 def _prepare_model_for_execution_mode(model: torch.nn.Module, dummy_input: torch.Tensor, execution_mode: str):
     if execution_mode == 'eager':
         return model, 0.0
@@ -335,7 +375,11 @@ def _prepare_model_for_execution_mode(model: torch.nn.Module, dummy_input: torch
     raise ValueError(f'Unsupported execution mode {execution_mode!r}')
 
 
-def _validate_precision_support(device: torch.device, precision: str) -> Optional[str]:
+def _validate_precision_support(device: torch.device, precision: str, runtime_backend: str = 'pytorch') -> Optional[str]:
+    if runtime_backend == 'onnxruntime':
+        if precision != 'fp32':
+            return 'ONNX Runtime benchmark currently supports precision profile fp32 only'
+        return None
     if precision == 'fp32':
         return None
     if device.type == 'cpu':
@@ -360,40 +404,51 @@ def _validate_precision_support(device: torch.device, precision: str) -> Optiona
     return f'Unsupported device type {device.type}'
 
 
-def _measure_model(task: LatencyTask) -> Dict[str, Any]:
-    device = torch.device(task.device)
+def _build_skipped_result(task: LatencyTask, device: torch.device, skip_reason: str) -> Dict[str, Any]:
+    return {
+        'status': 'skipped',
+        'skip_reason': skip_reason,
+        'run_dir': task.run_dir,
+        'run_name': Path(task.run_dir).name,
+        'device': task.device,
+        'runtime_backend': task.runtime_backend,
+        'execution_mode': task.execution_mode,
+        'requested_precision_profile': task.precision,
+        'effective_execution_dtype': None,
+        'graph_prep_time_ms': 0.0,
+        'batch_size': task.batch_size,
+        'num_threads': task.num_threads,
+        'hardware_manifest': _hardware_manifest(device, task.num_threads, task.precision, runtime_backend=task.runtime_backend),
+    }
+
+
+def _ensure_onnxruntime_export(run_dir: Path) -> Dict[str, Any]:
+    export_dir = run_dir / 'onnx_exports'
+    manifest_path = export_dir / 'export_manifest.json'
+    onnx_path = export_dir / f'{run_dir.name}.onnx'
+    if manifest_path.exists() and onnx_path.exists():
+        with open(manifest_path, 'r', encoding='utf-8') as input_file:
+            return json.load(input_file)
+
+    from workflows.export_workflow import export_run_to_onnx
+
+    return export_run_to_onnx(
+        run_dir=run_dir,
+        output_root=None,
+        opset_version=13,
+        batch_size=1,
+        dynamic_batch=True,
+        validate=False,
+    )
+
+
+def _measure_pytorch_model(task: LatencyTask, device: torch.device) -> Dict[str, Any]:
     mode_skip_reason = _validate_execution_mode_support(device, task.execution_mode)
     if mode_skip_reason is not None:
-        return {
-            'status': 'skipped',
-            'skip_reason': mode_skip_reason,
-            'run_dir': task.run_dir,
-            'run_name': Path(task.run_dir).name,
-            'device': task.device,
-            'execution_mode': task.execution_mode,
-            'requested_precision_profile': task.precision,
-            'effective_execution_dtype': None,
-            'graph_prep_time_ms': 0.0,
-            'batch_size': task.batch_size,
-            'num_threads': task.num_threads,
-            'hardware_manifest': _hardware_manifest(device, task.num_threads, task.precision),
-        }
-    skip_reason = _validate_precision_support(device, task.precision)
+        return _build_skipped_result(task, device, mode_skip_reason)
+    skip_reason = _validate_precision_support(device, task.precision, runtime_backend=task.runtime_backend)
     if skip_reason is not None:
-        return {
-            'status': 'skipped',
-            'skip_reason': skip_reason,
-            'run_dir': task.run_dir,
-            'run_name': Path(task.run_dir).name,
-            'device': task.device,
-            'execution_mode': task.execution_mode,
-            'requested_precision_profile': task.precision,
-            'effective_execution_dtype': None,
-            'graph_prep_time_ms': 0.0,
-            'batch_size': task.batch_size,
-            'num_threads': task.num_threads,
-            'hardware_manifest': _hardware_manifest(device, task.num_threads, task.precision),
-        }
+        return _build_skipped_result(task, device, skip_reason)
 
     if device.type == 'cpu':
         torch.set_num_threads(task.num_threads)
@@ -451,6 +506,7 @@ def _measure_model(task: LatencyTask) -> Dict[str, Any]:
         'run_dir': task.run_dir,
         'run_name': Path(task.run_dir).name,
         'device': task.device,
+        'runtime_backend': task.runtime_backend,
         'execution_mode': task.execution_mode,
         'requested_precision_profile': task.precision,
         'effective_execution_dtype': effective_dtype,
@@ -469,11 +525,104 @@ def _measure_model(task: LatencyTask) -> Dict[str, Any]:
         'max_latency_ms': float(max(latency_ms)),
         'throughput_samples_per_sec': float(throughput),
         'latency_samples_ms': latency_ms,
-        'hardware_manifest': _hardware_manifest(device, task.num_threads, task.precision),
+        'hardware_manifest': _hardware_manifest(device, task.num_threads, task.precision, runtime_backend=task.runtime_backend),
         'model_spec': artifacts.model_spec,
         'metadata': artifacts.metadata,
         'component_specs': artifacts.component_specs,
     }
+
+
+def _measure_onnxruntime_model(task: LatencyTask, device: torch.device) -> Dict[str, Any]:
+    skip_reason = _validate_precision_support(device, task.precision, runtime_backend=task.runtime_backend)
+    if skip_reason is not None:
+        return _build_skipped_result(task, device, skip_reason)
+
+    import onnxruntime as ort
+
+    run_dir = Path(task.run_dir)
+    artifacts = load_run_artifacts(run_dir, device='cpu')
+    export_manifest = _ensure_onnxruntime_export(run_dir)
+    dummy_input = build_dummy_input(
+        artifacts.model_spec,
+        batch_size=task.batch_size,
+        component_specs=artifacts.component_specs,
+    ).cpu()
+    input_feed = {export_manifest['input_names'][0]: dummy_input.detach().numpy()}
+
+    session_options = ort.SessionOptions()
+    session_options.intra_op_num_threads = int(task.num_threads)
+    session_options.inter_op_num_threads = 1
+    session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+    start_ns = time.perf_counter_ns()
+    session = ort.InferenceSession(
+        str(export_manifest['onnx_path']),
+        sess_options=session_options,
+        providers=['CPUExecutionProvider'],
+    )
+    graph_prep_time_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+
+    def _run_once() -> None:
+        session.run(None, input_feed)
+
+    for _ in range(task.warmup_iters):
+        _run_once()
+
+    samples_ns: List[int] = []
+    for _ in range(task.measure_iters):
+        start_ns = time.perf_counter_ns()
+        _run_once()
+        end_ns = time.perf_counter_ns()
+        samples_ns.append(end_ns - start_ns)
+
+    latency_ms = [sample / 1_000_000.0 for sample in samples_ns]
+    mean_ms = statistics.mean(latency_ms)
+    throughput = task.batch_size / (mean_ms / 1000.0) if mean_ms > 0 else 0.0
+    hardware_manifest = _hardware_manifest(device, task.num_threads, task.precision, runtime_backend=task.runtime_backend)
+    hardware_manifest['onnxruntime_version'] = _optional_package_version('onnxruntime')
+    hardware_manifest['onnxruntime_providers'] = session.get_providers()
+
+    return {
+        'status': 'ok',
+        'skip_reason': None,
+        'run_dir': task.run_dir,
+        'run_name': Path(task.run_dir).name,
+        'device': task.device,
+        'runtime_backend': task.runtime_backend,
+        'execution_mode': task.execution_mode,
+        'requested_precision_profile': task.precision,
+        'effective_execution_dtype': 'float32',
+        'graph_prep_time_ms': float(graph_prep_time_ms),
+        'batch_size': task.batch_size,
+        'num_threads': task.num_threads,
+        'warmup_iters': task.warmup_iters,
+        'measure_iters': task.measure_iters,
+        'p50_latency_ms': float(np.percentile(latency_ms, 50)),
+        'p90_latency_ms': float(np.percentile(latency_ms, 90)),
+        'p95_latency_ms': float(np.percentile(latency_ms, 95)),
+        'p99_latency_ms': float(np.percentile(latency_ms, 99)),
+        'mean_latency_ms': float(mean_ms),
+        'std_latency_ms': float(statistics.pstdev(latency_ms) if len(latency_ms) > 1 else 0.0),
+        'min_latency_ms': float(min(latency_ms)),
+        'max_latency_ms': float(max(latency_ms)),
+        'throughput_samples_per_sec': float(throughput),
+        'latency_samples_ms': latency_ms,
+        'hardware_manifest': hardware_manifest,
+        'model_spec': artifacts.model_spec,
+        'metadata': artifacts.metadata,
+        'component_specs': artifacts.component_specs,
+    }
+
+
+def _measure_model(task: LatencyTask) -> Dict[str, Any]:
+    device = torch.device(task.device)
+    backend_skip_reason = _validate_runtime_backend_support(device, task.runtime_backend)
+    if backend_skip_reason is not None:
+        return _build_skipped_result(task, device, backend_skip_reason)
+    if task.runtime_backend == 'onnxruntime':
+        return _measure_onnxruntime_model(task, device)
+    return _measure_pytorch_model(task, device)
 
 
 def _worker_entry(task: LatencyTask, queue):
@@ -486,6 +635,7 @@ def _worker_entry(task: LatencyTask, queue):
             'task': {
                 'run_dir': task.run_dir,
                 'device': task.device,
+                'runtime_backend': task.runtime_backend,
                 'execution_mode': task.execution_mode,
                 'precision': task.precision,
                 'batch_size': task.batch_size,
@@ -510,7 +660,7 @@ def execute_latency_task(task: LatencyTask) -> Dict[str, Any]:
 
 def _save_latency_samples(results: List[Dict[str, Any]], output_dir: Path) -> Path:
     samples_payload = {
-        f"{item['run_name']}__{item['device']}__{item['execution_mode']}__{item['requested_precision_profile']}__bs{item['batch_size']}__t{item['num_threads']}": np.asarray(item.get('latency_samples_ms', []), dtype=np.float64)
+        f"{item['run_name']}__{item.get('runtime_backend', 'pytorch')}__{item['device']}__{item['execution_mode']}__{item['requested_precision_profile']}__bs{item['batch_size']}__t{item['num_threads']}": np.asarray(item.get('latency_samples_ms', []), dtype=np.float64)
         for item in results
         if item.get('status') == 'ok'
     }
@@ -618,6 +768,7 @@ def _flatten_result_rows(results_payload: Dict[str, Any]) -> List[Dict[str, Any]
             'benchmark_id': results_payload.get('benchmark_id'),
             'timestamp': results_payload.get('timestamp'),
             'device': results_payload.get('device'),
+            'runtime_backend': item.get('runtime_backend', 'pytorch'),
             'run_name': item.get('run_name'),
             'run_dir': item.get('run_dir'),
             'experiment_name': metadata.get('experiment_name'),
@@ -661,6 +812,8 @@ def _flatten_result_rows(results_payload: Dict[str, Any]) -> List[Dict[str, Any]
             'mkldnn_available': hardware_manifest.get('mkldnn_available'),
             'mkldnn_enabled': hardware_manifest.get('mkldnn_enabled'),
             'onednn_version': hardware_manifest.get('onednn_version'),
+            'onnxruntime_version': hardware_manifest.get('onnxruntime_version'),
+            'onnxruntime_providers': ','.join(hardware_manifest.get('onnxruntime_providers') or []),
             'logical_cpu_count': hardware_manifest.get('logical_cpu_count'),
             'physical_cpu_count': hardware_manifest.get('physical_cpu_count'),
             'hostname': hardware_manifest.get('hostname'),
@@ -723,6 +876,7 @@ def _render_hardware_summary(results_payload: Dict[str, Any]) -> List[str]:
     lines = [
         '## Hardware Summary',
         '',
+        f"- Runtime backend: `{manifest.get('runtime_backend', 'pytorch')}`",
         f"- Hostname: `{manifest.get('hostname', '-')}`",
         f"- CPU model: `{manifest.get('cpu_model_name', '-')}`",
         f"- CPU capability: `{manifest.get('cpu_capability', '-')}`",
@@ -736,6 +890,10 @@ def _render_hardware_summary(results_payload: Dict[str, Any]) -> List[str]:
         f"- Python: `{manifest.get('python_version', '-')}`",
         f"- PyTorch: `{manifest.get('pytorch_version', '-')}`",
     ]
+    if manifest.get('onnxruntime_version'):
+        lines.append(f"- ONNX Runtime version: `{manifest.get('onnxruntime_version', '-')}`")
+    if manifest.get('onnxruntime_providers'):
+        lines.append(f"- ONNX Runtime providers: `{manifest.get('onnxruntime_providers', [])}`")
     env = manifest.get('env') or {}
     if env:
         lines.append(f"- Relevant env: `{env}`")
@@ -746,15 +904,16 @@ def _render_hardware_summary(results_payload: Dict[str, Any]) -> List[str]:
 def _build_cpu_thread_scaling_summary(results: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     summaries: Dict[str, Dict[str, Any]] = {}
     ok_results = [item for item in _group_ok_results(results) if item.get('device', '').startswith('cpu')]
-    grouped: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
+    grouped: Dict[tuple[str, str, str], List[Dict[str, Any]]] = {}
     for item in ok_results:
-        grouped.setdefault((item['run_name'], item['execution_mode']), []).append(item)
+        grouped.setdefault((item['run_name'], item.get('runtime_backend', 'pytorch'), item['execution_mode']), []).append(item)
 
-    for (run_name, execution_mode), items in grouped.items():
+    for (run_name, runtime_backend, execution_mode), items in grouped.items():
         best_throughput = max(items, key=lambda entry: entry['throughput_samples_per_sec'])
         bs1_candidates = [entry for entry in items if entry['batch_size'] == 1]
         min_bs1_latency = min(bs1_candidates, key=lambda entry: entry['p50_latency_ms']) if bs1_candidates else None
-        summaries[f'{run_name}::{execution_mode}'] = {
+        summaries[f'{run_name}::{runtime_backend}::{execution_mode}'] = {
+            'runtime_backend': runtime_backend,
             'execution_mode': execution_mode,
             'best_throughput': {
                 'thread_count': int(best_throughput['num_threads']),
@@ -780,19 +939,19 @@ def _plot_run_latency(results: List[Dict[str, Any]], output_dir: Path) -> List[P
     if not ok_results:
         return generated
 
-    grouped: Dict[tuple[str, str, int], List[Dict[str, Any]]] = {}
+    grouped: Dict[tuple[str, str, str, int], List[Dict[str, Any]]] = {}
     for item in ok_results:
-        grouped.setdefault((item['execution_mode'], item['requested_precision_profile'], item['num_threads']), []).append(item)
+        grouped.setdefault((item.get('runtime_backend', 'pytorch'), item['execution_mode'], item['requested_precision_profile'], item['num_threads']), []).append(item)
 
     fig, axis = plt.subplots(figsize=(12, 7))
-    for (execution_mode, precision, num_threads), items in sorted(grouped.items()):
+    for (runtime_backend, execution_mode, precision, num_threads), items in sorted(grouped.items()):
         items = sorted(items, key=lambda entry: entry['batch_size'])
         axis.plot(
             [entry['batch_size'] for entry in items],
             [entry['p50_latency_ms'] for entry in items],
             marker='o',
             linewidth=2,
-            label=f'{execution_mode} / {precision} / t={num_threads}',
+            label=f'{runtime_backend} / {execution_mode} / {precision} / t={num_threads}',
         )
     axis.set_xlabel('Batch Size')
     axis.set_ylabel('P50 Latency (ms)')
@@ -806,14 +965,14 @@ def _plot_run_latency(results: List[Dict[str, Any]], output_dir: Path) -> List[P
     generated.append(latency_plot)
 
     fig, axis = plt.subplots(figsize=(12, 7))
-    for (execution_mode, precision, num_threads), items in sorted(grouped.items()):
+    for (runtime_backend, execution_mode, precision, num_threads), items in sorted(grouped.items()):
         items = sorted(items, key=lambda entry: entry['batch_size'])
         axis.plot(
             [entry['batch_size'] for entry in items],
             [entry['throughput_samples_per_sec'] for entry in items],
             marker='o',
             linewidth=2,
-            label=f'{execution_mode} / {precision} / t={num_threads}',
+            label=f'{runtime_backend} / {execution_mode} / {precision} / t={num_threads}',
         )
     axis.set_xlabel('Batch Size')
     axis.set_ylabel('Throughput (samples/s)')
@@ -826,12 +985,12 @@ def _plot_run_latency(results: List[Dict[str, Any]], output_dir: Path) -> List[P
     plt.close(fig)
     generated.append(throughput_plot)
 
-    thread_candidates = {(item['execution_mode'], item['requested_precision_profile'], item['batch_size']) for item in ok_results if item['num_threads'] != 1}
+    thread_candidates = {(item.get('runtime_backend', 'pytorch'), item['execution_mode'], item['requested_precision_profile'], item['batch_size']) for item in ok_results if item['num_threads'] != 1}
     if thread_candidates:
         fig, axis = plt.subplots(figsize=(12, 7))
-        for execution_mode, precision, batch_size in sorted(thread_candidates):
+        for runtime_backend, execution_mode, precision, batch_size in sorted(thread_candidates):
             items = sorted(
-                [entry for entry in ok_results if entry['execution_mode'] == execution_mode and entry['requested_precision_profile'] == precision and entry['batch_size'] == batch_size],
+                [entry for entry in ok_results if entry.get('runtime_backend', 'pytorch') == runtime_backend and entry['execution_mode'] == execution_mode and entry['requested_precision_profile'] == precision and entry['batch_size'] == batch_size],
                 key=lambda entry: entry['num_threads'],
             )
             axis.plot(
@@ -839,7 +998,7 @@ def _plot_run_latency(results: List[Dict[str, Any]], output_dir: Path) -> List[P
                 [entry['p50_latency_ms'] for entry in items],
                 marker='o',
                 linewidth=2,
-                label=f'{execution_mode} / {precision} / bs={batch_size}',
+                label=f'{runtime_backend} / {execution_mode} / {precision} / bs={batch_size}',
             )
         axis.set_xlabel('Threads')
         axis.set_ylabel('P50 Latency (ms)')
@@ -882,19 +1041,19 @@ def _plot_aggregate_latency(results: List[Dict[str, Any]], output_dir: Path) -> 
         if len({item['run_name'] for item in thread_results}) < 2:
             continue
 
-        grouped: Dict[tuple[str, str, str], List[Dict[str, Any]]] = {}
+        grouped: Dict[tuple[str, str, str, str], List[Dict[str, Any]]] = {}
         for item in thread_results:
-            grouped.setdefault((item['run_name'], item['execution_mode'], item['requested_precision_profile']), []).append(item)
+            grouped.setdefault((item['run_name'], item.get('runtime_backend', 'pytorch'), item['execution_mode'], item['requested_precision_profile']), []).append(item)
 
         fig, axis = plt.subplots(figsize=(12, 7))
-        for (run_name, execution_mode, precision), items in sorted(grouped.items()):
+        for (run_name, runtime_backend, execution_mode, precision), items in sorted(grouped.items()):
             items = sorted(items, key=lambda entry: entry['batch_size'])
             axis.plot(
                 [entry['batch_size'] for entry in items],
                 [entry['p50_latency_ms'] for entry in items],
                 marker='o',
                 linewidth=2,
-                label=f'{run_name} / {execution_mode} / {precision}',
+                label=f'{run_name} / {runtime_backend} / {execution_mode} / {precision}',
             )
         axis.set_xlabel('Batch Size')
         axis.set_ylabel('P50 Latency (ms)')
@@ -908,14 +1067,14 @@ def _plot_aggregate_latency(results: List[Dict[str, Any]], output_dir: Path) -> 
         plot_files.append(latency_plot)
 
         fig, axis = plt.subplots(figsize=(12, 7))
-        for (run_name, execution_mode, precision), items in sorted(grouped.items()):
+        for (run_name, runtime_backend, execution_mode, precision), items in sorted(grouped.items()):
             items = sorted(items, key=lambda entry: entry['batch_size'])
             axis.plot(
                 [entry['batch_size'] for entry in items],
                 [entry['throughput_samples_per_sec'] for entry in items],
                 marker='o',
                 linewidth=2,
-                label=f'{run_name} / {execution_mode} / {precision}',
+                label=f'{run_name} / {runtime_backend} / {execution_mode} / {precision}',
             )
         axis.set_xlabel('Batch Size')
         axis.set_ylabel('Throughput (samples/s)')
@@ -936,6 +1095,7 @@ def render_latency_report(results_payload: Dict[str, Any]) -> str:
         '# Latency Report',
         '',
         f"- Device: `{results_payload['device']}`",
+        f"- Runtime backends: `{results_payload.get('runtime_backends', ['pytorch'])}`",
         f"- Execution modes: `{results_payload['execution_modes']}`",
         f"- Precision profiles: `{results_payload['precision_profiles']}`",
         f"- Batch sizes: `{results_payload['batch_sizes']}`",
@@ -953,6 +1113,7 @@ def render_latency_report(results_payload: Dict[str, Any]) -> str:
             best = summary['best_throughput']
             lines.append(f"### {run_key}")
             lines.append('')
+            lines.append(f"- Runtime backend: `{summary.get('runtime_backend', 'pytorch')}`")
             lines.append(f"- Execution mode: `{summary['execution_mode']}`")
             lines.append(
                 f"- Best throughput config: threads=`{best['thread_count']}`, batch=`{best['batch_size']}`, precision=`{best['precision']}`, throughput=`{best['throughput_samples_per_sec']:.3f}` samples/s, p50=`{best['p50_latency_ms']:.3f}` ms"
@@ -989,12 +1150,12 @@ def render_latency_report(results_payload: Dict[str, Any]) -> str:
     lines.extend([
         '## Results',
         '',
-        '| Run | Mode | Precision | Batch | Threads | Status | Prep (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Throughput | Skip reason |',
-        '|---|---|---|---|---|---|---|---|---|---|---|---|',
+        '| Run | Backend | Mode | Precision | Batch | Threads | Status | Prep (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Throughput | Skip reason |',
+        '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
     ])
     for item in results_payload['results']:
         lines.append(
-            f"| `{item['run_name']}` | `{item['execution_mode']}` | `{item['requested_precision_profile']}` | {item['batch_size']} | {item['num_threads']} | {item['status']} | "
+            f"| `{item['run_name']}` | `{item.get('runtime_backend', 'pytorch')}` | `{item['execution_mode']}` | `{item['requested_precision_profile']}` | {item['batch_size']} | {item['num_threads']} | {item['status']} | "
             f"{item.get('graph_prep_time_ms', '-')} | {item.get('p50_latency_ms', '-')} | {item.get('p95_latency_ms', '-')} | {item.get('p99_latency_ms', '-')} | {item.get('throughput_samples_per_sec', '-')} | {item.get('skip_reason', '-') or '-'} |"
         )
     return '\n'.join(lines) + '\n'
@@ -1037,6 +1198,7 @@ def benchmark_latency_programmatic(
     run_dirs=None,
     runs=None,
     device='cpu',
+    runtime_backends: Optional[str] = None,
     execution_modes: Optional[str] = None,
     precision_profiles: Optional[str] = None,
     batch_sizes: Optional[str] = None,
@@ -1056,6 +1218,7 @@ def benchmark_latency_programmatic(
     target_dirs = resolve_run_selection(exp_dir=exp_dir, run_dir=run_dir, run_dirs=run_dirs, runs=runs)
     resolved_batch_sizes = parse_csv_ints(batch_sizes, DEFAULT_BATCH_SIZES)
     resolved_thread_counts = parse_csv_ints(thread_counts, default_thread_counts(resolved_device.type))
+    resolved_runtime_backends = parse_runtime_backends(resolved_device.type, runtime_backends)
     resolved_execution_modes = parse_execution_modes(resolved_device.type, execution_modes)
     resolved_precisions = parse_precision_profiles(resolved_device.type, precision_profiles)
 
@@ -1073,6 +1236,7 @@ def benchmark_latency_programmatic(
     tasks = build_latency_task_matrix(
         run_dirs=target_dirs,
         device=resolved_device,
+        runtime_backends=resolved_runtime_backends,
         execution_modes=resolved_execution_modes,
         precision_profiles=resolved_precisions,
         batch_sizes=resolved_batch_sizes,
@@ -1087,7 +1251,7 @@ def benchmark_latency_programmatic(
     for task_index, task in enumerate(tasks, start=1):
         print(
             f"[{task_index}/{len(tasks)}] Benchmarking run={Path(task.run_dir).name} "
-            f"device={task.device} mode={task.execution_mode} precision={task.precision} batch={task.batch_size} threads={task.num_threads}"
+            f"device={task.device} backend={task.runtime_backend} mode={task.execution_mode} precision={task.precision} batch={task.batch_size} threads={task.num_threads}"
         )
         result = execute_latency_task(task)
         if result.get('status') == 'ok':
@@ -1107,6 +1271,7 @@ def benchmark_latency_programmatic(
             'timestamp': datetime.now().isoformat(),
             'benchmark_id': benchmark_id,
             'device': str(resolved_device),
+            'runtime_backends': resolved_runtime_backends,
             'execution_modes': resolved_execution_modes,
             'precision_profiles': resolved_precisions,
             'batch_sizes': resolved_batch_sizes,
@@ -1124,6 +1289,7 @@ def benchmark_latency_programmatic(
             'timestamp': datetime.now().isoformat(),
             'benchmark_id': benchmark_id,
             'device': str(resolved_device),
+            'runtime_backends': resolved_runtime_backends,
             'execution_modes': resolved_execution_modes,
             'precision_profiles': resolved_precisions,
             'batch_sizes': resolved_batch_sizes,
@@ -1137,6 +1303,7 @@ def benchmark_latency_programmatic(
 
     return {
         'device': str(resolved_device),
+        'runtime_backends': resolved_runtime_backends,
         'execution_modes': resolved_execution_modes,
         'precision_profiles': resolved_precisions,
         'batch_sizes': resolved_batch_sizes,

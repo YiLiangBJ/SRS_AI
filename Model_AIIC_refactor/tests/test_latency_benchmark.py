@@ -26,6 +26,7 @@ from benchmarks.workflow import (
     parse_csv_ints,
     parse_execution_modes,
     parse_precision_profiles,
+    parse_runtime_backends,
     resolve_latency_output_dir,
 )
 from benchmarks.plotting import generate_latency_comparison_plots
@@ -106,6 +107,7 @@ class TestLatencyBenchmark(unittest.TestCase):
         args = parser.parse_args(['--run_dir', str(self.run_dir)])
         self.assertEqual(args.device, 'cpu')
         self.assertEqual(args.batch_sizes, '1,2,4,8,16,32,64,128')
+        self.assertIsNone(args.runtime_backends)
         self.assertIsNone(args.execution_modes)
         self.assertIsNone(args.thread_counts)
 
@@ -125,6 +127,10 @@ class TestLatencyBenchmark(unittest.TestCase):
     def test_execution_modes_default_by_device(self):
         self.assertEqual(parse_execution_modes('cpu', None), ['eager', 'jit', 'compile'])
         self.assertEqual(parse_execution_modes('cuda', None), ['eager'])
+
+    def test_runtime_backends_default_by_device(self):
+        self.assertEqual(parse_runtime_backends('cpu', None), ['pytorch'])
+        self.assertEqual(parse_runtime_backends('cuda', None), ['pytorch'])
 
     def test_precision_profiles_default_by_device(self):
         self.assertEqual(parse_precision_profiles('cpu', None), ['fp32', 'bf16'])
@@ -156,6 +162,7 @@ class TestLatencyBenchmark(unittest.TestCase):
         tasks = build_latency_task_matrix(
             run_dirs=[self.run_dir],
             device=torch.device('cpu'),
+            runtime_backends=['pytorch'],
             execution_modes=['eager', 'jit'],
             precision_profiles=['fp32'],
             batch_sizes=[1, 8],
@@ -166,6 +173,23 @@ class TestLatencyBenchmark(unittest.TestCase):
         self.assertEqual(len(tasks), 8)
         self.assertIsInstance(tasks[0], LatencyTask)
         self.assertEqual(tasks[0].execution_mode, 'eager')
+        self.assertEqual(tasks[0].runtime_backend, 'pytorch')
+
+    def test_build_latency_task_matrix_expands_onnxruntime_backend(self):
+        tasks = build_latency_task_matrix(
+            run_dirs=[self.run_dir],
+            device=torch.device('cpu'),
+            runtime_backends=['pytorch', 'onnxruntime'],
+            execution_modes=['eager', 'jit'],
+            precision_profiles=['fp32'],
+            batch_sizes=[1],
+            thread_counts=[1],
+            warmup_iters=1,
+            measure_iters=1,
+        )
+        self.assertEqual(len(tasks), 3)
+        self.assertEqual([task.runtime_backend for task in tasks], ['pytorch', 'pytorch', 'onnxruntime'])
+        self.assertEqual(tasks[-1].execution_mode, 'onnxruntime')
 
     def test_resolve_latency_output_dir_prefers_experiment_dir(self):
         output_dir = resolve_latency_output_dir(exp_dir=self.exp_dir, run_dirs=[self.run_dir], device_type='cpu', benchmark_id='20260422_000000')
@@ -610,12 +634,15 @@ class TestLatencyBenchmark(unittest.TestCase):
         with open(Path(artifacts['aggregate_artifacts']['json_path']), 'r', encoding='utf-8') as input_file:
             saved = json.load(input_file)
         self.assertEqual(saved['device'], 'cpu')
+        self.assertEqual(saved['runtime_backends'], ['pytorch'])
         self.assertEqual(saved['execution_modes'], ['eager'])
         self.assertEqual(saved['precision_profiles'], ['fp32'])
         self.assertEqual(saved['batch_sizes'], [1, 8])
         self.assertIn('cpu_thread_scaling_summaries', saved)
         with open(aggregate_report, 'r', encoding='utf-8') as input_file:
             report_text = input_file.read()
+        self.assertIn('Runtime backends: `[\'pytorch\']`', report_text)
+        self.assertIn('Runtime backend: `pytorch`', report_text)
         self.assertIn('Trainable parameters', report_text)
         self.assertIn('Model complexity JSON', report_text)
         self.assertIn('Execution mode: `eager`', report_text)
@@ -625,12 +652,13 @@ class TestLatencyBenchmark(unittest.TestCase):
         self.assertIn('mkldnn enabled: `True`', report_text)
         self.assertIn('oneDNN version: `3.1.1`', report_text)
         self.assertIn('Benchmark tasks: 8 total', console_text)
-        self.assertIn('[1/8] Benchmarking run=demo_run device=cpu mode=eager precision=fp32 batch=1 threads=1', console_text)
+        self.assertIn('[1/8] Benchmarking run=demo_run device=cpu backend=pytorch mode=eager precision=fp32 batch=1 threads=1', console_text)
         self.assertIn('-> done: prep=0.000 ms, p50=1.000 ms', console_text)
         with open(aggregate_csv, 'r', encoding='utf-8', newline='') as input_file:
             reader = csv.DictReader(input_file)
             rows = list(reader)
         self.assertEqual(len(rows), 8)
+        self.assertIn('runtime_backend', reader.fieldnames)
         self.assertIn('trainable_parameters', reader.fieldnames)
         self.assertIn('macs_per_sample', reader.fieldnames)
         self.assertIn('flops_per_sample_estimate', reader.fieldnames)
@@ -639,6 +667,7 @@ class TestLatencyBenchmark(unittest.TestCase):
         self.assertIn('latency_per_sample_us', reader.fieldnames)
         self.assertIn('thread_group', reader.fieldnames)
         self.assertEqual(rows[0]['cpu_model_name'], 'Test CPU')
+        self.assertEqual(rows[0]['runtime_backend'], 'pytorch')
         self.assertEqual(rows[0]['trainable_parameters'], '2400')
         self.assertEqual(rows[0]['thread_group'], 'single-thread')
         self.assertEqual(rows[0]['latency_per_sample_us'], '1000.0')
@@ -713,6 +742,7 @@ class TestLatencyBenchmark(unittest.TestCase):
             reader = csv.DictReader(input_file)
             rows = list(reader)
         self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['runtime_backend'], 'pytorch')
         self.assertEqual(rows[0]['thread_group'], 'all-physical')
         self.assertEqual(rows[0]['samples_per_ms'], '3.333')
         self.assertEqual(rows[0]['latency_per_sample_us'], '300.0')
