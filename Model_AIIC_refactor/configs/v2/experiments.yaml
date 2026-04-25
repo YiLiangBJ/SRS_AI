@@ -45,7 +45,7 @@ experiments:
     description: Default 6-port separator1 sweep using the component-based schema.
     task: channel_separator_6port_standard
     model: separator1_grid_search_6ports
-    training_strategy: supervised_log_plateau
+    training_strategy: supervised_nmse_plateau
 
   compare_default_models_v2:
     description: Compare the default full_mlp, separator1, and separator2 models under the same 6-port task and training strategy.
