@@ -105,6 +105,13 @@ def _normalize_local_variant(
             params['hidden_dim'] = base_hidden_dim
             normalized_tokens = [token for token in normalized_tokens if not token.startswith('hd')]
 
+    if normalized_spec.get('type') == 'separator1':
+        params = normalized_spec.get('params', {})
+        if int(params.get('mlp_depth', 3)) == 2:
+            base_hidden_dim = _nested_get(base_payload, 'params', 'hidden_dim', default=params.get('hidden_dim'))
+            params['hidden_dim'] = base_hidden_dim
+            normalized_tokens = [token for token in normalized_tokens if not token.startswith('hd')]
+
     return normalized_spec, normalized_tokens
 
 

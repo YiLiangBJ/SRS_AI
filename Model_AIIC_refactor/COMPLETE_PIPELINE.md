@@ -179,7 +179,7 @@ python ./Model_AIIC_refactor/train.py \
 - `full_mlp_capacity_search_v2`: default 16-run 6-port hidden-dim/depth search for full-MLP
 - `quick_separator1_v2`: one-run 6-port smoke test for separator1
 - `compare_default_models_v2`: compare full_mlp_default, separator1_default, and separator2_default on the same 6-port task
-- `default_6port_separator1_v2`: default 6-port separator1 sweep
+- `default_6port_separator1_v2`: default 20-run 6-port separator1 sweep over depth, stage count, weight sharing, and hidden dim for depth-3 variants
 - `separator1_loss_search_v2`: compare supervised loss choices for 6-port separator1_default
 
 ## 5. Training

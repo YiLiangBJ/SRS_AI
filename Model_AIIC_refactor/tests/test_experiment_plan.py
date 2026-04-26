@@ -175,6 +175,27 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(depth2_items[0].model_spec['hidden_dim'], 128)
         self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3, 4, 5})
 
+    def test_separator1_grid_search_sweeps_depth_stage_share_and_deduplicates_depth2_hidden_dim(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='default_6port_separator1_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 20)
+        self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3})
+        self.assertEqual({item.model_spec['num_stages'] for item in suite.plan}, {1, 2})
+        self.assertEqual({item.model_spec['share_weights_across_stages'] for item in suite.plan}, {False, True})
+
+        depth2_items = [item for item in suite.plan if item.model_spec['mlp_depth'] == 2]
+        self.assertEqual(len(depth2_items), 4)
+        self.assertEqual({item.model_spec['hidden_dim'] for item in depth2_items}, {64})
+        self.assertTrue(all('hd' not in item.run_name for item in depth2_items))
+
+        depth3_items = [item for item in suite.plan if item.model_spec['mlp_depth'] == 3]
+        self.assertEqual(len(depth3_items), 16)
+        self.assertEqual({item.model_spec['hidden_dim'] for item in depth3_items}, {16, 32, 64, 128})
+
     def test_multi_stage_training_strategy_compiles(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
         suite = build_experiment_suite(
