@@ -1135,6 +1135,22 @@ Notes for OpenVINO backend:
 - this is a standalone OpenVINO runtime path, not ONNX Runtime with OpenVINO Execution Provider
 - results are reported with `runtime_backend=openvino` and `execution_mode=openvino`
 
+Example: benchmark one run on CPU across PyTorch, ONNX Runtime, and OpenVINO in one pass:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu \
+  --runtime_backends pytorch,onnxruntime,openvino
+```
+
+Notes for the combined backend command:
+
+- PyTorch runs the CPU default precision set: `fp32,bf16`
+- ONNX Runtime currently executes only its supported `fp32` combinations
+- OpenVINO currently executes only its supported `fp32` combinations
+- unsupported backend / precision combinations are reported as skipped in the latency results rather than crashing the whole benchmark
+
 Example: benchmark a whole experiment on CUDA with selected precision profiles:
 
 ```bash
