@@ -58,7 +58,7 @@ def style_for_series(index: int, marker: bool = True) -> dict:
 
 
 def legend_column_count(item_count: int, max_rows_per_col: int = 18) -> int:
-    return max(1, min(5, math.ceil(max(1, item_count) / max_rows_per_col)))
+    return 1
 
 
 def legend_row_count(item_count: int, ncol: int) -> int:
@@ -72,9 +72,9 @@ def outside_legend_figure_size(
     max_rows_per_col: int = 18,
 ) -> tuple[float, float, int, tuple[float, float, float, float]]:
     ncol = legend_column_count(legend_count, max_rows_per_col=max_rows_per_col)
-    width = base_width + 2.4 + 1.8 * (ncol - 1)
+    width = base_width + 4.2
     height = base_height
-    usable_right = max(0.38, 0.80 - 0.08 * (ncol - 1))
+    usable_right = 0.74
     rect = (0.0, 0.0, usable_right, 1.0)
     return width, height, ncol, rect
 
@@ -86,21 +86,24 @@ def panel_figure_size(panel_count: int, max_legend_count: int, cols: int) -> tup
     return width, min(26.0, height)
 
 
-def legend_fontsize(item_count: int, base_fontsize: int = 10) -> int:
-    if item_count <= 12:
+def legend_fontsize(item_count: int, base_fontsize: int = 10, base_height: float = 6.0) -> int:
+    max_items_at_base = max(8, int(base_height * 3.0))
+    if item_count <= max_items_at_base:
         return base_fontsize
-    if item_count <= 20:
+    if item_count <= int(max_items_at_base * 1.35):
         return max(8, base_fontsize - 1)
-    if item_count <= 32:
+    if item_count <= int(max_items_at_base * 1.75):
         return max(7, base_fontsize - 2)
-    return max(6, base_fontsize - 3)
+    if item_count <= int(max_items_at_base * 2.2):
+        return max(6, base_fontsize - 3)
+    return max(5, base_fontsize - 4)
 
 
 def place_legend_outside_right(figure, axis, fontsize: int = 10, max_rows_per_col: int = 18):
     handles, labels = axis.get_legend_handles_labels()
     if not handles:
         return
-    _, _, ncol, rect = outside_legend_figure_size(
+    _, figure_height, ncol, rect = outside_legend_figure_size(
         len(labels),
         base_width=figure.get_size_inches()[0],
         base_height=figure.get_size_inches()[1],
@@ -110,7 +113,7 @@ def place_legend_outside_right(figure, axis, fontsize: int = 10, max_rows_per_co
         loc='center left',
         bbox_to_anchor=(1.02, 0.5),
         borderaxespad=0.0,
-        fontsize=legend_fontsize(len(labels), base_fontsize=fontsize),
+        fontsize=legend_fontsize(len(labels), base_fontsize=fontsize, base_height=figure_height),
         ncol=ncol,
         columnspacing=1.2,
         handlelength=3.0,

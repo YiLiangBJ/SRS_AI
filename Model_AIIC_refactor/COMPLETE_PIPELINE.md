@@ -515,7 +515,7 @@ Current plotting behavior mirrors evaluation:
 - if the input is one experiment directory, `plot.py` finds the latest aggregate experiment evaluation and also the latest evaluation under each run
 - in that experiment case, each run keeps its own model-specific curves under its own run evaluation directory
 - the experiment evaluation directory also gets comparison plots spanning multiple runs
-- plot legends are placed outside the plotting area and now adapt their column count and font size so dense multi-line comparisons stay readable without stretching the curve area vertically
+- plot legends are placed outside the plotting area as a single column and shrink their font size when needed so dense multi-line comparisons stay readable without stretching the curve area vertically
 
 Example after evaluating an experiment with two runs:
 
@@ -1197,7 +1197,7 @@ CPU plot outputs now include both run-local and aggregate-friendly views:
 - run-local: `p50_latency_vs_batch.jpg`, `throughput_vs_batch.jpg`, `p50_latency_vs_threads.jpg`
 - experiment aggregate: `bs1_p50_comparison.jpg`
 - experiment aggregate at fixed threads: `p50_latency_vs_batch_threads_<N>.jpg`, `throughput_vs_batch_threads_<N>.jpg`
-- multi-series latency plots and re-plots now use a larger qualitative palette, more line styles, and adaptive legend-aware sizing that prefers wider legends and smaller legend fonts over vertically stretching the plot area
+- multi-series latency plots and re-plots now use a larger qualitative palette, more line styles, and adaptive legend-aware sizing that keeps the legend in a single outside column while shrinking legend font size instead of stretching the plot area
 
 If you want a detailed conceptual explanation of how `eager`, `jit`, and `compile` differ on CPU with oneDNN underneath, see:
 
@@ -1253,7 +1253,7 @@ The script generates two subplot-oriented comparison views for each selected thr
 - `model_precision_panels_<metric>_threads_<N>.jpg`
   each subplot fixes one model + precision combination, and compares different execution modes inside that combination
 
-All plot entrypoints in the workflow now keep legends outside the plotting area while adapting legend columns and legend font size when many lines are present.
+All plot entrypoints in the workflow now keep legends outside the plotting area in a single column and adapt legend font size when many lines are present.
 
 Example: draw throughput instead of p50 latency:
 

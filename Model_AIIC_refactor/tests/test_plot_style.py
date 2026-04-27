@@ -7,12 +7,14 @@ from utils.plot_style import legend_fontsize, outside_legend_figure_size, style_
 
 class TestPlotStyle(unittest.TestCase):
     def test_outside_legend_figure_size_prefers_width_over_height_growth(self):
-        small_width, small_height, small_cols, _ = outside_legend_figure_size(4, base_width=10.0, base_height=6.0)
-        large_width, large_height, large_cols, _ = outside_legend_figure_size(48, base_width=10.0, base_height=6.0)
+        small_width, small_height, small_cols, small_rect = outside_legend_figure_size(4, base_width=10.0, base_height=6.0)
+        large_width, large_height, large_cols, large_rect = outside_legend_figure_size(48, base_width=10.0, base_height=6.0)
 
         self.assertGreaterEqual(large_width, small_width)
         self.assertEqual(large_height, small_height)
-        self.assertGreaterEqual(large_cols, small_cols)
+        self.assertEqual(large_cols, 1)
+        self.assertEqual(small_cols, 1)
+        self.assertEqual(small_rect[2], large_rect[2])
 
     def test_style_for_series_distinguishes_neighboring_series(self):
         first = style_for_series(0)
@@ -28,9 +30,12 @@ class TestPlotStyle(unittest.TestCase):
         self.assertNotIn('markersize', style)
 
     def test_legend_fontsize_shrinks_for_dense_legends(self):
-        self.assertEqual(legend_fontsize(8, base_fontsize=10), 10)
-        self.assertLess(legend_fontsize(24, base_fontsize=10), 10)
-        self.assertLessEqual(legend_fontsize(48, base_fontsize=10), legend_fontsize(24, base_fontsize=10))
+        self.assertEqual(legend_fontsize(8, base_fontsize=10, base_height=6.0), 10)
+        self.assertLess(legend_fontsize(24, base_fontsize=10, base_height=6.0), 10)
+        self.assertLessEqual(
+            legend_fontsize(48, base_fontsize=10, base_height=6.0),
+            legend_fontsize(24, base_fontsize=10, base_height=6.0),
+        )
 
 
 if __name__ == '__main__':
