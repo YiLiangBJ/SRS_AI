@@ -51,7 +51,8 @@ class Separator1(BaseSeparatorModel):
     def __init__(self, seq_len=12, num_ports=4, hidden_dim=64, num_stages=3,
                  mlp_depth=3, share_weights_across_stages=False,
                  use_hidden_layer_norm=False, use_hidden_relu=True,
-                 normalize_energy=True):
+                 normalize_energy=True, residual_correction_mode='global',
+                 pos_values=None):
         super().__init__(seq_len, num_ports, normalize_energy=normalize_energy)
         
         self.hidden_dim = hidden_dim
@@ -60,6 +61,35 @@ class Separator1(BaseSeparatorModel):
         self.share_weights_across_stages = share_weights_across_stages
         self.use_hidden_layer_norm = use_hidden_layer_norm
         self.use_hidden_relu = use_hidden_relu
+        self.residual_correction_mode = residual_correction_mode
+        self.pos_values = None if pos_values is None else [int(value) for value in pos_values]
+
+        if self.residual_correction_mode not in {'global', 'masked'}:
+            raise ValueError(
+                f"Unsupported residual_correction_mode {residual_correction_mode!r}; "
+                "expected 'global' or 'masked'"
+            )
+        if self.residual_correction_mode == 'masked':
+            if self.pos_values is None:
+                raise ValueError("residual_correction_mode='masked' requires pos_values in model config")
+            if len(self.pos_values) != num_ports:
+                raise ValueError(
+                    f"pos_values must have length num_ports={num_ports} when residual_correction_mode='masked' "
+                    f"(got {len(self.pos_values)})"
+                )
+            for pos_value in self.pos_values:
+                if pos_value < 0 or pos_value >= self.seq_len:
+                    raise ValueError(
+                        f"pos_values entry {pos_value} is out of range for seq_len={self.seq_len}"
+                    )
+
+        residual_mask = torch.ones(self.num_ports, self.seq_len * 2, dtype=torch.float32)
+        if self.residual_correction_mode == 'masked':
+            residual_mask.zero_()
+            for branch_idx, pos_value in enumerate(self.pos_values):
+                residual_mask[branch_idx, pos_value] = 1.0
+                residual_mask[branch_idx, pos_value + self.seq_len] = 1.0
+        self.register_buffer('residual_port_mask', residual_mask, persistent=False)
         
         if share_weights_across_stages:
             # Mode A: Same port shares weights across stages
@@ -181,7 +211,11 @@ class Separator1(BaseSeparatorModel):
             # Residual correction
             y_recon = features.sum(dim=1)  # (B, L*2)
             residual = y - y_recon  # (B, L*2)
-            features = features + residual.unsqueeze(1)  # Broadcast residual
+            if self.residual_correction_mode == 'global':
+                features = features + residual.unsqueeze(1)  # Broadcast residual
+            else:
+                masked_residual = residual.unsqueeze(1) * self.residual_port_mask.unsqueeze(0).to(dtype=features.dtype)
+                features = features + masked_residual
 
         if return_complex:
             features = torch.complex(features[..., :self.seq_len], features[..., self.seq_len:])
@@ -217,4 +251,6 @@ class Separator1(BaseSeparatorModel):
             use_hidden_layer_norm=config.get('use_hidden_layer_norm', False),
             use_hidden_relu=config.get('use_hidden_relu', True),
             normalize_energy=config.get('normalize_energy', True),
+            residual_correction_mode=config.get('residual_correction_mode', 'global'),
+            pos_values=config.get('pos_values'),
         )

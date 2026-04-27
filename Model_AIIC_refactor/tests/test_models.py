@@ -59,6 +59,60 @@ class TestModels(unittest.TestCase):
             {**self.config, 'use_hidden_layer_norm': True},
         )
         self.assertTrue(model_with_layer_norm.use_hidden_layer_norm)
+
+    def test_separator1_residual_correction_mode_defaults_to_global(self):
+        model = create_model('separator1', self.config)
+        self.assertEqual(model.residual_correction_mode, 'global')
+
+    def test_separator1_masked_residual_uses_pos_values_for_selected_taps(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'pos_values': [0, 3, 6, 9],
+            'hidden_dim': 8,
+            'num_stages': 1,
+            'mlp_depth': 2,
+            'share_weights_across_stages': False,
+            'normalize_energy': False,
+            'residual_correction_mode': 'masked',
+        }
+        model = create_model('separator1', config)
+        for parameter in model.parameters():
+            parameter.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        expected = torch.zeros_like(h)
+        for branch_idx, pos_value in enumerate(config['pos_values']):
+            expected[0, branch_idx, pos_value] = y[0, pos_value]
+            expected[0, branch_idx, pos_value + config['seq_len']] = y[0, pos_value + config['seq_len']]
+        self.assertTrue(torch.equal(h, expected))
+
+    def test_separator1_masked_residual_supports_six_port_pos_values(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 6,
+            'pos_values': [0, 2, 4, 6, 8, 10],
+            'hidden_dim': 8,
+            'num_stages': 1,
+            'mlp_depth': 2,
+            'share_weights_across_stages': False,
+            'normalize_energy': False,
+            'residual_correction_mode': 'masked',
+        }
+        model = create_model('separator1', config)
+        for parameter in model.parameters():
+            parameter.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        expected = torch.zeros_like(h)
+        for branch_idx, pos_value in enumerate(config['pos_values']):
+            expected[0, branch_idx, pos_value] = y[0, pos_value]
+            expected[0, branch_idx, pos_value + config['seq_len']] = y[0, pos_value + config['seq_len']]
+        self.assertTrue(torch.equal(h, expected))
     
     def test_create_separator2(self):
         """Test Separator2 creation"""

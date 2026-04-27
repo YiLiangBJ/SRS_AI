@@ -41,10 +41,22 @@ experiments:
     model: separator1_small
     training_strategy: quick_supervised
 
+  quick_separator1_masked_v2:
+    description: Quick 6-port smoke test for separator1 with masked residual correction.
+    task: channel_separator_6port_quick
+    model: separator1_small_masked
+    training_strategy: quick_supervised
+
   default_6port_separator1_v2:
     description: Default 6-port separator1 sweep over hidden_dim, depth, stage count, and weight sharing using the component-based schema.
     task: channel_separator_6port_standard
     model: separator1_grid_search_6ports
+    training_strategy: supervised_nmse_plateau
+
+  default_6port_separator1_masked_v2:
+    description: Default 6-port separator1 sweep with masked residual correction over hidden_dim, depth, stage count, and weight sharing.
+    task: channel_separator_6port_standard
+    model: separator1_grid_search_6ports_masked
     training_strategy: supervised_nmse_plateau
 
   compare_default_models_v2:
