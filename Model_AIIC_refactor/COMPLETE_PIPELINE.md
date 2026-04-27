@@ -1077,7 +1077,7 @@ Supported first-version benchmark dimensions:
 - execution mode: CPU defaults to `eager`, `jit`, and `compile`; CUDA currently defaults to `eager`
 - precision profile: `fp32`, plus device-specific lower-precision profiles when supported
 - batch size: default `1,2,4,8,16,32,64,128`
-- CPU threads / cores: default `1,2,4,8,all-physical`
+- CPU threads / cores: default `1,2,4,8`
 
 Current default behavior is intentionally CPU-centric:
 

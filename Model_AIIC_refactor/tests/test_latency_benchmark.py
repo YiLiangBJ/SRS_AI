@@ -137,6 +137,7 @@ class TestLatencyBenchmark(unittest.TestCase):
         self.assertEqual(parse_precision_profiles('cuda', None), ['fp32', 'fp16', 'bf16'])
 
     def test_thread_count_parser_supports_all_physical(self):
+        self.assertEqual(default_thread_counts('cpu'), [1, 2, 4, 8])
         counts = parse_csv_ints('1,4,all-physical', default_thread_counts('cpu'))
         self.assertGreaterEqual(len(counts), 2)
         self.assertEqual(counts[0], 1)

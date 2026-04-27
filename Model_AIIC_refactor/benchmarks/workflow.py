@@ -120,7 +120,7 @@ def _physical_cpu_count() -> int:
 def default_thread_counts(device_type: str) -> List[int]:
     if device_type != 'cpu':
         return [1]
-    counts = [1, 2, 4, 8, _physical_cpu_count()]
+    counts = [1, 2, 4, 8]
     sanitized = [count for count in counts if count <= _available_cpu_count()]
     return list(dict.fromkeys(max(1, int(count)) for count in sanitized))
 
