@@ -178,8 +178,10 @@ python ./Model_AIIC_refactor/train.py \
 - `full_mlp_arch_search_v2`: 9-run 6-port width/depth search for full-MLP
 - `full_mlp_capacity_search_v2`: default 16-run 6-port hidden-dim/depth search for full-MLP
 - `quick_separator1_v2`: one-run 6-port smoke test for separator1
+- `quick_separator1_masked_v2`: one-run 6-port smoke test for separator1 with masked residual correction
 - `compare_default_models_v2`: compare full_mlp_default, separator1_default, and separator2_default on the same 6-port task
 - `default_6port_separator1_v2`: default 20-run 6-port separator1 sweep over depth, stage count, weight sharing, and hidden dim for depth-3 variants
+- `default_6port_separator1_masked_v2`: default 20-run 6-port separator1 sweep with masked residual correction
 - `separator1_loss_search_v2`: compare supervised loss choices for 6-port separator1_default
 
 ## 5. Training
@@ -227,6 +229,14 @@ Quick CPU benchmark-style 6-port run with batch-count override:
 python ./Model_AIIC_refactor/train.py \
   --experiment quick_separator1_v2 \
   --num_batches 100 \
+  --device cpu
+```
+
+Quick CPU smoke test for the masked-residual separator1 variant:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment quick_separator1_masked_v2 \
   --device cpu
 ```
 
@@ -896,6 +906,13 @@ residual = input_mixed - y_recon
 refined_port_output = port_output + residual
 ```
 
+Separator1 also supports an optional masked residual mode through `model_spec.residual_correction_mode`:
+
+- `global` (default): broadcast the full residual back to every port
+- `masked`: add back only the real/imag tap pair selected by each branch's `pos_values` entry
+
+For `masked`, no extra tap parameter is needed. The branch tied to `pos_values=k` receives residual only at indices `k` and `k + seq_len`.
+
 ### 11.4 Recommended Matlab files for separator1 review
 
 - `matlab/import_refactor_matlab_bundle.m`
@@ -1136,6 +1153,22 @@ Notes for OpenVINO backend:
 - the benchmark reuses or creates `run_dir/onnx_exports/export_manifest.json` and the matching `.onnx` export as needed
 - this is a standalone OpenVINO runtime path, not ONNX Runtime with OpenVINO Execution Provider
 - results are reported with `runtime_backend=openvino` and `execution_mode=openvino`
+
+Example: benchmark one run on CPU across PyTorch, ONNX Runtime, and OpenVINO in one pass:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu \
+  --runtime_backends pytorch,onnxruntime,openvino
+```
+
+Notes for the combined backend command:
+
+- PyTorch runs the CPU default precision set: `fp32,bf16`
+- ONNX Runtime currently executes only its supported `fp32` combinations
+- OpenVINO currently executes only its supported `fp32` combinations
+- unsupported backend / precision combinations are reported as skipped in the latency results rather than crashing the whole benchmark
 
 Example: benchmark a whole experiment on CUDA with selected precision profiles:
 

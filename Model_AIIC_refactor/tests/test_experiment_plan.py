@@ -33,6 +33,18 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(suite.plan[0].training_spec['strategy_type'], 'standard_supervised')
         self.assertEqual(suite.plan[0].task_spec['params']['tdl_config'], 'A-30')
 
+    def test_build_masked_separator1_quick_experiment_suite(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='quick_separator1_masked_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 1)
+        self.assertEqual(suite.plan[0].model_spec['model_type'], 'separator1')
+        self.assertEqual(suite.plan[0].model_spec['residual_correction_mode'], 'masked')
+        self.assertEqual(suite.plan[0].model_spec['num_ports'], 6)
+
     def test_build_full_mlp_experiment_suite(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
         suite = build_experiment_suite(
@@ -195,6 +207,19 @@ class TestExperimentPlan(unittest.TestCase):
         depth3_items = [item for item in suite.plan if item.model_spec['mlp_depth'] == 3]
         self.assertEqual(len(depth3_items), 16)
         self.assertEqual({item.model_spec['hidden_dim'] for item in depth3_items}, {16, 32, 64, 128})
+
+    def test_masked_separator1_grid_search_preserves_sweep_shape(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='default_6port_separator1_masked_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 20)
+        self.assertTrue(all(item.model_spec['residual_correction_mode'] == 'masked' for item in suite.plan))
+        self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3})
+        self.assertEqual({item.model_spec['num_stages'] for item in suite.plan}, {1, 2})
+        self.assertEqual({item.model_spec['share_weights_across_stages'] for item in suite.plan}, {False, True})
 
     def test_multi_stage_training_strategy_compiles(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
