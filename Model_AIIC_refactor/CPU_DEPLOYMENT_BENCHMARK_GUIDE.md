@@ -71,12 +71,13 @@ uv sync
 Notes:
 
 - `uv sync` installs the dependencies declared in `pyproject.toml`.
-- `onnxruntime` is already declared in the project dependencies, so it should be available after `uv sync`.
-- `openvino` is not currently part of the base project dependencies and must be installed separately when needed.
+- `onnxruntime` and `openvino` are declared in the project dependencies, so both should be available after `uv sync`.
 
 ### Install OpenVINO with `uv`
 
-For the current environment, prefer `uv pip` instead of plain `pip`:
+Normally no extra install step is needed if you already ran `uv sync`.
+
+If you need to repair a missing package in the current environment, prefer `uv pip` instead of plain `pip`:
 
 ```bash
 uv pip install openvino
@@ -271,7 +272,7 @@ Current implementation limits to remember:
 If you want the fastest path to reproduce the deployment conclusions on another machine:
 
 1. Create the environment with `uv venv` and `uv sync`.
-2. Install `openvino` with `uv pip install openvino`.
+2. Run `uv sync` so `onnxruntime` and `openvino` are both installed from `pyproject.toml`.
 3. Verify `onnxruntime` and `openvino` imports with `uv run python`.
 4. First run the focused two-backend comparison: `pytorch + jit` vs `onnxruntime`.
 5. Then run the small-model / large-model focused three-backend comparison.
