@@ -8,28 +8,21 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
-from utils import discover_run_dirs, resolve_existing_path
+from utils import (
+    color_for_index,
+    discover_run_dirs,
+    linestyle_for_index,
+    outside_legend_figure_size,
+    place_legend_outside_right,
+    resolve_existing_path,
+    style_for_series,
+)
 
 
 def _combined_plot_height(legend_count: int) -> float:
     """Scale combined-plot height only when the legend becomes long."""
-    base_height = 7.0
-    if legend_count <= 20:
-        return base_height
-    extra_items = legend_count - 20
-    return min(16.0, base_height + extra_items * 0.28)
-
-
-def _place_legend_outside_right(figure, axis, fontsize=10, ncol=1):
-    """Place the legend outside the plot area on the right."""
-    axis.legend(
-        loc='center left',
-        bbox_to_anchor=(1.02, 0.5),
-        borderaxespad=0.0,
-        fontsize=fontsize,
-        ncol=ncol,
-    )
-    figure.tight_layout(rect=(0, 0, 0.82, 1))
+    _, height, _, _ = outside_legend_figure_size(legend_count, base_width=12.0, base_height=7.0)
+    return height
 
 
 def _resolve_input_path(path_value) -> Path:
@@ -101,24 +94,24 @@ def generate_plots_programmatic(eval_results_path, output_dir):
     tdl_list = list(first_model['tdl_results'].keys())
 
     for tdl_config in tdl_list:
-        fig, axis = plt.subplots(figsize=(10, 6))
+        width, height, _, _ = outside_legend_figure_size(len(results['models']), base_width=10.0, base_height=6.0)
+        fig, axis = plt.subplots(figsize=(width, height))
 
-        for model_name, model_data in results['models'].items():
+        for series_index, (model_name, model_data) in enumerate(results['models'].items()):
             tdl_data = model_data['tdl_results'][tdl_config]
+            plot_style = style_for_series(series_index)
             axis.plot(
                 np.array(tdl_data['snr']),
                 np.array(tdl_data['nmse_db']),
-                marker='o',
                 label=model_name,
-                linewidth=2,
-                markersize=6,
+                **plot_style,
             )
 
         axis.set_xlabel('SNR (dB)', fontsize=12)
         axis.set_ylabel('NMSE (dB)', fontsize=12)
         axis.set_title(f'NMSE vs SNR - TDL-{tdl_config}', fontsize=14, fontweight='bold')
         axis.grid(True, alpha=0.3)
-        _place_legend_outside_right(fig, axis, fontsize=10)
+        place_legend_outside_right(fig, axis, fontsize=10)
 
         plot_file = output_dir / f'nmse_vs_snr_TDL_{tdl_config.replace("-", "_")}.png'
         plt.savefig(plot_file, dpi=150, bbox_inches='tight')
@@ -128,8 +121,8 @@ def generate_plots_programmatic(eval_results_path, output_dir):
         print(f"  ✓ Generated: {plot_file.name}")
 
     combined_legend_count = len(results['models']) * len(tdl_list)
-    fig, axis = plt.subplots(figsize=(12, _combined_plot_height(combined_legend_count)))
-    colors = plt.cm.tab10(np.linspace(0, 1, len(results['models'])))
+    width, _, _, _ = outside_legend_figure_size(combined_legend_count, base_width=12.0, base_height=7.0)
+    fig, axis = plt.subplots(figsize=(width, _combined_plot_height(combined_legend_count)))
 
     for index, (model_name, model_data) in enumerate(results['models'].items()):
         for tdl_index, tdl_config in enumerate(tdl_list):
@@ -137,19 +130,19 @@ def generate_plots_programmatic(eval_results_path, output_dir):
             axis.plot(
                 np.array(tdl_data['snr']),
                 np.array(tdl_data['nmse_db']),
-                color=colors[index],
-                linestyle=['-', '--', ':'][tdl_index % 3],
+                color=color_for_index(index),
+                linestyle=linestyle_for_index(tdl_index),
                 marker='o',
                 label=f"{model_name} - TDL-{tdl_config}",
-                linewidth=2,
-                markersize=5,
+                linewidth=2.2,
+                markersize=5.2,
             )
 
     axis.set_xlabel('SNR (dB)', fontsize=12)
     axis.set_ylabel('NMSE (dB)', fontsize=12)
     axis.set_title('NMSE vs SNR - All Configurations', fontsize=14, fontweight='bold')
     axis.grid(True, alpha=0.3)
-    _place_legend_outside_right(fig, axis, fontsize=9, ncol=1)
+    place_legend_outside_right(fig, axis, fontsize=9)
 
     combined_plot = output_dir / 'nmse_vs_snr_combined.png'
     plt.savefig(combined_plot, dpi=150, bbox_inches='tight')

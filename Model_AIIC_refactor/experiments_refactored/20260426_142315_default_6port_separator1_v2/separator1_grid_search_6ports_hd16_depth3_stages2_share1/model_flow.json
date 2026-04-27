@@ -1,0 +1,344 @@
+{
+  "format": "srs_ai_model_flow_v1",
+  "model_type": "separator1",
+  "input_layout": "N x (2*seq_len) real-stacked float32 = [real_part, imag_part]",
+  "output_layout": "N x num_ports x (2*seq_len) real-stacked float32",
+  "dynamic_dimension_convention": "Dynamic dimensions are written as -1.",
+  "input_shape": [
+    -1,
+    24
+  ],
+  "output_shape": [
+    -1,
+    6,
+    24
+  ],
+  "input_shape_string": "[-1, 24]",
+  "output_shape_string": "[-1, 6, 24]",
+  "model_spec": {
+    "seq_len": 12,
+    "pos_values": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "normalize_energy": true,
+    "hidden_dim": 16,
+    "mlp_depth": 3,
+    "num_stages": 2,
+    "share_weights_across_stages": true,
+    "use_hidden_layer_norm": false,
+    "use_hidden_relu": true,
+    "model_type": "separator1",
+    "num_ports": 6,
+    "num_params": 10512
+  },
+  "component_specs": {
+    "task": {
+      "type": "channel_separator",
+      "params": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "snr_config": {
+          "type": "range",
+          "min": 0,
+          "max": 30,
+          "per_sample": true,
+          "sampling": "stratified",
+          "num_bins": 10
+        },
+        "tdl_config": [
+          "A-30",
+          "B-100",
+          "C-300"
+        ]
+      }
+    },
+    "model": {
+      "type": "separator1",
+      "params": {
+        "normalize_energy": true,
+        "hidden_dim": 16,
+        "mlp_depth": 3,
+        "num_stages": 2,
+        "share_weights_across_stages": true,
+        "use_hidden_layer_norm": false,
+        "use_hidden_relu": true
+      },
+      "sweeps": [
+        {
+          "target": "params.hidden_dim",
+          "alias": "hd",
+          "values": [
+            16,
+            32,
+            64,
+            128
+          ]
+        },
+        {
+          "target": "params.mlp_depth",
+          "alias": "depth",
+          "values": [
+            2,
+            3
+          ]
+        },
+        {
+          "target": "params.num_stages",
+          "alias": "stages",
+          "values": [
+            1,
+            2
+          ]
+        },
+        {
+          "target": "params.share_weights_across_stages",
+          "alias": "share",
+          "values": [
+            false,
+            true
+          ]
+        }
+      ]
+    },
+    "training_strategy": {
+      "type": "standard_supervised",
+      "params": {
+        "batch_size": 4096,
+        "num_batches": 100000,
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.01
+          }
+        },
+        "loss": {
+          "type": "nmse"
+        },
+        "validation": {
+          "interval": 100,
+          "batches": 4
+        },
+        "early_stop": {
+          "patience": 5
+        },
+        "logging": {
+          "print_interval": 100
+        },
+        "checkpoints": {
+          "save_interval": 1000,
+          "keep_last_n": 2
+        },
+        "scheduler": {
+          "type": "reduce_on_plateau",
+          "params": {
+            "factor": 0.8,
+            "patience": 30,
+            "threshold": 0.005,
+            "threshold_mode": "abs",
+            "cooldown": 10,
+            "min_lr": 1e-06
+          }
+        }
+      }
+    }
+  },
+  "family": "separator1",
+  "loop_summary": "2 refinement stages; each stage runs one real branch and one imag branch per port, then applies residual correction.",
+  "weight_sharing_across_stages": true,
+  "total_trainable_params": 10512,
+  "total_trainable_params_string": "10,512",
+  "nodes": [
+    {
+      "name": "mixed_signal",
+      "shape": [
+        -1,
+        24
+      ],
+      "shape_string": "[-1, 24]",
+      "description": "Real-stacked mixed input [real, imag].",
+      "why": "The task provides one mixed complex sequence flattened into real and imaginary blocks.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "normalized_input",
+      "shape": [
+        -1,
+        24
+      ],
+      "shape_string": "[-1, 24]",
+      "description": "Optional per-sample RMS normalization inside the model.",
+      "why": "Normalization rescales values but does not change tensor width.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "replicated_port_features",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Input copied to all 6 ports before refinement.",
+      "why": "The separator starts each port estimate from the same mixed input, so a port axis of size 6 is introduced.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "port_stage_input",
+      "shape": [
+        -1,
+        24
+      ],
+      "shape_string": "[-1, 24]",
+      "description": "One port slice entering one refinement stage.",
+      "why": "Each port-stage block consumes one real-stacked sequence of width 24.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "per port, per stage (2 stages total, stage weights shared)"
+    },
+    {
+      "name": "real_branch_hidden_1",
+      "shape": [
+        -1,
+        16
+      ],
+      "shape_string": "[-1, 16]",
+      "description": "Real branch hidden layer 1.",
+      "why": "The first branch affine layer maps width 24 to hidden width 16.",
+      "param_count_per_occurrence": 400,
+      "param_count_per_occurrence_string": "400",
+      "effective_total_param_count": 2400,
+      "effective_total_param_count_string": "2,400",
+      "repeat": "per port, per stage (2 stages total, stage weights shared)"
+    },
+    {
+      "name": "imag_branch_hidden_1",
+      "shape": [
+        -1,
+        16
+      ],
+      "shape_string": "[-1, 16]",
+      "description": "Imag branch hidden layer 1.",
+      "why": "The first branch affine layer maps width 24 to hidden width 16.",
+      "param_count_per_occurrence": 400,
+      "param_count_per_occurrence_string": "400",
+      "effective_total_param_count": 2400,
+      "effective_total_param_count_string": "2,400",
+      "repeat": "per port, per stage (2 stages total, stage weights shared)"
+    },
+    {
+      "name": "real_branch_output",
+      "shape": [
+        -1,
+        12
+      ],
+      "shape_string": "[-1, 12]",
+      "description": "Real branch final linear output.",
+      "why": "The real branch final affine layer reduces hidden width 16 to one real channel width 12.",
+      "param_count_per_occurrence": 204,
+      "param_count_per_occurrence_string": "204",
+      "effective_total_param_count": 1224,
+      "effective_total_param_count_string": "1,224",
+      "repeat": "per port, per stage (2 stages total, stage weights shared)"
+    },
+    {
+      "name": "imag_branch_output",
+      "shape": [
+        -1,
+        12
+      ],
+      "shape_string": "[-1, 12]",
+      "description": "Imag branch final linear output.",
+      "why": "The imaginary branch final affine layer reduces hidden width 16 to one imaginary channel width 12.",
+      "param_count_per_occurrence": 204,
+      "param_count_per_occurrence_string": "204",
+      "effective_total_param_count": 1224,
+      "effective_total_param_count_string": "1,224",
+      "repeat": "per port, per stage (2 stages total, stage weights shared)"
+    },
+    {
+      "name": "port_output",
+      "shape": [
+        -1,
+        24
+      ],
+      "shape_string": "[-1, 24]",
+      "description": "Real and imaginary branch outputs concatenated back to one port tensor.",
+      "why": "Concatenating one real width-12 output and one imag width-12 output reconstructs one width-24 port tensor.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "per port, per stage (2 stages total, stage weights shared)"
+    },
+    {
+      "name": "stacked_stage_output",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "All port outputs stacked for the current stage.",
+      "why": "Stacking all 6 ports reintroduces the port axis while keeping each port width at 24.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "per stage (2 stages total)"
+    },
+    {
+      "name": "residual_corrected_output",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Residual correction enforces that the separated outputs sum back to the mixed input.",
+      "why": "Residual correction adds the same mixed-signal residual back to every port estimate, so the shape is unchanged.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "per stage (2 stages total)"
+    },
+    {
+      "name": "separated_channels",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Optional output RMS restoration to the original input scale.",
+      "why": "Rescaling restores amplitude but keeps the separated tensor shape unchanged.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    }
+  ]
+}

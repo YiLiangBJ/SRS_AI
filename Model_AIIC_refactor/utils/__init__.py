@@ -61,6 +61,16 @@ from .run_selection import (
     discover_run_dirs,
     resolve_run_selection,
 )
+from .plot_style import (
+    color_for_index,
+    linestyle_for_index,
+    marker_for_index,
+    style_for_series,
+    outside_legend_figure_size,
+    panel_figure_size,
+    place_legend_outside_right,
+    max_legend_items,
+)
 
 __all__ = [
     'get_device',
@@ -110,4 +120,12 @@ __all__ = [
     'default_refactor_experiments_root',
     'discover_run_dirs',
     'resolve_run_selection',
+    'color_for_index',
+    'linestyle_for_index',
+    'marker_for_index',
+    'style_for_series',
+    'outside_legend_figure_size',
+    'panel_figure_size',
+    'place_legend_outside_right',
+    'max_legend_items',
 ]

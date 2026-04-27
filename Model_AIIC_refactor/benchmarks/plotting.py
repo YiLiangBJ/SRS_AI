@@ -11,7 +11,14 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from utils import resolve_existing_path, split_csv_arg
+from utils import (
+    max_legend_items,
+    panel_figure_size,
+    place_legend_outside_right,
+    resolve_existing_path,
+    split_csv_arg,
+    style_for_series,
+)
 
 
 def resolve_latency_plot_input(input_path) -> tuple[Path, Path]:
@@ -100,27 +107,40 @@ def _save_mode_panel_figure(results: List[Dict[str, Any]], output_path: Path, me
     execution_modes = sorted({item['execution_mode'] for item in results})
     if not execution_modes:
         return None
-    fig, axes = _prepare_axes(len(execution_modes))
+    grouped_counts = []
+    for execution_mode in execution_modes:
+        mode_results = [item for item in results if item['execution_mode'] == execution_mode]
+        grouped_counts.append(sorted({(item['run_name'], item['requested_precision_profile']) for item in mode_results}))
+    rows, cols = _subplot_grid(len(execution_modes))
+    fig, axes = plt.subplots(
+        rows,
+        cols,
+        figsize=panel_figure_size(len(execution_modes), max_legend_items(grouped_counts), cols),
+        squeeze=False,
+    )
+    flat_axes = [axis for row in axes for axis in row]
+    for axis in flat_axes[len(execution_modes):]:
+        axis.set_visible(False)
+    axes = flat_axes[:len(execution_modes)]
     for axis, execution_mode in zip(axes, execution_modes):
         mode_results = [item for item in results if item['execution_mode'] == execution_mode]
         grouped: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
         for item in mode_results:
             grouped.setdefault((item['run_name'], item['requested_precision_profile']), []).append(item)
-        for (run_name, precision), items in sorted(grouped.items()):
+        for series_index, ((run_name, precision), items) in enumerate(sorted(grouped.items())):
             items = sorted(items, key=lambda entry: entry['batch_size'])
+            plot_style = style_for_series(series_index)
             axis.plot(
                 [entry['batch_size'] for entry in items],
                 [_metric_value(entry, metric) for entry in items],
-                marker='o',
-                linewidth=2,
                 label=f'{run_name} / {precision}',
+                **plot_style,
             )
         axis.set_title(f'{execution_mode} (threads={thread_count})')
         axis.set_xlabel('Batch Size')
         axis.set_ylabel(_metric_label(metric))
         axis.grid(True, alpha=0.3)
-        axis.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0, fontsize=9)
-    fig.tight_layout(rect=(0, 0, 0.82, 1))
+        place_legend_outside_right(fig, axis, fontsize=9)
     fig.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     return output_path
@@ -130,27 +150,40 @@ def _save_model_precision_panel_figure(results: List[Dict[str, Any]], output_pat
     model_precision_keys = sorted({(item['run_name'], item['requested_precision_profile']) for item in results})
     if not model_precision_keys:
         return None
-    fig, axes = _prepare_axes(len(model_precision_keys))
+    grouped_counts = []
+    for run_name, precision in model_precision_keys:
+        subset = [item for item in results if item['run_name'] == run_name and item['requested_precision_profile'] == precision]
+        grouped_counts.append(sorted({item['execution_mode'] for item in subset}))
+    rows, cols = _subplot_grid(len(model_precision_keys))
+    fig, axes = plt.subplots(
+        rows,
+        cols,
+        figsize=panel_figure_size(len(model_precision_keys), max_legend_items(grouped_counts), cols),
+        squeeze=False,
+    )
+    flat_axes = [axis for row in axes for axis in row]
+    for axis in flat_axes[len(model_precision_keys):]:
+        axis.set_visible(False)
+    axes = flat_axes[:len(model_precision_keys)]
     for axis, (run_name, precision) in zip(axes, model_precision_keys):
         subset = [item for item in results if item['run_name'] == run_name and item['requested_precision_profile'] == precision]
         grouped: Dict[str, List[Dict[str, Any]]] = {}
         for item in subset:
             grouped.setdefault(item['execution_mode'], []).append(item)
-        for execution_mode, items in sorted(grouped.items()):
+        for series_index, (execution_mode, items) in enumerate(sorted(grouped.items())):
             items = sorted(items, key=lambda entry: entry['batch_size'])
+            plot_style = style_for_series(series_index)
             axis.plot(
                 [entry['batch_size'] for entry in items],
                 [_metric_value(entry, metric) for entry in items],
-                marker='o',
-                linewidth=2,
                 label=execution_mode,
+                **plot_style,
             )
         axis.set_title(f'{run_name} / {precision} (threads={thread_count})')
         axis.set_xlabel('Batch Size')
         axis.set_ylabel(_metric_label(metric))
         axis.grid(True, alpha=0.3)
-        axis.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0, fontsize=9)
-    fig.tight_layout(rect=(0, 0, 0.82, 1))
+        place_legend_outside_right(fig, axis, fontsize=9)
     fig.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     return output_path

@@ -31,8 +31,11 @@ from utils import (
     find_checkpoint_path,
     load_run_artifacts,
     load_trained_model_from_run,
+    outside_legend_figure_size,
+    place_legend_outside_right,
     resolve_existing_path,
     resolve_run_selection,
+    style_for_series,
 )
 
 
@@ -1058,43 +1061,42 @@ def _plot_run_latency(results: List[Dict[str, Any]], output_dir: Path) -> List[P
     for item in ok_results:
         grouped.setdefault((item.get('runtime_backend', 'pytorch'), item['execution_mode'], item['requested_precision_profile'], item['num_threads']), []).append(item)
 
-    fig, axis = plt.subplots(figsize=(12, 7))
-    for (runtime_backend, execution_mode, precision, num_threads), items in sorted(grouped.items()):
+    width, height, _, _ = outside_legend_figure_size(len(grouped), base_width=12.0, base_height=7.0)
+    fig, axis = plt.subplots(figsize=(width, height))
+    for series_index, ((runtime_backend, execution_mode, precision, num_threads), items) in enumerate(sorted(grouped.items())):
         items = sorted(items, key=lambda entry: entry['batch_size'])
+        plot_style = style_for_series(series_index)
         axis.plot(
             [entry['batch_size'] for entry in items],
             [entry['p50_latency_ms'] for entry in items],
-            marker='o',
-            linewidth=2,
             label=f'{runtime_backend} / {execution_mode} / {precision} / t={num_threads}',
+            **plot_style,
         )
     axis.set_xlabel('Batch Size')
     axis.set_ylabel('P50 Latency (ms)')
     axis.set_title('P50 Latency vs Batch Size')
     axis.grid(True, alpha=0.3)
-    axis.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
-    fig.tight_layout(rect=(0, 0, 0.82, 1))
+    place_legend_outside_right(fig, axis)
     latency_plot = output_dir / 'p50_latency_vs_batch.jpg'
     fig.savefig(latency_plot, dpi=150, bbox_inches='tight')
     plt.close(fig)
     generated.append(latency_plot)
 
-    fig, axis = plt.subplots(figsize=(12, 7))
-    for (runtime_backend, execution_mode, precision, num_threads), items in sorted(grouped.items()):
+    fig, axis = plt.subplots(figsize=(width, height))
+    for series_index, ((runtime_backend, execution_mode, precision, num_threads), items) in enumerate(sorted(grouped.items())):
         items = sorted(items, key=lambda entry: entry['batch_size'])
+        plot_style = style_for_series(series_index)
         axis.plot(
             [entry['batch_size'] for entry in items],
             [entry['throughput_samples_per_sec'] for entry in items],
-            marker='o',
-            linewidth=2,
             label=f'{runtime_backend} / {execution_mode} / {precision} / t={num_threads}',
+            **plot_style,
         )
     axis.set_xlabel('Batch Size')
     axis.set_ylabel('Throughput (samples/s)')
     axis.set_title('Throughput vs Batch Size')
     axis.grid(True, alpha=0.3)
-    axis.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
-    fig.tight_layout(rect=(0, 0, 0.82, 1))
+    place_legend_outside_right(fig, axis)
     throughput_plot = output_dir / 'throughput_vs_batch.jpg'
     fig.savefig(throughput_plot, dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -1102,25 +1104,25 @@ def _plot_run_latency(results: List[Dict[str, Any]], output_dir: Path) -> List[P
 
     thread_candidates = {(item.get('runtime_backend', 'pytorch'), item['execution_mode'], item['requested_precision_profile'], item['batch_size']) for item in ok_results if item['num_threads'] != 1}
     if thread_candidates:
-        fig, axis = plt.subplots(figsize=(12, 7))
-        for runtime_backend, execution_mode, precision, batch_size in sorted(thread_candidates):
+        width, height, _, _ = outside_legend_figure_size(len(thread_candidates), base_width=12.0, base_height=7.0)
+        fig, axis = plt.subplots(figsize=(width, height))
+        for series_index, (runtime_backend, execution_mode, precision, batch_size) in enumerate(sorted(thread_candidates)):
             items = sorted(
                 [entry for entry in ok_results if entry.get('runtime_backend', 'pytorch') == runtime_backend and entry['execution_mode'] == execution_mode and entry['requested_precision_profile'] == precision and entry['batch_size'] == batch_size],
                 key=lambda entry: entry['num_threads'],
             )
+            plot_style = style_for_series(series_index)
             axis.plot(
                 [entry['num_threads'] for entry in items],
                 [entry['p50_latency_ms'] for entry in items],
-                marker='o',
-                linewidth=2,
                 label=f'{runtime_backend} / {execution_mode} / {precision} / bs={batch_size}',
+                **plot_style,
             )
         axis.set_xlabel('Threads')
         axis.set_ylabel('P50 Latency (ms)')
         axis.set_title('P50 Latency vs Threads')
         axis.grid(True, alpha=0.3)
-        axis.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
-        fig.tight_layout(rect=(0, 0, 0.82, 1))
+        place_legend_outside_right(fig, axis)
         threads_plot = output_dir / 'p50_latency_vs_threads.jpg'
         fig.savefig(threads_plot, dpi=150, bbox_inches='tight')
         plt.close(fig)
@@ -1137,7 +1139,8 @@ def _plot_aggregate_latency(results: List[Dict[str, Any]], output_dir: Path) -> 
 
     bs1_results = [item for item in ok_results if item['batch_size'] == 1]
     if bs1_results:
-        fig, axis = plt.subplots(figsize=(12, 7))
+        width, height, _, _ = outside_legend_figure_size(len(bs1_results), base_width=12.0, base_height=7.0)
+        fig, axis = plt.subplots(figsize=(width, height))
         labels = [f"{item['run_name']}\n{item['execution_mode']}\n{item['requested_precision_profile']}\nt={item['num_threads']}" for item in bs1_results]
         values = [item['p50_latency_ms'] for item in bs1_results]
         axis.bar(labels, values)
@@ -1160,43 +1163,42 @@ def _plot_aggregate_latency(results: List[Dict[str, Any]], output_dir: Path) -> 
         for item in thread_results:
             grouped.setdefault((item['run_name'], item.get('runtime_backend', 'pytorch'), item['execution_mode'], item['requested_precision_profile']), []).append(item)
 
-        fig, axis = plt.subplots(figsize=(12, 7))
-        for (run_name, runtime_backend, execution_mode, precision), items in sorted(grouped.items()):
+        width, height, _, _ = outside_legend_figure_size(len(grouped), base_width=12.0, base_height=7.0)
+        fig, axis = plt.subplots(figsize=(width, height))
+        for series_index, ((run_name, runtime_backend, execution_mode, precision), items) in enumerate(sorted(grouped.items())):
             items = sorted(items, key=lambda entry: entry['batch_size'])
+            plot_style = style_for_series(series_index)
             axis.plot(
                 [entry['batch_size'] for entry in items],
                 [entry['p50_latency_ms'] for entry in items],
-                marker='o',
-                linewidth=2,
                 label=f'{run_name} / {runtime_backend} / {execution_mode} / {precision}',
+                **plot_style,
             )
         axis.set_xlabel('Batch Size')
         axis.set_ylabel('P50 Latency (ms)')
         axis.set_title(f'Cross-Run P50 Latency vs Batch Size (threads={num_threads})')
         axis.grid(True, alpha=0.3)
-        axis.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
-        fig.tight_layout(rect=(0, 0, 0.82, 1))
+        place_legend_outside_right(fig, axis)
         latency_plot = output_dir / f'p50_latency_vs_batch_threads_{num_threads}.jpg'
         fig.savefig(latency_plot, dpi=150, bbox_inches='tight')
         plt.close(fig)
         plot_files.append(latency_plot)
 
-        fig, axis = plt.subplots(figsize=(12, 7))
-        for (run_name, runtime_backend, execution_mode, precision), items in sorted(grouped.items()):
+        fig, axis = plt.subplots(figsize=(width, height))
+        for series_index, ((run_name, runtime_backend, execution_mode, precision), items) in enumerate(sorted(grouped.items())):
             items = sorted(items, key=lambda entry: entry['batch_size'])
+            plot_style = style_for_series(series_index)
             axis.plot(
                 [entry['batch_size'] for entry in items],
                 [entry['throughput_samples_per_sec'] for entry in items],
-                marker='o',
-                linewidth=2,
                 label=f'{run_name} / {runtime_backend} / {execution_mode} / {precision}',
+                **plot_style,
             )
         axis.set_xlabel('Batch Size')
         axis.set_ylabel('Throughput (samples/s)')
         axis.set_title(f'Cross-Run Throughput vs Batch Size (threads={num_threads})')
         axis.grid(True, alpha=0.3)
-        axis.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), borderaxespad=0.0)
-        fig.tight_layout(rect=(0, 0, 0.82, 1))
+        place_legend_outside_right(fig, axis)
         throughput_plot = output_dir / f'throughput_vs_batch_threads_{num_threads}.jpg'
         fig.savefig(throughput_plot, dpi=150, bbox_inches='tight')
         plt.close(fig)

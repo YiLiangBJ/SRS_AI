@@ -39,6 +39,14 @@ try:
 except ImportError:
     TENSORBOARD_AVAILABLE = False
 
+try:
+    from ..utils.plot_style import outside_legend_figure_size, place_legend_outside_right, style_for_series
+except ImportError:
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from utils.plot_style import outside_legend_figure_size, place_legend_outside_right, style_for_series
+
 
 class Trainer:
     """
@@ -237,19 +245,24 @@ class Trainer:
         if not valid_series:
             return
 
-        fig, axis = plt.subplots(figsize=(10, 6))
-        for item in valid_series:
+        width, height, _, _ = outside_legend_figure_size(len(valid_series), base_width=10.0, base_height=6.0)
+        fig, axis = plt.subplots(figsize=(width, height))
+        for series_index, item in enumerate(valid_series):
             steps = [point[0] for point in item['points']]
             values = [point[1] for point in item['points']]
-            axis.plot(steps, values, marker=item.get('marker', None), linewidth=2, label=item['label'])
+            plot_style = style_for_series(series_index, marker=item.get('marker', None) is not None)
+            if item.get('marker', None) is not None:
+                plot_style['marker'] = item['marker']
+            axis.plot(steps, values, label=item['label'], **plot_style)
 
         axis.set_xlabel('Batch', fontsize=12)
         axis.set_ylabel(ylabel, fontsize=12)
         axis.set_title(title, fontsize=14, fontweight='bold')
         axis.grid(True, alpha=0.3)
         if len(valid_series) > 1 or valid_series[0]['label']:
-            axis.legend(loc='best', fontsize=10)
-        fig.tight_layout()
+            place_legend_outside_right(fig, axis, fontsize=10)
+        else:
+            fig.tight_layout()
         fig.savefig(output_path, dpi=150, bbox_inches='tight')
         plt.close(fig)
 
