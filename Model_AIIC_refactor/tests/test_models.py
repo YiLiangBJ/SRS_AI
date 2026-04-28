@@ -35,9 +35,56 @@ class TestModels(unittest.TestCase):
         model = create_model('full_mlp', self.config)
         self.assertIsInstance(model, FullMLP)
         self.assertTrue(model.normalize_energy)
+        self.assertEqual(model.residual_correction_mode, 'none')
 
         num_params = sum(p.numel() for p in model.parameters())
         self.assertGreater(num_params, 0)
+
+    def test_full_mlp_masked_residual_uses_pos_values_for_selected_taps(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'pos_values': [0, 3, 6, 9],
+            'hidden_dim': 8,
+            'mlp_depth': 2,
+            'normalize_energy': False,
+            'residual_correction_mode': 'masked',
+        }
+        model = create_model('full_mlp', config)
+        for parameter in model.parameters():
+            parameter.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        expected = torch.zeros_like(h)
+        for branch_idx, pos_value in enumerate(config['pos_values']):
+            expected[0, branch_idx, pos_value] = y[0, pos_value]
+            expected[0, branch_idx, pos_value + config['seq_len']] = y[0, pos_value + config['seq_len']]
+        self.assertTrue(torch.equal(h, expected))
+
+    def test_full_mlp_masked_residual_supports_six_port_pos_values(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 6,
+            'pos_values': [0, 2, 4, 6, 8, 10],
+            'hidden_dim': 8,
+            'mlp_depth': 2,
+            'normalize_energy': False,
+            'residual_correction_mode': 'masked',
+        }
+        model = create_model('full_mlp', config)
+        for parameter in model.parameters():
+            parameter.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        expected = torch.zeros_like(h)
+        for branch_idx, pos_value in enumerate(config['pos_values']):
+            expected[0, branch_idx, pos_value] = y[0, pos_value]
+            expected[0, branch_idx, pos_value + config['seq_len']] = y[0, pos_value + config['seq_len']]
+        self.assertTrue(torch.equal(h, expected))
     
     def test_create_separator1(self):
         """Test Separator1 creation"""

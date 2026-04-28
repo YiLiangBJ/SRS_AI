@@ -5,6 +5,12 @@ experiments:
     model: full_mlp_default
     training_strategy: quick_supervised
 
+  quick_full_mlp_masked_v2:
+    description: Quick 6-port smoke test for the joint full-MLP baseline with masked residual correction.
+    task: channel_separator_6port_quick
+    model: full_mlp_default_masked
+    training_strategy: quick_supervised
+
   full_mlp_nmse_v2:
     description: Train the joint 6-port full-MLP baseline with plain NMSE loss.
     task: channel_separator_6port_standard
@@ -21,6 +27,12 @@ experiments:
     description: Default 6-port hidden_dim and mlp_depth sweep for the joint full-MLP baseline under NMSE training.
     task: channel_separator_6port_standard
     model: full_mlp_capacity_search
+    training_strategy: supervised_nmse_plateau
+
+  full_mlp_capacity_search_masked_v2:
+    description: Default 6-port hidden_dim and mlp_depth sweep for the joint full-MLP baseline with masked residual correction.
+    task: channel_separator_6port_standard
+    model: full_mlp_capacity_search_masked
     training_strategy: supervised_nmse_plateau
 
   quick_full_mlp_two_stage_v2:

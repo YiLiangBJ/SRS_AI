@@ -21,6 +21,8 @@ class FullMLP(BaseSeparatorModel):
         hidden_dim: int = 128,
         mlp_depth: int = 3,
         normalize_energy: bool = True,
+        residual_correction_mode: str = 'none',
+        pos_values=None,
     ):
         super().__init__(seq_len, num_ports, normalize_energy=normalize_energy)
 
@@ -31,6 +33,34 @@ class FullMLP(BaseSeparatorModel):
         self.mlp_depth = mlp_depth
         self.input_dim = seq_len * 2
         self.output_dim = self.input_dim * num_ports
+        self.residual_correction_mode = residual_correction_mode
+        self.pos_values = None if pos_values is None else [int(value) for value in pos_values]
+
+        if self.residual_correction_mode not in {'none', 'masked'}:
+            raise ValueError(
+                f"Unsupported residual_correction_mode {residual_correction_mode!r}; expected 'none' or 'masked'"
+            )
+        if self.residual_correction_mode == 'masked':
+            if self.pos_values is None:
+                raise ValueError("residual_correction_mode='masked' requires pos_values in model config")
+            if len(self.pos_values) != num_ports:
+                raise ValueError(
+                    f"pos_values must have length num_ports={num_ports} when residual_correction_mode='masked' "
+                    f"(got {len(self.pos_values)})"
+                )
+            for pos_value in self.pos_values:
+                if pos_value < 0 or pos_value >= self.seq_len:
+                    raise ValueError(
+                        f"pos_values entry {pos_value} is out of range for seq_len={self.seq_len}"
+                    )
+
+        residual_mask = torch.ones(self.num_ports, self.input_dim, dtype=torch.float32)
+        if self.residual_correction_mode == 'masked':
+            residual_mask.zero_()
+            for branch_idx, pos_value in enumerate(self.pos_values):
+                residual_mask[branch_idx, pos_value] = 1.0
+                residual_mask[branch_idx, pos_value + self.seq_len] = 1.0
+        self.register_buffer('residual_port_mask', residual_mask, persistent=False)
         self.network = self._build_network()
 
     def _build_network(self) -> nn.Sequential:
@@ -65,6 +95,11 @@ class FullMLP(BaseSeparatorModel):
             )
 
         features = self.network(y).view(-1, self.num_ports, self.input_dim)
+        if self.residual_correction_mode == 'masked':
+            y_recon = features.sum(dim=1)
+            residual = y - y_recon
+            masked_residual = residual.unsqueeze(1) * self.residual_port_mask.unsqueeze(0).to(dtype=features.dtype)
+            features = features + masked_residual
 
         if return_complex:
             features = torch.complex(features[..., :self.seq_len], features[..., self.seq_len:])
@@ -79,4 +114,6 @@ class FullMLP(BaseSeparatorModel):
             hidden_dim=config.get('hidden_dim', 128),
             mlp_depth=config.get('mlp_depth', 3),
             normalize_energy=config.get('normalize_energy', True),
+            residual_correction_mode=config.get('residual_correction_mode', 'none'),
+            pos_values=config.get('pos_values'),
         )

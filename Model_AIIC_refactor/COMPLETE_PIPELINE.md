@@ -172,11 +172,13 @@ python ./Model_AIIC_refactor/train.py \
 ### 4.5 Built-in experiment presets
 
 - `quick_full_mlp_v2`: one-run 6-port smoke test for the joint full-MLP baseline
+- `quick_full_mlp_masked_v2`: one-run 6-port smoke test for the joint full-MLP baseline with masked residual correction
 - `quick_full_mlp_two_stage_v2`: one-run 6-port smoke test for staged full-MLP training
 - `quick_full_mlp_three_stage_v2`: one-run 6-port smoke test for `nmse -> log -> weighted` staged full-MLP training
 - `full_mlp_nmse_v2`: one-run 6-port full-MLP baseline with plain NMSE loss
 - `full_mlp_arch_search_v2`: 9-run 6-port width/depth search for full-MLP
 - `full_mlp_capacity_search_v2`: default 16-run 6-port hidden-dim/depth search for full-MLP
+- `full_mlp_capacity_search_masked_v2`: default 16-run 6-port hidden-dim/depth search for full-MLP with masked residual correction
 - `quick_separator1_v2`: one-run 6-port smoke test for separator1
 - `quick_separator1_masked_v2`: one-run 6-port smoke test for separator1 with masked residual correction
 - `compare_default_models_v2`: compare full_mlp_default, separator1_default, and separator2_default on the same 6-port task
@@ -201,6 +203,14 @@ Train one quick 6-port full-MLP smoke test:
 ```bash
 python ./Model_AIIC_refactor/train.py \
   --experiment quick_full_mlp_v2 \
+  --device cuda
+```
+
+Train one quick 6-port full-MLP smoke test with masked residual correction:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment quick_full_mlp_masked_v2 \
   --device cuda
 ```
 
@@ -895,6 +905,16 @@ imag_out = imag_hidden * W_imag_out^T + b_imag_out
 
 port_output = [real_out, imag_out]
 ```
+
+### 11.3A Full-MLP residual options
+
+`full_mlp` keeps its original behavior by default with `model_spec.residual_correction_mode = none`.
+
+It also supports `model_spec.residual_correction_mode = masked` after the joint output is reshaped to `N x num_ports x (2*seq_len)`:
+
+- compute `y_recon = sum(port_output over all ports)`
+- compute `residual = input_mixed - y_recon`
+- for each branch tied to `pos_values = k`, add back only residual indices `k` and `k + seq_len`
 
 For current v2 bundles, `model_spec.use_hidden_layer_norm` tells you whether these LayerNorm parameters are expected to exist in the exported bundle.
 

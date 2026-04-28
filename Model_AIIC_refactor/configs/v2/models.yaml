@@ -6,6 +6,14 @@ models:
       hidden_dim: 128
       mlp_depth: 3
 
+  full_mlp_default_masked:
+    type: full_mlp
+    params:
+      normalize_energy: true
+      hidden_dim: 128
+      mlp_depth: 3
+      residual_correction_mode: masked
+
   full_mlp_arch_search:
     type: full_mlp
     params:
@@ -26,6 +34,21 @@ models:
       normalize_energy: true
       hidden_dim: 128
       mlp_depth: 3
+    sweeps:
+      - target: params.hidden_dim
+        alias: hd
+        values: [32, 64, 128, 256, 512]
+      - target: params.mlp_depth
+        alias: depth
+        values: [2, 3, 4, 5]
+
+  full_mlp_capacity_search_masked:
+    type: full_mlp
+    params:
+      normalize_energy: true
+      hidden_dim: 128
+      mlp_depth: 3
+      residual_correction_mode: masked
     sweeps:
       - target: params.hidden_dim
         alias: hd
