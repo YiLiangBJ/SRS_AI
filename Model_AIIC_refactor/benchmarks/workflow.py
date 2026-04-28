@@ -58,6 +58,12 @@ def _runtime_backend_execution_modes(runtime_backend: str, execution_modes: List
     return execution_modes
 
 
+def _runtime_backend_precision_profiles(runtime_backend: str, precision_profiles: List[str]) -> List[str]:
+    if runtime_backend in {'onnxruntime', 'openvino'}:
+        return [precision for precision in precision_profiles if precision == 'fp32']
+    return precision_profiles
+
+
 @dataclass(frozen=True)
 class LatencyTask:
     run_dir: str
@@ -207,8 +213,9 @@ def build_latency_task_matrix(
     for run_dir in run_dirs:
         for runtime_backend in runtime_backends:
             backend_execution_modes = _runtime_backend_execution_modes(runtime_backend, execution_modes)
+            backend_precision_profiles = _runtime_backend_precision_profiles(runtime_backend, precision_profiles)
             for execution_mode in backend_execution_modes:
-                for precision in precision_profiles:
+                for precision in backend_precision_profiles:
                     for batch_size in batch_sizes:
                         for num_threads in active_threads:
                             tasks.append(LatencyTask(

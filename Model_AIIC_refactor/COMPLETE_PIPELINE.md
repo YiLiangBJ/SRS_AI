@@ -1221,9 +1221,9 @@ python ./Model_AIIC_refactor/benchmark_latency.py \
 Notes for the combined backend command:
 
 - PyTorch runs the CPU default precision set: `fp32,bf16`
-- ONNX Runtime currently executes only its supported `fp32` combinations
-- OpenVINO currently executes only its supported `fp32` combinations
-- unsupported backend / precision combinations are reported as skipped in the latency results rather than crashing the whole benchmark
+- ONNX Runtime expands only its valid `fp32` combinations during task generation
+- OpenVINO expands only its valid `fp32` combinations during task generation
+- combinations that are structurally valid but unavailable in the current environment, such as a missing backend package, are still reported as skipped in the latency results rather than crashing the whole benchmark
 
 Example: benchmark a whole experiment on CUDA with selected precision profiles:
 

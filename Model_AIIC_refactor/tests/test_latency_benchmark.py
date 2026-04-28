@@ -182,15 +182,20 @@ class TestLatencyBenchmark(unittest.TestCase):
             device=torch.device('cpu'),
             runtime_backends=['pytorch', 'onnxruntime'],
             execution_modes=['eager', 'jit'],
-            precision_profiles=['fp32'],
+            precision_profiles=['fp32', 'fp16', 'bf16'],
             batch_sizes=[1],
             thread_counts=[1],
             warmup_iters=1,
             measure_iters=1,
         )
-        self.assertEqual(len(tasks), 3)
-        self.assertEqual([task.runtime_backend for task in tasks], ['pytorch', 'pytorch', 'onnxruntime'])
+        self.assertEqual(len(tasks), 7)
+        self.assertEqual([task.runtime_backend for task in tasks], ['pytorch'] * 6 + ['onnxruntime'])
         self.assertEqual(tasks[-1].execution_mode, 'onnxruntime')
+        self.assertEqual(tasks[-1].precision, 'fp32')
+        self.assertEqual(
+            sorted({task.precision for task in tasks if task.runtime_backend == 'onnxruntime'}),
+            ['fp32'],
+        )
 
     def test_build_latency_task_matrix_expands_openvino_backend(self):
         tasks = build_latency_task_matrix(
@@ -198,15 +203,34 @@ class TestLatencyBenchmark(unittest.TestCase):
             device=torch.device('cpu'),
             runtime_backends=['pytorch', 'openvino'],
             execution_modes=['jit'],
-            precision_profiles=['fp32'],
+            precision_profiles=['fp32', 'fp16', 'bf16'],
             batch_sizes=[1],
             thread_counts=[1],
             warmup_iters=1,
             measure_iters=1,
         )
-        self.assertEqual(len(tasks), 2)
-        self.assertEqual([task.runtime_backend for task in tasks], ['pytorch', 'openvino'])
+        self.assertEqual(len(tasks), 4)
+        self.assertEqual([task.runtime_backend for task in tasks], ['pytorch', 'pytorch', 'pytorch', 'openvino'])
         self.assertEqual(tasks[-1].execution_mode, 'openvino')
+        self.assertEqual(tasks[-1].precision, 'fp32')
+        self.assertEqual(
+            sorted({task.precision for task in tasks if task.runtime_backend == 'openvino'}),
+            ['fp32'],
+        )
+
+    def test_build_latency_task_matrix_drops_backend_only_invalid_precisions(self):
+        tasks = build_latency_task_matrix(
+            run_dirs=[self.run_dir],
+            device=torch.device('cpu'),
+            runtime_backends=['onnxruntime', 'openvino'],
+            execution_modes=['eager', 'jit'],
+            precision_profiles=['fp16', 'bf16'],
+            batch_sizes=[1],
+            thread_counts=[1],
+            warmup_iters=1,
+            measure_iters=1,
+        )
+        self.assertEqual(tasks, [])
 
     def test_resolve_latency_output_dir_prefers_experiment_dir(self):
         output_dir = resolve_latency_output_dir(exp_dir=self.exp_dir, run_dirs=[self.run_dir], device_type='cpu', benchmark_id='20260422_000000')
