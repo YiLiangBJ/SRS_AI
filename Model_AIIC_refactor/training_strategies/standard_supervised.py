@@ -41,6 +41,10 @@ class StandardSupervisedStrategy(BaseTrainingStrategy):
         loss_type = ((strategy_params.get('loss') or {}).get('type'))
         runtime['loss_type'] = loss_type or runtime.get('loss_type')
 
+        regularization = strategy_params.get('regularization') or {}
+        if 'learned_dense_mask_l2_to_one' in regularization:
+            runtime['learned_dense_mask_regularization'] = regularization['learned_dense_mask_l2_to_one']
+
         validation = strategy_params.get('validation') or {}
         if 'interval' in validation:
             runtime['validation_interval'] = validation['interval']
@@ -89,6 +93,7 @@ class StandardSupervisedStrategy(BaseTrainingStrategy):
             compile_model=request.compile_model,
             tensorboard_dir=tensorboard_dir,
             scheduler_config=training_spec.get('lr_scheduler'),
+            learned_dense_mask_regularization=training_spec.get('learned_dense_mask_regularization'),
         )
 
     def run(self, trainer, task, model_spec: Mapping[str, Any], training_spec: Mapping[str, Any], experiment_dir: Path, progress_tracker):

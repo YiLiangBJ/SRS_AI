@@ -35,9 +35,114 @@ class TestModels(unittest.TestCase):
         model = create_model('full_mlp', self.config)
         self.assertIsInstance(model, FullMLP)
         self.assertTrue(model.normalize_energy)
+        self.assertEqual(model.residual_correction_mode, 'none')
 
         num_params = sum(p.numel() for p in model.parameters())
         self.assertGreater(num_params, 0)
+
+    def test_full_mlp_masked_residual_uses_pos_values_for_selected_taps(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'pos_values': [0, 3, 6, 9],
+            'hidden_dim': 8,
+            'mlp_depth': 2,
+            'normalize_energy': False,
+            'residual_correction_mode': 'masked',
+        }
+        model = create_model('full_mlp', config)
+        for parameter in model.parameters():
+            parameter.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        expected = torch.zeros_like(h)
+        for branch_idx, pos_value in enumerate(config['pos_values']):
+            expected[0, branch_idx, pos_value] = y[0, pos_value]
+            expected[0, branch_idx, pos_value + config['seq_len']] = y[0, pos_value + config['seq_len']]
+        self.assertTrue(torch.equal(h, expected))
+
+    def test_full_mlp_masked_residual_supports_six_port_pos_values(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 6,
+            'pos_values': [0, 2, 4, 6, 8, 10],
+            'hidden_dim': 8,
+            'mlp_depth': 2,
+            'normalize_energy': False,
+            'residual_correction_mode': 'masked',
+        }
+        model = create_model('full_mlp', config)
+        for parameter in model.parameters():
+            parameter.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        expected = torch.zeros_like(h)
+        for branch_idx, pos_value in enumerate(config['pos_values']):
+            expected[0, branch_idx, pos_value] = y[0, pos_value]
+            expected[0, branch_idx, pos_value + config['seq_len']] = y[0, pos_value + config['seq_len']]
+        self.assertTrue(torch.equal(h, expected))
+
+    def test_full_mlp_learned_dense_residual_zero_mask_blocks_residual(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'hidden_dim': 8,
+            'mlp_depth': 2,
+            'normalize_energy': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('full_mlp', config)
+        for parameter in model.parameters():
+            if parameter is not model.learned_residual_mask:
+                parameter.data.zero_()
+        model.learned_residual_mask.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        self.assertTrue(torch.equal(h, torch.zeros_like(h)))
+
+    def test_full_mlp_learned_dense_residual_unit_mask_broadcasts_full_residual(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'hidden_dim': 8,
+            'mlp_depth': 2,
+            'normalize_energy': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('full_mlp', config)
+        for parameter in model.parameters():
+            if parameter is not model.learned_residual_mask:
+                parameter.data.zero_()
+        model.learned_residual_mask.data.fill_(1.0)
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        expected = y.unsqueeze(1).repeat(1, config['num_ports'], 1)
+        self.assertTrue(torch.equal(h, expected))
+
+    def test_full_mlp_learned_dense_residual_receives_gradients(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'hidden_dim': 8,
+            'mlp_depth': 3,
+            'normalize_energy': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('full_mlp', config)
+        y = torch.randn(2, config['seq_len'] * 2)
+
+        loss = model(y).sum()
+        loss.backward()
+
+        self.assertIsNotNone(model.learned_residual_mask.grad)
     
     def test_create_separator1(self):
         """Test Separator1 creation"""
@@ -113,6 +218,77 @@ class TestModels(unittest.TestCase):
             expected[0, branch_idx, pos_value] = y[0, pos_value]
             expected[0, branch_idx, pos_value + config['seq_len']] = y[0, pos_value + config['seq_len']]
         self.assertTrue(torch.equal(h, expected))
+
+    def test_separator1_learned_dense_residual_zero_mask_blocks_residual(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'hidden_dim': 8,
+            'num_stages': 1,
+            'mlp_depth': 2,
+            'share_weights_across_stages': False,
+            'normalize_energy': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('separator1', config)
+        for parameter in model.parameters():
+            if parameter is not model.learned_residual_mask:
+                parameter.data.zero_()
+        model.learned_residual_mask.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        self.assertTrue(torch.equal(h, torch.zeros_like(h)))
+
+    def test_separator1_learned_dense_residual_unit_mask_matches_global_for_single_stage(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'hidden_dim': 8,
+            'num_stages': 1,
+            'mlp_depth': 2,
+            'share_weights_across_stages': False,
+            'normalize_energy': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('separator1', config)
+        for parameter in model.parameters():
+            if parameter is not model.learned_residual_mask:
+                parameter.data.zero_()
+        model.learned_residual_mask.data.fill_(1.0)
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        expected = y.unsqueeze(1).repeat(1, config['num_ports'], 1)
+        self.assertTrue(torch.equal(h, expected))
+
+    def test_separator1_learned_dense_residual_respects_stage_sharing_shape(self):
+        shared_model = create_model(
+            'separator1',
+            {**self.config, 'residual_correction_mode': 'learned_dense', 'share_weights_across_stages': True},
+        )
+        self.assertEqual(shared_model.learned_residual_mask.shape, (self.config['num_ports'], self.config['seq_len'] * 2))
+
+        unshared_model = create_model(
+            'separator1',
+            {**self.config, 'residual_correction_mode': 'learned_dense', 'share_weights_across_stages': False},
+        )
+        self.assertEqual(
+            unshared_model.learned_residual_mask.shape,
+            (self.config['num_stages'], self.config['num_ports'], self.config['seq_len'] * 2),
+        )
+
+    def test_separator1_learned_dense_residual_receives_gradients(self):
+        config = {**self.config, 'residual_correction_mode': 'learned_dense', 'normalize_energy': False}
+        model = create_model('separator1', config)
+        y = torch.randn(2, config['seq_len'] * 2)
+
+        loss = model(y).sum()
+        loss.backward()
+
+        self.assertIsNotNone(model.learned_residual_mask.grad)
     
     def test_create_separator2(self):
         """Test Separator2 creation"""

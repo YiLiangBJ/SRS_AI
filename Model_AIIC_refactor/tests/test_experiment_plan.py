@@ -45,6 +45,18 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(suite.plan[0].model_spec['residual_correction_mode'], 'masked')
         self.assertEqual(suite.plan[0].model_spec['num_ports'], 6)
 
+    def test_build_learned_dense_separator1_quick_experiment_suite(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='quick_separator1_learned_dense_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 1)
+        self.assertEqual(suite.plan[0].model_spec['model_type'], 'separator1')
+        self.assertEqual(suite.plan[0].model_spec['residual_correction_mode'], 'learned_dense')
+        self.assertEqual(suite.plan[0].model_spec['num_ports'], 6)
+
     def test_build_full_mlp_experiment_suite(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
         suite = build_experiment_suite(
@@ -58,6 +70,31 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(suite.plan[0].training_spec['loss_type'], 'nmse')
         self.assertEqual(suite.plan[0].model_spec['mlp_depth'], 3)
         self.assertTrue(suite.plan[0].model_spec['normalize_energy'])
+
+    def test_build_masked_full_mlp_experiment_suite(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='quick_full_mlp_masked_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 1)
+        self.assertEqual(suite.plan[0].model_spec['model_type'], 'full_mlp')
+        self.assertEqual(suite.plan[0].model_spec['residual_correction_mode'], 'masked')
+        self.assertEqual(suite.plan[0].model_spec['num_ports'], 6)
+
+    def test_build_learned_dense_full_mlp_experiment_suite(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='quick_full_mlp_learned_dense_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 1)
+        self.assertEqual(suite.plan[0].model_spec['model_type'], 'full_mlp')
+        self.assertEqual(suite.plan[0].model_spec['residual_correction_mode'], 'learned_dense')
+        self.assertEqual(suite.plan[0].model_spec['num_ports'], 6)
+        self.assertAlmostEqual(suite.plan[0].training_spec['learned_dense_mask_regularization'], 1.0e-5)
 
     def test_compare_default_models_includes_three_models_on_6port(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
@@ -187,6 +224,28 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(depth2_items[0].model_spec['hidden_dim'], 128)
         self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3, 4, 5})
 
+    def test_masked_full_mlp_capacity_search_preserves_sweep_shape(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='full_mlp_capacity_search_masked_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 16)
+        self.assertTrue(all(item.model_spec['residual_correction_mode'] == 'masked' for item in suite.plan))
+        self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3, 4, 5})
+
+    def test_learned_dense_full_mlp_capacity_search_preserves_sweep_shape(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='full_mlp_capacity_search_learned_dense_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 16)
+        self.assertTrue(all(item.model_spec['residual_correction_mode'] == 'learned_dense' for item in suite.plan))
+        self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3, 4, 5})
+
     def test_separator1_grid_search_sweeps_depth_stage_share_and_deduplicates_depth2_hidden_dim(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
         suite = build_experiment_suite(
@@ -217,6 +276,19 @@ class TestExperimentPlan(unittest.TestCase):
 
         self.assertEqual(len(suite.plan), 20)
         self.assertTrue(all(item.model_spec['residual_correction_mode'] == 'masked' for item in suite.plan))
+        self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3})
+        self.assertEqual({item.model_spec['num_stages'] for item in suite.plan}, {1, 2})
+        self.assertEqual({item.model_spec['share_weights_across_stages'] for item in suite.plan}, {False, True})
+
+    def test_learned_dense_separator1_grid_search_preserves_sweep_shape(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='default_6port_separator1_learned_dense_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 20)
+        self.assertTrue(all(item.model_spec['residual_correction_mode'] == 'learned_dense' for item in suite.plan))
         self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3})
         self.assertEqual({item.model_spec['num_stages'] for item in suite.plan}, {1, 2})
         self.assertEqual({item.model_spec['share_weights_across_stages'] for item in suite.plan}, {False, True})

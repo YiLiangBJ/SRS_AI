@@ -538,6 +538,50 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertEqual(manifest['model_spec']['model_type'], 'full_mlp')
         self.assertTrue(Path(manifest['onnx_path']).exists())
 
+    def test_export_run_to_onnx_supports_full_mlp_learned_dense(self):
+        run_dir = self._create_run(
+            'demo_run_full_mlp_learned_dense',
+            model_spec_override={
+                'model_type': 'full_mlp',
+                'hidden_dim': 32,
+                'mlp_depth': 3,
+                'residual_correction_mode': 'learned_dense',
+            },
+        )
+
+        manifest = export_run_to_onnx(
+            run_dir=run_dir,
+            batch_size=1,
+            dynamic_batch=True,
+            validate=False,
+        )
+
+        self.assertEqual(manifest['model_spec']['residual_correction_mode'], 'learned_dense')
+        self.assertTrue(Path(manifest['onnx_path']).exists())
+
+    def test_export_run_to_onnx_supports_separator1_learned_dense(self):
+        run_dir = self._create_run(
+            'demo_run_separator1_learned_dense',
+            model_spec_override={
+                'model_type': 'separator1',
+                'hidden_dim': 32,
+                'num_stages': 2,
+                'mlp_depth': 3,
+                'share_weights_across_stages': False,
+                'residual_correction_mode': 'learned_dense',
+            },
+        )
+
+        manifest = export_run_to_onnx(
+            run_dir=run_dir,
+            batch_size=1,
+            dynamic_batch=True,
+            validate=False,
+        )
+
+        self.assertEqual(manifest['model_spec']['residual_correction_mode'], 'learned_dense')
+        self.assertTrue(Path(manifest['onnx_path']).exists())
+
     def test_export_checkpoint_to_onnx_respects_explicit_checkpoint(self):
         manifest = export_checkpoint_to_onnx(
             checkpoint_path=self.explicit_checkpoint_path,
