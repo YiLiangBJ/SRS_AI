@@ -81,6 +81,7 @@ class Trainer:
         compile_model: bool = True,  # ✅ NEW: Model compilation
         tensorboard_dir: Optional[Union[str, Path]] = None,  # ✅ NEW: TensorBoard logging
         scheduler_config: Optional[Dict[str, Any]] = None,
+        learned_dense_mask_regularization: Optional[float] = None,
     ):
         """
         Initialize trainer
@@ -93,6 +94,7 @@ class Trainer:
             use_amp: Use automatic mixed precision (GPU only) ✅ NEW
             compile_model: Compile model with torch.compile (GPU only, PyTorch 2.0+) ✅ NEW
             tensorboard_dir: Directory for TensorBoard logs (None to disable) ✅ NEW
+            learned_dense_mask_regularization: Optional L2-to-one penalty coefficient for learned_dense residual masks
         """
         self.model = model
         self.loss_type = loss_type
@@ -119,6 +121,9 @@ class Trainer:
             print(f"🎯 Using device: {self.device}")
         
         self.model = self.model.to(self.device)
+        self.learned_dense_mask_regularization = self._resolve_learned_dense_mask_regularization(
+            learned_dense_mask_regularization
+        )
         
         # ✅ TensorBoard setup
         self.writer = None
@@ -232,6 +237,29 @@ class Trainer:
         self.data_gen_time = 0
         self.forward_time = 0
         self.backward_time = 0
+
+    def _base_model(self) -> nn.Module:
+        if hasattr(self.model, '_orig_mod'):
+            return self.model._orig_mod
+        return self.model
+
+    def _resolve_learned_dense_mask_regularization(self, configured_value: Optional[float]) -> float:
+        if configured_value is not None:
+            return float(configured_value)
+        model = self._base_model()
+        if getattr(model, 'residual_correction_mode', None) == 'learned_dense':
+            return 1.0e-5
+        return 0.0
+
+    def _learned_dense_mask_regularization_loss(self) -> torch.Tensor:
+        coefficient = float(self.learned_dense_mask_regularization)
+        if coefficient <= 0.0:
+            return torch.zeros((), device=self.device)
+        model = self._base_model()
+        residual_mask = getattr(model, 'learned_residual_mask', None)
+        if residual_mask is None:
+            return torch.zeros((), device=self.device)
+        return coefficient * (residual_mask - 1.0).pow(2).mean()
 
     def _record_scalar(self, tag: str, value: float, step: int):
         """Record one scalar for TensorBoard and later static plot export."""
@@ -390,6 +418,8 @@ class Trainer:
         print(f"   Model: {self.model.__class__.__name__}")
         print(f"   Parameters: {sum(p.numel() for p in self.model.parameters()):,}")
         print(f"   Loss type: {self.loss_type}")
+        if self.learned_dense_mask_regularization > 0.0:
+            print(f"   learned_dense mask regularization: {self.learned_dense_mask_regularization}")
         
         self.model.train()
         self.training_start_time = time.time()
@@ -451,6 +481,7 @@ class Trainer:
                 with autocast():
                     h_pred = self.model(y)
                     loss = calculate_loss(h_pred, h_targets, loss_snr, self.loss_type)
+                    loss = loss + self._learned_dense_mask_regularization_loss()
                 self.forward_time += time.time() - t0_fwd
                 
                 # Backward with gradient scaling
@@ -463,6 +494,7 @@ class Trainer:
                 # ✅ Standard FP32 training
                 h_pred = self.model(y)
                 loss = calculate_loss(h_pred, h_targets, loss_snr, self.loss_type)
+                loss = loss + self._learned_dense_mask_regularization_loss()
                 self.forward_time += time.time() - t0_fwd
                 
                 # Backward

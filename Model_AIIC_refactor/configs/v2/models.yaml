@@ -14,6 +14,14 @@ models:
       mlp_depth: 3
       residual_correction_mode: masked
 
+  full_mlp_default_learned_dense:
+    type: full_mlp
+    params:
+      normalize_energy: true
+      hidden_dim: 128
+      mlp_depth: 3
+      residual_correction_mode: learned_dense
+
   full_mlp_arch_search:
     type: full_mlp
     params:
@@ -57,6 +65,21 @@ models:
         alias: depth
         values: [2, 3, 4, 5]
 
+  full_mlp_capacity_search_learned_dense:
+    type: full_mlp
+    params:
+      normalize_energy: true
+      hidden_dim: 128
+      mlp_depth: 3
+      residual_correction_mode: learned_dense
+    sweeps:
+      - target: params.hidden_dim
+        alias: hd
+        values: [32, 64, 128, 256, 512]
+      - target: params.mlp_depth
+        alias: depth
+        values: [2, 3, 4, 5]
+
   separator1_small:
     type: separator1
     params:
@@ -79,6 +102,18 @@ models:
       use_hidden_layer_norm: false
       use_hidden_relu: true
       residual_correction_mode: masked
+
+  separator1_small_learned_dense:
+    type: separator1
+    params:
+      normalize_energy: true
+      hidden_dim: 32
+      num_stages: 2
+      mlp_depth: 3
+      share_weights_across_stages: false
+      use_hidden_layer_norm: false
+      use_hidden_relu: true
+      residual_correction_mode: learned_dense
 
   separator1_default:
     type: separator1
@@ -137,6 +172,31 @@ models:
       use_hidden_layer_norm: false
       use_hidden_relu: true
       residual_correction_mode: masked
+    sweeps:
+      - target: params.hidden_dim
+        alias: hd
+        values: [16, 32, 64, 128]
+      - target: params.mlp_depth
+        alias: depth
+        values: [2, 3]
+      - target: params.num_stages
+        alias: stages
+        values: [1, 2]
+      - target: params.share_weights_across_stages
+        alias: share
+        values: [false, true]
+
+  separator1_grid_search_6ports_learned_dense:
+    type: separator1
+    params:
+      normalize_energy: true
+      hidden_dim: 64
+      mlp_depth: 3
+      num_stages: 2
+      share_weights_across_stages: false
+      use_hidden_layer_norm: false
+      use_hidden_relu: true
+      residual_correction_mode: learned_dense
     sweeps:
       - target: params.hidden_dim
         alias: hd

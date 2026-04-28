@@ -64,10 +64,10 @@ class Separator1(BaseSeparatorModel):
         self.residual_correction_mode = residual_correction_mode
         self.pos_values = None if pos_values is None else [int(value) for value in pos_values]
 
-        if self.residual_correction_mode not in {'global', 'masked'}:
+        if self.residual_correction_mode not in {'global', 'masked', 'learned_dense'}:
             raise ValueError(
                 f"Unsupported residual_correction_mode {residual_correction_mode!r}; "
-                "expected 'global' or 'masked'"
+                "expected 'global', 'masked', or 'learned_dense'"
             )
         if self.residual_correction_mode == 'masked':
             if self.pos_values is None:
@@ -90,6 +90,16 @@ class Separator1(BaseSeparatorModel):
                 residual_mask[branch_idx, pos_value] = 1.0
                 residual_mask[branch_idx, pos_value + self.seq_len] = 1.0
         self.register_buffer('residual_port_mask', residual_mask, persistent=False)
+        if self.residual_correction_mode == 'learned_dense':
+            learned_mask_shape = (self.num_ports, self.seq_len * 2)
+            if self.share_weights_across_stages:
+                self.learned_residual_mask = nn.Parameter(torch.ones(learned_mask_shape, dtype=torch.float32))
+            else:
+                self.learned_residual_mask = nn.Parameter(
+                    torch.ones(self.num_stages, *learned_mask_shape, dtype=torch.float32)
+                )
+        else:
+            self.register_parameter('learned_residual_mask', None)
         
         if share_weights_across_stages:
             # Mode A: Same port shares weights across stages
@@ -213,8 +223,15 @@ class Separator1(BaseSeparatorModel):
             residual = y - y_recon  # (B, L*2)
             if self.residual_correction_mode == 'global':
                 features = features + residual.unsqueeze(1)  # Broadcast residual
-            else:
+            elif self.residual_correction_mode == 'masked':
                 masked_residual = residual.unsqueeze(1) * self.residual_port_mask.unsqueeze(0).to(dtype=features.dtype)
+                features = features + masked_residual
+            else:
+                if self.share_weights_across_stages:
+                    residual_mask = self.learned_residual_mask
+                else:
+                    residual_mask = self.learned_residual_mask[stage_idx]
+                masked_residual = residual.unsqueeze(1) * residual_mask.unsqueeze(0).to(dtype=features.dtype)
                 features = features + masked_residual
 
         if return_complex:

@@ -10,6 +10,8 @@ training_strategies:
           learning_rate: 0.01
       loss:
         type: nmse
+      regularization:
+        learned_dense_mask_l2_to_one: 1.0e-5
       validation:
         interval: 100
         batches: 4
@@ -41,6 +43,8 @@ training_strategies:
           learning_rate: 0.01
       loss:
         type: nmse
+      regularization:
+        learned_dense_mask_l2_to_one: 1.0e-5
       validation:
         batches: 4
       early_stop:

@@ -214,6 +214,14 @@ python ./Model_AIIC_refactor/train.py \
   --device cuda
 ```
 
+Train one quick 6-port full-MLP smoke test with learned dense residual correction:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment quick_full_mlp_learned_dense_v2 \
+  --device cuda
+```
+
 Inspect the default 6-port full-MLP search without launching it:
 
 ```bash
@@ -247,6 +255,14 @@ Quick CPU smoke test for the masked-residual separator1 variant:
 ```bash
 python ./Model_AIIC_refactor/train.py \
   --experiment quick_separator1_masked_v2 \
+  --device cpu
+```
+
+Quick CPU smoke test for the learned-dense-residual separator1 variant:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment quick_separator1_learned_dense_v2 \
   --device cpu
 ```
 
@@ -916,6 +932,17 @@ It also supports `model_spec.residual_correction_mode = masked` after the joint 
 - compute `residual = input_mixed - y_recon`
 - for each branch tied to `pos_values = k`, add back only residual indices `k` and `k + seq_len`
 
+It also supports `model_spec.residual_correction_mode = learned_dense`:
+
+- compute `y_recon = sum(port_output over all ports)`
+- compute `residual = input_mixed - y_recon`
+- learn one dense residual-mixing weight per `(port, tap)`
+- apply `refined_port_output = port_output + residual * learned_mask[port, :]`
+
+For `learned_dense`, the residual is no longer restricted to a fixed tap pair from `pos_values`; every port receives a trainable dense weighting over all real/imag taps.
+
+Training now applies a light default regularization to `learned_dense` masks, pulling weights gently toward `1.0` unless the training strategy explicitly overrides `regularization.learned_dense_mask_l2_to_one`.
+
 For current v2 bundles, `model_spec.use_hidden_layer_norm` tells you whether these LayerNorm parameters are expected to exist in the exported bundle.
 
 Residual refinement then applies:
@@ -930,8 +957,16 @@ Separator1 also supports an optional masked residual mode through `model_spec.re
 
 - `global` (default): broadcast the full residual back to every port
 - `masked`: add back only the real/imag tap pair selected by each branch's `pos_values` entry
+- `learned_dense`: add back a trainable dense residual weighting per port
 
 For `masked`, no extra tap parameter is needed. The branch tied to `pos_values=k` receives residual only at indices `k` and `k + seq_len`.
+
+For `learned_dense`, separator1 reuses the existing `share_weights_across_stages` rule:
+
+- if `share_weights_across_stages = true`, one dense residual mask is shared by all refinement stages
+- if `share_weights_across_stages = false`, each refinement stage learns its own dense residual mask
+
+The same light default regularization toward `1.0` applies during training, so dense masks start from and are weakly biased toward full residual passthrough instead of collapsing immediately to arbitrary values.
 
 ### 11.4 Recommended Matlab files for separator1 review
 

@@ -39,6 +39,51 @@ class TestTraining(unittest.TestCase):
         
         self.assertEqual(trainer.loss_type, 'nmse')
         self.assertEqual(trainer.device.type, 'cpu')
+        self.assertEqual(trainer.learned_dense_mask_regularization, 0.0)
+
+    def test_trainer_defaults_learned_dense_regularization_to_small_l2_to_one(self):
+        model = create_model(
+            'full_mlp',
+            {
+                'seq_len': 12,
+                'num_ports': 4,
+                'hidden_dim': 32,
+                'mlp_depth': 3,
+                'residual_correction_mode': 'learned_dense',
+            },
+        )
+        trainer = Trainer(
+            model,
+            learning_rate=0.01,
+            loss_type='nmse',
+            device='cpu'
+        )
+
+        self.assertAlmostEqual(trainer.learned_dense_mask_regularization, 1.0e-5)
+
+    def test_trainer_learned_dense_regularization_penalizes_mask_deviation_from_one(self):
+        model = create_model(
+            'full_mlp',
+            {
+                'seq_len': 12,
+                'num_ports': 4,
+                'hidden_dim': 32,
+                'mlp_depth': 3,
+                'residual_correction_mode': 'learned_dense',
+            },
+        )
+        trainer = Trainer(
+            model,
+            learning_rate=0.01,
+            loss_type='nmse',
+            device='cpu',
+            learned_dense_mask_regularization=2.0e-3,
+        )
+        model.learned_residual_mask.data.fill_(1.5)
+
+        penalty = trainer._learned_dense_mask_regularization_loss()
+
+        self.assertAlmostEqual(penalty.item(), 2.0e-3 * 0.25, places=8)
     
     def test_calculate_loss_nmse(self):
         """Test NMSE loss calculation"""

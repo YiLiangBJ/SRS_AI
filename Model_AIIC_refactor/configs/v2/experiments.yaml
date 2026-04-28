@@ -11,6 +11,12 @@ experiments:
     model: full_mlp_default_masked
     training_strategy: quick_supervised
 
+  quick_full_mlp_learned_dense_v2:
+    description: Quick 6-port smoke test for the joint full-MLP baseline with learned dense residual correction.
+    task: channel_separator_6port_quick
+    model: full_mlp_default_learned_dense
+    training_strategy: quick_supervised
+
   full_mlp_nmse_v2:
     description: Train the joint 6-port full-MLP baseline with plain NMSE loss.
     task: channel_separator_6port_standard
@@ -33,6 +39,12 @@ experiments:
     description: Default 6-port hidden_dim and mlp_depth sweep for the joint full-MLP baseline with masked residual correction.
     task: channel_separator_6port_standard
     model: full_mlp_capacity_search_masked
+    training_strategy: supervised_nmse_plateau
+
+  full_mlp_capacity_search_learned_dense_v2:
+    description: Default 6-port hidden_dim and mlp_depth sweep for the joint full-MLP baseline with learned dense residual correction.
+    task: channel_separator_6port_standard
+    model: full_mlp_capacity_search_learned_dense
     training_strategy: supervised_nmse_plateau
 
   quick_full_mlp_two_stage_v2:
@@ -59,6 +71,12 @@ experiments:
     model: separator1_small_masked
     training_strategy: quick_supervised
 
+  quick_separator1_learned_dense_v2:
+    description: Quick 6-port smoke test for separator1 with learned dense residual correction.
+    task: channel_separator_6port_quick
+    model: separator1_small_learned_dense
+    training_strategy: quick_supervised
+
   default_6port_separator1_v2:
     description: Default 6-port separator1 sweep over hidden_dim, depth, stage count, and weight sharing using the component-based schema.
     task: channel_separator_6port_standard
@@ -69,6 +87,12 @@ experiments:
     description: Default 6-port separator1 sweep with masked residual correction over hidden_dim, depth, stage count, and weight sharing.
     task: channel_separator_6port_standard
     model: separator1_grid_search_6ports_masked
+    training_strategy: supervised_nmse_plateau
+
+  default_6port_separator1_learned_dense_v2:
+    description: Default 6-port separator1 sweep with learned dense residual correction over hidden_dim, depth, stage count, and weight sharing.
+    task: channel_separator_6port_standard
+    model: separator1_grid_search_6ports_learned_dense
     training_strategy: supervised_nmse_plateau
 
   compare_default_models_v2:

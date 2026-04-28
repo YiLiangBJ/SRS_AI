@@ -36,9 +36,9 @@ class FullMLP(BaseSeparatorModel):
         self.residual_correction_mode = residual_correction_mode
         self.pos_values = None if pos_values is None else [int(value) for value in pos_values]
 
-        if self.residual_correction_mode not in {'none', 'masked'}:
+        if self.residual_correction_mode not in {'none', 'masked', 'learned_dense'}:
             raise ValueError(
-                f"Unsupported residual_correction_mode {residual_correction_mode!r}; expected 'none' or 'masked'"
+                f"Unsupported residual_correction_mode {residual_correction_mode!r}; expected 'none', 'masked', or 'learned_dense'"
             )
         if self.residual_correction_mode == 'masked':
             if self.pos_values is None:
@@ -61,6 +61,10 @@ class FullMLP(BaseSeparatorModel):
                 residual_mask[branch_idx, pos_value] = 1.0
                 residual_mask[branch_idx, pos_value + self.seq_len] = 1.0
         self.register_buffer('residual_port_mask', residual_mask, persistent=False)
+        if self.residual_correction_mode == 'learned_dense':
+            self.learned_residual_mask = nn.Parameter(torch.ones(self.num_ports, self.input_dim, dtype=torch.float32))
+        else:
+            self.register_parameter('learned_residual_mask', None)
         self.network = self._build_network()
 
     def _build_network(self) -> nn.Sequential:
@@ -95,10 +99,14 @@ class FullMLP(BaseSeparatorModel):
             )
 
         features = self.network(y).view(-1, self.num_ports, self.input_dim)
-        if self.residual_correction_mode == 'masked':
+        if self.residual_correction_mode in {'masked', 'learned_dense'}:
             y_recon = features.sum(dim=1)
             residual = y - y_recon
-            masked_residual = residual.unsqueeze(1) * self.residual_port_mask.unsqueeze(0).to(dtype=features.dtype)
+            if self.residual_correction_mode == 'masked':
+                residual_mask = self.residual_port_mask
+            else:
+                residual_mask = self.learned_residual_mask
+            masked_residual = residual.unsqueeze(1) * residual_mask.unsqueeze(0).to(dtype=features.dtype)
             features = features + masked_residual
 
         if return_complex:
