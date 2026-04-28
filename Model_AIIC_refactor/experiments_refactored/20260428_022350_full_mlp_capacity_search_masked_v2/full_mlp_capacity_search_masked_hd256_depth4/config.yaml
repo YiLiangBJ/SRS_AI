@@ -1,0 +1,128 @@
+model_spec:
+  seq_len: 12
+  pos_values:
+  - 0
+  - 2
+  - 4
+  - 6
+  - 8
+  - 10
+  normalize_energy: true
+  hidden_dim: 256
+  mlp_depth: 4
+  residual_correction_mode: masked
+  model_type: full_mlp
+  num_ports: 6
+  num_params: 109200
+training_spec:
+  batch_size: 4096
+  num_batches: 100000
+  learning_rate: 0.01
+  loss_type: nmse
+  print_interval: 100
+  validation_batches: 4
+  patience: 5
+  keep_last_n_checkpoints: 2
+  lr_scheduler:
+    enabled: true
+    factor: 0.8
+    patience: 30
+    threshold: 0.005
+    threshold_mode: abs
+    cooldown: 10
+    min_lr: 1.0e-06
+  optimizer:
+    type: adam
+  validation_interval: 100
+  early_stop_loss: null
+  save_interval: 1000
+  strategy_type: standard_supervised
+metadata:
+  experiment_name: full_mlp_capacity_search_masked_v2
+  schema_version: v2
+  task_recipe_name: channel_separator_6port_standard
+  task_label: channel_separator_6port_standard
+  model_recipe_name: full_mlp_capacity_search_masked
+  model_label: full_mlp_capacity_search_masked_hd256_depth4
+  run_name: full_mlp_capacity_search_masked_hd256_depth4
+  training_recipe_name: supervised_nmse_plateau
+  training_label: supervised_nmse_plateau
+  training_duration: 368.69948410987854
+  init_checkpoint_path: null
+  timestamp: '2026-04-28T03:37:01.322163'
+component_specs:
+  task:
+    type: channel_separator
+    params:
+      seq_len: 12
+      pos_values:
+      - 0
+      - 2
+      - 4
+      - 6
+      - 8
+      - 10
+      snr_config:
+        type: range
+        min: 0
+        max: 30
+        per_sample: true
+        sampling: stratified
+        num_bins: 10
+      tdl_config:
+      - A-30
+      - B-100
+      - C-300
+  model:
+    type: full_mlp
+    params:
+      normalize_energy: true
+      hidden_dim: 256
+      mlp_depth: 4
+      residual_correction_mode: masked
+    sweeps:
+    - target: params.hidden_dim
+      alias: hd
+      values:
+      - 32
+      - 64
+      - 128
+      - 256
+      - 512
+    - target: params.mlp_depth
+      alias: depth
+      values:
+      - 2
+      - 3
+      - 4
+      - 5
+  training_strategy:
+    type: standard_supervised
+    params:
+      batch_size: 4096
+      num_batches: 100000
+      optimizer:
+        type: adam
+        params:
+          learning_rate: 0.01
+      loss:
+        type: nmse
+      validation:
+        interval: 100
+        batches: 4
+      early_stop:
+        patience: 5
+      logging:
+        print_interval: 100
+      checkpoints:
+        save_interval: 1000
+        keep_last_n: 2
+      scheduler:
+        type: reduce_on_plateau
+        params:
+          factor: 0.8
+          patience: 30
+          threshold: 0.005
+          threshold_mode: abs
+          cooldown: 10
+          min_lr: 1.0e-06

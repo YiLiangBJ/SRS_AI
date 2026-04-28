@@ -1,0 +1,230 @@
+{
+  "format": "srs_ai_model_complexity_v1",
+  "model_type": "full_mlp",
+  "input_shape": [
+    -1,
+    24
+  ],
+  "input_shape_string": "[-1, 24]",
+  "output_shape": [
+    -1,
+    6,
+    24
+  ],
+  "output_shape_string": "[-1, 6, 24]",
+  "counting_assumptions": [
+    "All counts are estimated for one forward pass of one sample; multiply by runtime batch size N for a first-order batch estimate.",
+    "MACs and multiply/add counts are counted from affine layers using scalar CPU-style arithmetic.",
+    "Bias accumulation is counted as additions inside the addition totals.",
+    "Normalization, activations, and residual corrections are included as estimated scalar ops where relevant.",
+    "Tensor reshapes, concatenations, indexing, and memory traffic are not counted as arithmetic FLOPs.",
+    "Latency depends on implementation and hardware; these counts are for fast complexity screening only."
+  ],
+  "summary": {
+    "trainable_parameters": 43408,
+    "trainable_parameters_string": "43,408",
+    "parameter_memory_bytes_fp32": 173632,
+    "parameter_memory_bytes_fp32_string": "0.166 MiB (173,632 bytes)",
+    "macs_per_sample": 43008,
+    "macs_per_sample_string": "43,008",
+    "multiplications_per_sample": 43176,
+    "multiplications_per_sample_string": "43,176",
+    "additions_per_sample": 43031,
+    "additions_per_sample_string": "43,031",
+    "other_scalar_ops_per_sample_estimate": 281,
+    "other_scalar_ops_per_sample_estimate_string": "281",
+    "flops_per_sample_estimate": 86488,
+    "flops_per_sample_estimate_string": "86,488",
+    "batch_scaling_rule": "Multiply the per-sample counts by runtime batch size N for a first-order batch estimate."
+  },
+  "entries": [
+    {
+      "name": "input_normalize_restore",
+      "repeat": "once per sample",
+      "why": "Per-sample RMS normalization and output rescaling are applied around the network when normalize_energy=true.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 168,
+      "multiplications_string": "168",
+      "additions": 23,
+      "additions_string": "23",
+      "other_ops": 25,
+      "other_ops_string": "25",
+      "flops_estimate": 216,
+      "flops_estimate_string": "216"
+    },
+    {
+      "name": "joint_linear_01",
+      "repeat": "once per sample",
+      "why": "Joint affine layer maps width 24 to width 256.",
+      "parameters": 6400,
+      "parameters_string": "6,400",
+      "macs": 6144,
+      "macs_string": "6,144",
+      "multiplications": 6144,
+      "multiplications_string": "6,144",
+      "additions": 6144,
+      "additions_string": "6,144",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 12288,
+      "flops_estimate_string": "12,288"
+    },
+    {
+      "name": "joint_relu_01",
+      "repeat": "once per sample",
+      "why": "ReLU is applied after every hidden affine layer in the joint MLP.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 0,
+      "additions_string": "0",
+      "other_ops": 256,
+      "other_ops_string": "256",
+      "flops_estimate": 256,
+      "flops_estimate_string": "256"
+    },
+    {
+      "name": "joint_linear_02",
+      "repeat": "once per sample",
+      "why": "Joint affine layer maps width 256 to width 144.",
+      "parameters": 37008,
+      "parameters_string": "37,008",
+      "macs": 36864,
+      "macs_string": "36,864",
+      "multiplications": 36864,
+      "multiplications_string": "36,864",
+      "additions": 36864,
+      "additions_string": "36,864",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 73728,
+      "flops_estimate_string": "73,728"
+    }
+  ],
+  "model_spec": {
+    "seq_len": 12,
+    "pos_values": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "normalize_energy": true,
+    "hidden_dim": 256,
+    "mlp_depth": 3,
+    "residual_correction_mode": "masked",
+    "model_type": "full_mlp",
+    "num_ports": 6,
+    "num_params": 43408
+  },
+  "component_specs": {
+    "task": {
+      "type": "channel_separator",
+      "params": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "snr_config": {
+          "type": "range",
+          "min": 0,
+          "max": 30,
+          "per_sample": true,
+          "sampling": "stratified",
+          "num_bins": 10
+        },
+        "tdl_config": [
+          "A-30",
+          "B-100",
+          "C-300"
+        ]
+      }
+    },
+    "model": {
+      "type": "full_mlp",
+      "params": {
+        "normalize_energy": true,
+        "hidden_dim": 256,
+        "mlp_depth": 3,
+        "residual_correction_mode": "masked"
+      },
+      "sweeps": [
+        {
+          "target": "params.hidden_dim",
+          "alias": "hd",
+          "values": [
+            32,
+            64,
+            128,
+            256,
+            512
+          ]
+        },
+        {
+          "target": "params.mlp_depth",
+          "alias": "depth",
+          "values": [
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    "training_strategy": {
+      "type": "standard_supervised",
+      "params": {
+        "batch_size": 4096,
+        "num_batches": 100000,
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.01
+          }
+        },
+        "loss": {
+          "type": "nmse"
+        },
+        "validation": {
+          "interval": 100,
+          "batches": 4
+        },
+        "early_stop": {
+          "patience": 5
+        },
+        "logging": {
+          "print_interval": 100
+        },
+        "checkpoints": {
+          "save_interval": 1000,
+          "keep_last_n": 2
+        },
+        "scheduler": {
+          "type": "reduce_on_plateau",
+          "params": {
+            "factor": 0.8,
+            "patience": 30,
+            "threshold": 0.005,
+            "threshold_mode": "abs",
+            "cooldown": 10,
+            "min_lr": 1e-06
+          }
+        }
+      }
+    }
+  }
+}
