@@ -129,6 +129,9 @@ def normalize_model_spec(model_spec: Dict[str, Any], num_params: Optional[int] =
         resolved.setdefault('share_weights_across_stages', False)
         resolved.setdefault('activation_type', 'relu')
         resolved.setdefault('onnx_mode', False)
+    elif model_type == 'separator3':
+        resolved.setdefault('use_hidden_relu', False)
+        resolved.setdefault('residual_correction_mode', 'learned_dense')
     elif model_type == 'full_mlp':
         resolved.setdefault('hidden_dim', 128)
         resolved.setdefault('mlp_depth', 3)

@@ -77,6 +77,12 @@ experiments:
     model: separator1_small_learned_dense
     training_strategy: quick_supervised
 
+  quick_separator3_v2:
+    description: Quick 6-port smoke test for separator3 with learned dense residual correction and no hidden ReLU.
+    task: channel_separator_6port_quick
+    model: separator3_default
+    training_strategy: quick_supervised
+
   default_6port_separator1_v2:
     description: Default 6-port separator1 sweep over hidden_dim, depth, stage count, and weight sharing using the component-based schema.
     task: channel_separator_6port_standard
@@ -94,6 +100,22 @@ experiments:
     task: channel_separator_6port_standard
     model: separator1_grid_search_6ports_learned_dense
     training_strategy: supervised_nmse_plateau
+
+  default_6port_separator3_v2:
+    description: Default 6-port separator3 training run with learned dense residual correction and no hidden ReLU.
+    task: channel_separator_6port_standard
+    model: separator3_default
+    training_strategy: supervised_nmse_plateau
+
+  separator3_activation_ablation_v1:
+    description: Compare separator3 with and without hidden ReLU under the quick 6-port task.
+    task: channel_separator_6port_quick
+    model: separator3_default
+    training_strategy: quick_supervised
+    sweeps:
+      - target: model.params.use_hidden_relu
+        alias: relu
+        values: [false, true]
 
   compare_default_models_v2:
     description: Compare the default full_mlp, separator1, and separator2 models under the same 6-port task and training strategy.

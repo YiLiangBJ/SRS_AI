@@ -4,7 +4,7 @@ Unit tests for models.
 
 import unittest
 import torch
-from models import create_model, list_models, FullMLP, Separator1, Separator2
+from models import create_model, list_models, FullMLP, Separator1, Separator2, Separator3
 
 
 class TestModels(unittest.TestCase):
@@ -28,6 +28,7 @@ class TestModels(unittest.TestCase):
         self.assertIn('full_mlp', models)
         self.assertIn('separator1', models)
         self.assertIn('separator2', models)
+        self.assertIn('separator3', models)
         self.assertGreater(len(models), 0)
 
     def test_create_full_mlp(self):
@@ -299,6 +300,114 @@ class TestModels(unittest.TestCase):
         # Test parameter count
         num_params = sum(p.numel() for p in model.parameters())
         self.assertGreater(num_params, 0)
+
+    def test_create_separator3(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': True,
+            'use_hidden_relu': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('separator3', config)
+        self.assertIsInstance(model, Separator3)
+        self.assertFalse(model.use_hidden_relu)
+        self.assertEqual(model.residual_correction_mode, 'learned_dense')
+        self.assertEqual(model.hidden_residual_mask.shape, (4, 24))
+        self.assertEqual(model.output_residual_mask.shape, (4, 24))
+
+    def test_separator3_forward_real(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': True,
+            'use_hidden_relu': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('separator3', config)
+        y = torch.randn(self.batch_size, config['seq_len'] * 2)
+        h = model(y)
+        self.assertEqual(h.shape, (self.batch_size, config['num_ports'], config['seq_len'] * 2))
+
+    def test_separator3_forward_complex(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': True,
+            'use_hidden_relu': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('separator3', config)
+        y = torch.randn(self.batch_size, config['seq_len'], dtype=torch.complex64)
+        h = model(y)
+        self.assertEqual(h.shape, (self.batch_size, config['num_ports'], config['seq_len']))
+        self.assertTrue(h.dtype in [torch.complex64, torch.complex128])
+
+    def test_separator3_learned_dense_zero_masks_block_residual(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': False,
+            'use_hidden_relu': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('separator3', config)
+        model.hidden_linear.weight.data.zero_()
+        model.hidden_linear.bias.data.zero_()
+        model.output_linear.weight.data.zero_()
+        model.output_linear.bias.data.zero_()
+        model.hidden_residual_mask.data.zero_()
+        model.output_residual_mask.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+        self.assertTrue(torch.equal(h, torch.zeros_like(h)))
+
+    def test_separator3_learned_dense_unit_masks_broadcast_full_residual(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': False,
+            'use_hidden_relu': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('separator3', config)
+        model.hidden_linear.weight.data.zero_()
+        model.hidden_linear.bias.data.zero_()
+        model.output_linear.weight.data.zero_()
+        model.output_linear.bias.data.zero_()
+        model.hidden_residual_mask.data.fill_(1.0)
+        model.output_residual_mask.data.fill_(1.0)
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+        expected = y.unsqueeze(1).repeat(1, config['num_ports'], 1)
+        self.assertTrue(torch.equal(h, expected))
+
+    def test_separator3_learned_dense_residual_receives_gradients(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': False,
+            'use_hidden_relu': False,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('separator3', config)
+        y = torch.randn(2, config['seq_len'] * 2)
+        loss = model(y).sum()
+        loss.backward()
+        self.assertIsNotNone(model.hidden_residual_mask.grad)
+        self.assertIsNotNone(model.output_residual_mask.grad)
+
+    def test_separator3_hidden_relu_is_configurable(self):
+        base = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': True,
+            'residual_correction_mode': 'learned_dense',
+        }
+        self.assertFalse(create_model('separator3', {**base, 'use_hidden_relu': False}).use_hidden_relu)
+        self.assertTrue(create_model('separator3', {**base, 'use_hidden_relu': True}).use_hidden_relu)
     
     def test_separator1_forward_real(self):
         """Test Separator1 forward pass with real stacked input"""

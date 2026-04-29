@@ -284,6 +284,51 @@ def _separator2_entries(model: torch.nn.Module, model_spec: Mapping[str, Any]) -
     return entries
 
 
+def _separator3_entries(model: torch.nn.Module, model_spec: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    model = _unwrap_model(model)
+    expanded_dim = model.expanded_dim
+    entries: List[Dict[str, Any]] = [
+        _finalize_entry(
+            name='input_normalize_restore',
+            repeat='once per sample',
+            why='Per-sample RMS normalization and output rescaling are applied around the network when normalize_energy=true.',
+            ops=_normalization_ops(model.seq_len, model.num_ports, model.normalize_energy),
+        ),
+        _finalize_entry(
+            name='hidden_linear',
+            repeat='once per sample',
+            why=f'Hidden affine layer maps width {model.input_dim} to expanded width {expanded_dim}.',
+            ops=_linear_ops(model.input_dim, expanded_dim),
+        ),
+    ]
+    if model.use_hidden_relu:
+        entries.append(_finalize_entry(
+            name='hidden_relu',
+            repeat='once per sample',
+            why='Optional hidden ReLU is applied before hidden residual correction.',
+            ops=_relu_ops(expanded_dim),
+        ))
+    entries.append(_finalize_entry(
+        name='hidden_residual_correction',
+        repeat='once per sample',
+        why='Hidden features are summed across ports, compared with the mixed input, and corrected with a learned dense per-port residual mask.',
+        ops=_residual_ops(model.seq_len, model.num_ports),
+    ))
+    entries.append(_finalize_entry(
+        name='output_linear',
+        repeat='once per sample',
+        why=f'Output affine layer keeps expanded width {expanded_dim} and predicts the final per-port representation.',
+        ops=_linear_ops(expanded_dim, expanded_dim),
+    ))
+    entries.append(_finalize_entry(
+        name='output_residual_correction',
+        repeat='once per sample',
+        why='Output features are again corrected with a learned dense per-port residual mask before final output.',
+        ops=_residual_ops(model.seq_len, model.num_ports),
+    ))
+    return entries
+
+
 def generate_model_complexity_spec(
     model: torch.nn.Module,
     model_spec: Mapping[str, Any],
@@ -301,6 +346,8 @@ def generate_model_complexity_spec(
         entries = _separator1_entries(model, model_spec)
     elif model_type == 'separator2':
         entries = _separator2_entries(model, model_spec)
+    elif model_type == 'separator3':
+        entries = _separator3_entries(model, model_spec)
     else:
         raise ValueError(f'Unsupported model_type for complexity description: {model_type}')
 

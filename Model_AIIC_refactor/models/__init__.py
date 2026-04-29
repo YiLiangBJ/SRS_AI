@@ -19,9 +19,10 @@ from .base_model import BaseSeparatorModel
 from .full_mlp import FullMLP
 from .separator1 import Separator1
 from .separator2 import Separator2
+from .separator3 import Separator3
 
 __version__ = '2.0.0'
-__all__ = ['BaseSeparatorModel', 'FullMLP', 'Separator1', 'Separator2', 
+__all__ = ['BaseSeparatorModel', 'FullMLP', 'Separator1', 'Separator2', 'Separator3',
            'create_model', 'list_models', 'register_model']
 
 
@@ -33,6 +34,7 @@ MODEL_REGISTRY = {
     'full_mlp': FullMLP,
     'separator1': Separator1,
     'separator2': Separator2,
+    'separator3': Separator3,
 }
 
 

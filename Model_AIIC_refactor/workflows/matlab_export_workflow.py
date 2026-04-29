@@ -87,7 +87,21 @@ def _export_full_mlp_weights(model: torch.nn.Module) -> Dict[str, np.ndarray]:
     return mat_data
 
 
-def _build_bundle_contents(model_type: str, mlp_depth: int, linear_layer_count: int) -> Dict[str, object]:
+def _export_separator3_weights(model: torch.nn.Module) -> Dict[str, np.ndarray]:
+    mat_data: Dict[str, np.ndarray] = {
+        'hidden_linear_weight': _to_numpy(model.hidden_linear.weight),
+        'hidden_linear_bias': _to_numpy(model.hidden_linear.bias),
+        'output_linear_weight': _to_numpy(model.output_linear.weight),
+        'output_linear_bias': _to_numpy(model.output_linear.bias),
+    }
+    if model.hidden_residual_mask is not None:
+        mat_data['hidden_residual_mask'] = _to_numpy(model.hidden_residual_mask)
+    if model.output_residual_mask is not None:
+        mat_data['output_residual_mask'] = _to_numpy(model.output_residual_mask)
+    return mat_data
+
+
+def _build_bundle_contents(model_type: str, mlp_depth: int | None, linear_layer_count: int) -> Dict[str, object]:
     bundle_contents: Dict[str, object] = {
         'sample_input_field': 'sample_input',
         'reference_output_field': 'reference_output',
@@ -106,6 +120,9 @@ def _build_bundle_contents(model_type: str, mlp_depth: int, linear_layer_count: 
     elif model_type == 'full_mlp':
         bundle_contents['linear_layers_in_joint_network'] = linear_layer_count
         bundle_contents['full_mlp_field_pattern'] = 'joint_l##_weight/bias'
+    elif model_type == 'separator3':
+        bundle_contents['linear_layers_in_separator3'] = linear_layer_count
+        bundle_contents['separator3_field_pattern'] = 'hidden_linear_weight/bias, output_linear_weight/bias, hidden_residual_mask, output_residual_mask'
     else:
         raise ValueError(f'Unsupported model_type for Matlab bundle export: {model_type}')
 
@@ -124,8 +141,8 @@ def export_run_to_matlab_bundle(
     model_spec = dict(artifacts.model_spec)
     model_type = model_spec['model_type']
     num_ports = int(model_spec['num_ports'])
-    mlp_depth = int(model_spec['mlp_depth'])
-    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else mlp_depth
+    mlp_depth = int(model_spec['mlp_depth']) if 'mlp_depth' in model_spec else None
+    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else (2 if model_type == 'separator3' else int(model_spec['mlp_depth']))
 
     if output_root is None:
         output_root = artifacts.run_dir / 'matlab_exports'
@@ -156,6 +173,8 @@ def export_run_to_matlab_bundle(
         mat_data.update(_export_separator1_weights(model, num_ports=num_ports, num_stages=num_stages))
     elif model_type == 'full_mlp':
         mat_data.update(_export_full_mlp_weights(model))
+    elif model_type == 'separator3':
+        mat_data.update(_export_separator3_weights(model))
     else:
         raise ValueError(f'Unsupported model_type for Matlab bundle export: {model_type}')
 
@@ -233,8 +252,8 @@ def export_checkpoint_to_matlab_bundle(
     model_spec = dict(artifacts.model_spec)
     model_type = model_spec['model_type']
     num_ports = int(model_spec['num_ports'])
-    mlp_depth = int(model_spec['mlp_depth'])
-    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else mlp_depth
+    mlp_depth = int(model_spec['mlp_depth']) if 'mlp_depth' in model_spec else None
+    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else (2 if model_type == 'separator3' else int(model_spec['mlp_depth']))
 
     if output_root is None:
         output_root = artifacts.run_dir / 'matlab_exports'
@@ -265,6 +284,8 @@ def export_checkpoint_to_matlab_bundle(
         mat_data.update(_export_separator1_weights(model, num_ports=num_ports, num_stages=num_stages))
     elif model_type == 'full_mlp':
         mat_data.update(_export_full_mlp_weights(model))
+    elif model_type == 'separator3':
+        mat_data.update(_export_separator3_weights(model))
     else:
         raise ValueError(f'Unsupported model_type for Matlab bundle export: {model_type}')
 

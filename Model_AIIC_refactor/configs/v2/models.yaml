@@ -137,6 +137,13 @@ models:
       activation_type: relu
       onnx_mode: false
 
+  separator3_default:
+    type: separator3
+    params:
+      normalize_energy: true
+      use_hidden_relu: false
+      residual_correction_mode: learned_dense
+
   separator1_grid_search_6ports:
     type: separator1
     params:

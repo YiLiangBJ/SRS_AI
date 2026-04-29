@@ -212,6 +212,37 @@ def _separator2_flow(model_spec: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _separator3_flow(model_spec: Mapping[str, Any]) -> Dict[str, Any]:
+    seq_len = _seq_len(model_spec)
+    num_ports = _num_ports(model_spec)
+    input_dim = seq_len * 2
+    expanded_dim = num_ports * input_dim
+    total_trainable_params = int(model_spec.get('num_params', 0))
+    use_hidden_relu = bool(model_spec.get('use_hidden_relu', False))
+
+    nodes: List[Dict[str, Any]] = []
+    _add_node(nodes, 'mixed_signal', _shape(-1, input_dim), 'Real-stacked mixed input [real, imag].', why='The task provides one mixed complex sequence flattened into real and imaginary blocks.')
+    _add_node(nodes, 'normalized_input', _shape(-1, input_dim), 'Optional per-sample RMS normalization inside the model.', why='Normalization rescales values but does not change tensor width.')
+    _add_node(nodes, 'hidden_linear', _shape(-1, expanded_dim), 'First joint linear layer expands the input into one per-port real-stacked block.', why=f'The hidden affine layer maps width {input_dim} to expanded width {expanded_dim} = num_ports * (2 * seq_len).', param_count_per_occurrence=_linear_param_count(input_dim, expanded_dim), effective_total_param_count=_linear_param_count(input_dim, expanded_dim))
+    if use_hidden_relu:
+        _add_node(nodes, 'hidden_relu', _shape(-1, expanded_dim), 'Optional hidden ReLU before hidden residual correction.', why='ReLU is applied only inside the hidden block and does not change tensor width.')
+    _add_node(nodes, 'hidden_port_features', _shape(-1, num_ports, input_dim), 'Hidden representation reshaped into one real-stacked port tensor per port.', why=f'The expanded width {expanded_dim} is partitioned into {num_ports} port blocks of width {input_dim}.')
+    _add_node(nodes, 'hidden_residual_corrected', _shape(-1, num_ports, input_dim), 'Hidden learned-dense residual correction adds back the mixed-signal reconstruction error per port.', why='The hidden block sums across ports, computes the mixed-signal residual, and adds a per-port learned dense weighting of that residual back to each port estimate.')
+    _add_node(nodes, 'flattened_hidden', _shape(-1, expanded_dim), 'Hidden port features flattened back into one expanded vector.', why='The per-port hidden representation is flattened so the output linear layer can mix information across all ports jointly.')
+    _add_node(nodes, 'output_linear', _shape(-1, expanded_dim), 'Second joint linear layer predicts the output per-port representation.', why=f'The output affine layer keeps expanded width {expanded_dim} and produces the final per-port real-stacked blocks.', param_count_per_occurrence=_linear_param_count(expanded_dim, expanded_dim), effective_total_param_count=_linear_param_count(expanded_dim, expanded_dim))
+    _add_node(nodes, 'output_port_features', _shape(-1, num_ports, input_dim), 'Output representation reshaped into one real-stacked port tensor per port.', why=f'The output width {expanded_dim} is partitioned back into {num_ports} port blocks of width {input_dim}.')
+    _add_node(nodes, 'output_residual_corrected', _shape(-1, num_ports, input_dim), 'Output learned-dense residual correction produces the final separated port estimate.', why='A second learned-dense residual correction re-enforces that the separated outputs sum back to the mixed input while preserving signed residual contributions.')
+    _add_node(nodes, 'separated_channels', _shape(-1, num_ports, input_dim), 'Optional output RMS restoration to the original input scale.', why='Rescaling restores amplitude but keeps the separated tensor shape unchanged.')
+
+    return {
+        'family': 'separator3',
+        'loop_summary': 'One hidden joint linear block and one output joint linear block, each followed by learned-dense residual correction; hidden ReLU is optional and output stays linear.',
+        'total_trainable_params': total_trainable_params,
+        'total_trainable_params_string': _format_param_count(total_trainable_params),
+        'nodes': nodes,
+    }
+
+
 def generate_model_flow_spec(model_spec: Mapping[str, Any], component_specs: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
     """Generate a model-family-specific shape flow description with dynamic batch dimension -1."""
     model_spec = dict(model_spec or {})
@@ -226,6 +257,8 @@ def generate_model_flow_spec(model_spec: Mapping[str, Any], component_specs: Opt
         details = _separator1_flow(model_spec)
     elif model_type == 'separator2':
         details = _separator2_flow(model_spec)
+    elif model_type == 'separator3':
+        details = _separator3_flow(model_spec)
     else:
         raise ValueError(f'Unsupported model_type for flow description: {model_type}')
 

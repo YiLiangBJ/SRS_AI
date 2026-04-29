@@ -181,9 +181,12 @@ python ./Model_AIIC_refactor/train.py \
 - `full_mlp_capacity_search_masked_v2`: default 16-run 6-port hidden-dim/depth search for full-MLP with masked residual correction
 - `quick_separator1_v2`: one-run 6-port smoke test for separator1
 - `quick_separator1_masked_v2`: one-run 6-port smoke test for separator1 with masked residual correction
+- `quick_separator3_v2`: one-run 6-port smoke test for separator3 with learned dense residual correction and no hidden ReLU
+- `separator3_activation_ablation_v1`: two-run quick ablation comparing separator3 with `use_hidden_relu=false/true`
 - `compare_default_models_v2`: compare full_mlp_default, separator1_default, and separator2_default on the same 6-port task
 - `default_6port_separator1_v2`: default 20-run 6-port separator1 sweep over depth, stage count, weight sharing, and hidden dim for depth-3 variants
 - `default_6port_separator1_masked_v2`: default 20-run 6-port separator1 sweep with masked residual correction
+- `default_6port_separator3_v2`: default 6-port separator3 training run with learned dense residual correction and no hidden ReLU
 - `separator1_loss_search_v2`: compare supervised loss choices for 6-port separator1_default
 
 ## 5. Training
@@ -289,6 +292,23 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
+Quick CPU smoke test for separator3 with no hidden ReLU:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment quick_separator3_v2 \
+  --device cpu
+```
+
+Inspect the separator3 hidden-activation ablation without launching it:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment separator3_activation_ablation_v1 \
+  --plan_only \
+  --device cpu
+```
+
 Resume one model from a previous checkpoint but train with new training parameters:
 
 ```bash
@@ -356,7 +376,7 @@ python ./Model_AIIC_refactor/train.py \
 - `loss_type=normalized` now means mean per-sample NMSE.
 - validation averages multiple batches drawn from the same SNR distribution as training.
 - the default LR scheduler is intentionally smoother than before.
-- when the model recipe sets `normalize_energy=true`, `separator1`, `separator2`, and `full_mlp` all apply per-sample RMS normalization at model input and restore the same RMS on model output.
+- when the model recipe sets `normalize_energy=true`, `separator1`, `separator2`, `separator3`, and `full_mlp` all apply per-sample RMS normalization at model input and restore the same RMS on model output.
 - that normalization rule is preserved consistently in Python inference, ONNX export, and Matlab bundle inference.
 - every trained run now writes `MODEL_FLOW.md` and `model_flow.json`, showing human-readable node-by-node tensor shapes with dynamic dimensions written as `-1`.
 - `MODEL_FLOW.md` now also includes parameter counts per learned node and a plain-language explanation of why each node has that shape.
@@ -711,6 +731,7 @@ Supported bundle model types:
 
 - `separator1`
 - `separator2`
+- `separator3`
 - `full_mlp`
 
 For `separator2`, the bundle also contains fully materialized effective MLP weights per port, stage, and layer:
@@ -726,6 +747,15 @@ For `separator1`, it contains separate real and imaginary branch weights:
 - `p01_s01_real_l01_bias`
 - `p01_s01_imag_l01_weight`
 - `p01_s01_imag_l01_bias`
+
+For `separator3`, it contains the two joint linear layers and both learned-dense residual masks:
+
+- `hidden_linear_weight`
+- `hidden_linear_bias`
+- `output_linear_weight`
+- `output_linear_bias`
+- `hidden_residual_mask`
+- `output_residual_mask`
 
 If `use_hidden_layer_norm=true`, hidden layers also include per-branch LayerNorm parameters:
 
