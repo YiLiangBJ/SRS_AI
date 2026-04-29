@@ -10,7 +10,7 @@
             // "justMyCode": true
         },
         {
-            "name": "Python: train.py",
+            "name": "Python: train.py (separator1 learned_dense v2)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/Model_AIIC_refactor/train.py",
@@ -19,7 +19,7 @@
             "justMyCode": true,
             "args": [
                 "--experiment",
-                "default_6port_separator1",
+                "default_6port_separator1_learned_dense_v2",
                 "--batch_size",
                 "32",
                 "--num_batches",
@@ -55,7 +55,34 @@
             ]
         },
         {
-            "name": "Python: evaluate_models_refactored.py",
+            "name": "Python: train single learned_dense d2 s2 debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/train.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--experiment",
+                "default_6port_separator1_learned_dense_v2",
+                "--runs",
+                "separator1_grid_search_6ports_learned_dense_depth2_stages2_share0",
+                "--model_override",
+                "mlp_depth=2",
+                "--model_override",
+                "num_stages=2",
+                "--num_batches",
+                "20",
+                "--batch_size",
+                "32",
+                "--device",
+                "cpu",
+                "--no-amp",
+                "--no-compile"
+            ]
+        },
+        {
+            "name": "Python: evaluate single learned_dense d2 s2",
             "type": "debugpy",
             "request": "launch",
             "python": "${command:python.interpreterPath}",
@@ -75,10 +102,8 @@
                 "console": "integratedTerminal"
             },
             "args": [
-                "--exp_dir",
-                "./experiments_refactored/20260414_071319_default_6port_separator1",
-                // "--runs",
-                // "separator1_grid_search_6ports_hd128_stages2_depth3_share0",
+                "--run_dir",
+                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260428_054018_default_6port_separator1_learned_dense_v2/separator1_grid_search_6ports_learned_dense_depth2_stages2_share0",
                 "--snr_range",
                 "30:-3:0",
                 "--tdl",
@@ -102,7 +127,36 @@
         }
         ,
         {
-            "name": "Python: export_matlab_bundle.py",
+            "name": "Python: benchmark single learned_dense d2 s2",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/benchmark_latency.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--run_dir",
+                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260428_054018_default_6port_separator1_learned_dense_v2/separator1_grid_search_6ports_learned_dense_depth2_stages2_share0",
+                "--device",
+                "cpu",
+                "--runtime_backends",
+                "pytorch",
+                "--execution_modes",
+                "eager",
+                "--precision_profiles",
+                "fp32",
+                "--batch_sizes",
+                "1",
+                "--thread_counts",
+                "1",
+                "--warmup_iters",
+                "1",
+                "--measure_iters",
+                "2"
+            ]
+        },
+        {
+            "name": "Python: export_matlab_bundle (learned_dense d2 s2)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/Model_AIIC_refactor/export_matlab_bundle.py",
@@ -111,11 +165,11 @@
             "justMyCode": true,
             "args": [
                 "--checkpoint",
-                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/checkpoint_batch_100000.pth"
+                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260428_054018_default_6port_separator1_learned_dense_v2/separator1_grid_search_6ports_learned_dense_depth2_stages2_share0/model.pth"
             ]
         },
         {
-            "name": "Python: export_onnx.py",
+            "name": "Python: export_onnx (learned_dense d2 s2)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/Model_AIIC_refactor/export_onnx.py",
@@ -124,7 +178,7 @@
             "justMyCode": true,
             "args": [
                 "--checkpoint",
-                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260414_071319_default_6port_separator1/separator1_grid_search_6ports_hd32_stages2_depth3_share0/checkpoint_batch_100000.pth",
+                "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/20260428_054018_default_6port_separator1_learned_dense_v2/separator1_grid_search_6ports_learned_dense_depth2_stages2_share0/model.pth",
                 "--opset",
                 "13"
             ]

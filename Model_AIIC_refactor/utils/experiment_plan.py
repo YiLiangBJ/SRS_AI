@@ -1,5 +1,6 @@
 """Helpers for building v2 component-based experiment plans."""
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -148,6 +149,9 @@ def build_experiment_suite(
     batch_size_override: Optional[int] = None,
     num_batches_override: Optional[int] = None,
     experiment_name: Optional[str] = None,
+    run_names: Optional[Sequence[str]] = None,
+    model_overrides: Optional[Dict[str, Any]] = None,
+    training_overrides: Optional[Dict[str, Any]] = None,
 ) -> ExperimentSuite:
     """Load configs/v2 and prepare the full experiment suite in one place."""
     config_dir = Path(config_dir)
@@ -213,6 +217,88 @@ def build_experiment_suite(
         for item in component_data['plan']
     ]
 
+    requested_run_names = [item for item in (run_names or []) if item]
+    if requested_run_names:
+        requested = set(requested_run_names)
+        plan = [item for item in plan if item.run_name in requested]
+        if not plan:
+            available = ', '.join(sorted(item['run_name'] for item in component_data['plan']))
+            raise ValueError(
+                f"Requested runs not found in experiment plan: {requested_run_names}. "
+                f"Available runs: {available}"
+            )
+
+    def _set_nested_value(mapping: Dict[str, Any], path: str, value: Any) -> None:
+        parts = [part for part in path.split('.') if part]
+        if not parts:
+            raise ValueError('Override path cannot be empty')
+        current = mapping
+        for part in parts[:-1]:
+            next_value = current.get(part)
+            if not isinstance(next_value, dict):
+                next_value = {}
+                current[part] = next_value
+            current = next_value
+        current[parts[-1]] = value
+
+    if model_overrides or training_overrides:
+        overridden_plan: List[ExperimentPlanItem] = []
+        for item in plan:
+            model_spec = deepcopy(item.model_variant.spec)
+            training_spec = deepcopy(item.training_variant.spec)
+            for key, value in (model_overrides or {}).items():
+                _set_nested_value(model_spec, key, value)
+            for key, value in (training_overrides or {}).items():
+                _set_nested_value(training_spec, key, value)
+            overridden_plan.append(
+                ExperimentPlanItem(
+                    task_index=item.task_index,
+                    run_name=item.run_name,
+                    model_variant=ModelVariant(
+                        recipe_name=item.model_variant.recipe_name,
+                        label=item.model_variant.label,
+                        spec=model_spec,
+                        index=item.model_variant.index,
+                        total=item.model_variant.total,
+                    ),
+                    training_variant=TrainingVariant(
+                        recipe_name=item.training_variant.recipe_name,
+                        label=item.training_variant.label,
+                        spec=training_spec,
+                        index=item.training_variant.index,
+                        total=item.training_variant.total,
+                    ),
+                    task_recipe_name=item.task_recipe_name,
+                    task_label=item.task_label,
+                    task_variant_index=item.task_variant_index,
+                    task_variant_total=item.task_variant_total,
+                    component_specs=deepcopy(item.component_specs),
+                )
+            )
+        plan = overridden_plan
+
+    if plan:
+        model_recipe_names = []
+        for item in plan:
+            if item.model_recipe_name not in model_recipe_names:
+                model_recipe_names.append(item.model_recipe_name)
+
+        task_labels = []
+        for item in plan:
+            label = item.task_label or item.task_recipe_name
+            if label and label not in task_labels:
+                task_labels.append(label)
+
+        used_model_labels = {item.model_label for item in plan}
+        model_variants_by_recipe = {
+            recipe_name: [variant for variant in variants if variant.label in used_model_labels]
+            for recipe_name, variants in model_variants_by_recipe.items()
+            if any(variant.label in used_model_labels for variant in variants)
+        }
+
+        used_training_labels = {item.training_label for item in plan}
+        training_variants = [variant for variant in training_variants if variant.label in used_training_labels]
+
     return ExperimentSuite(
         catalog=ConfigCatalog(config_dir=config_dir, component_catalog=component_catalog),
         experiment_name=experiment_name,
@@ -223,7 +309,7 @@ def build_experiment_suite(
         missing_model_recipes=component_data['missing_model_recipes'],
         plan=plan,
         task_recipe_name=component_data['task_recipe_name'],
-        task_labels=component_data['task_labels'],
+        task_labels=task_labels,
     )
 
 
