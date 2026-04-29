@@ -21,12 +21,41 @@ class TestCliDefaults(unittest.TestCase):
         self.assertTrue(args.use_amp)
         self.assertIsNone(args.compile_model)
         self.assertIsNone(args.init_checkpoint)
+        self.assertIsNone(args.runs)
+        self.assertIsNone(args.model_override)
+        self.assertIsNone(args.training_override)
 
     def test_train_request_enables_amp_by_default(self):
         request = TrainRequest(experiment='demo')
         self.assertTrue(request.use_amp)
         self.assertIsNone(request.compile_model)
         self.assertIsNone(request.init_checkpoint)
+        self.assertEqual(request.runs, [])
+        self.assertEqual(request.model_overrides, {})
+        self.assertEqual(request.training_overrides, {})
+
+    def test_train_request_parses_runs_and_overrides(self):
+        parser = train.build_parser()
+        args = parser.parse_args([
+            '--experiment', 'demo',
+            '--runs', 'run_a,run_b',
+            '--model_override', 'mlp_depth=2',
+            '--model_override', 'num_stages=2',
+            '--training_override', 'batch_size=16',
+        ])
+        request = TrainRequest.from_namespace(args)
+        self.assertEqual(request.runs, ['run_a', 'run_b'])
+        self.assertEqual(request.model_overrides, {'mlp_depth': 2, 'num_stages': 2})
+        self.assertEqual(request.training_overrides, {'batch_size': 16})
+
+    def test_train_request_requires_runs_when_using_overrides(self):
+        parser = train.build_parser()
+        args = parser.parse_args([
+            '--experiment', 'demo',
+            '--model_override', 'mlp_depth=2',
+        ])
+        with self.assertRaisesRegex(ValueError, '--runs'):
+            TrainRequest.from_namespace(args)
 
     def test_evaluation_cli_enables_amp_and_compile_by_default(self):
         parser = evaluate_models_refactored.build_parser()

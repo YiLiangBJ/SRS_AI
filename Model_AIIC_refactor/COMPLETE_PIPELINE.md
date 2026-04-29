@@ -231,6 +231,29 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
+Inspect only one resolved run from a larger experiment:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment default_6port_separator1_learned_dense_v2 \
+  --runs separator1_grid_search_6ports_learned_dense_depth2_stages2_share0 \
+  --plan_only \
+  --device cpu
+```
+
+Inspect one resolved run with temporary debug overrides applied after experiment resolution:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment default_6port_separator1_learned_dense_v2 \
+  --runs separator1_grid_search_6ports_learned_dense_depth2_stages2_share0 \
+  --model_override mlp_depth=2 \
+  --model_override num_stages=2 \
+  --training_override batch_size=16 \
+  --plan_only \
+  --device cpu
+```
+
 Train, then evaluate and plot a 3-model 6-port comparison:
 
 ```bash
@@ -301,6 +324,9 @@ python ./Model_AIIC_refactor/train.py \
 | `--experiment` | Required experiment name from `configs/v2/experiments.yaml` |
 | `--batch_size` | Optional override applied after recipe resolution |
 | `--num_batches` | Optional override applied after recipe resolution |
+| `--runs` | Keep only selected run names from the resolved experiment plan |
+| `--model_override` | Debug-only override applied to resolved `model_spec`, repeatable `key=value` |
+| `--training_override` | Debug-only override applied to resolved `training_spec`, repeatable `key=value` |
 | `--init_checkpoint` | Initialize weights from one existing checkpoint; model spec must match exactly |
 | `--device` | `auto`, `cpu`, `cuda`, `cuda:0`, ... |
 | `--save_dir` | Parent output directory |

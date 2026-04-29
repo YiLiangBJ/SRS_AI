@@ -328,6 +328,9 @@ def run_training_experiment(request):
         batch_size_override=request.batch_size,
         num_batches_override=request.num_batches,
         experiment_name=request.experiment,
+        run_names=request.runs,
+        model_overrides=request.model_overrides,
+        training_overrides=request.training_overrides,
     )
 
     experiment_name, experiment_output_dir = _resolve_experiment_output_dir(request.save_dir, suite)
