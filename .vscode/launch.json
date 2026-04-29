@@ -13,10 +13,22 @@
             "name": "Python: train.py (separator1 learned_dense v2)",
             "type": "debugpy",
             "request": "launch",
+            "python": "${command:python.interpreterPath}",
             "program": "${workspaceFolder}/Model_AIIC_refactor/train.py",
             "cwd": "${workspaceFolder}/Model_AIIC_refactor",
             "console": "integratedTerminal",
             "justMyCode": true,
+            "windows": {
+                "console": "internalConsole",
+                "redirectOutput": true,
+                "env": {
+                    "PYTHONSTARTUP": "",
+                    "PYTHON_BASIC_REPL": ""
+                }
+            },
+            "linux": {
+                "console": "integratedTerminal"
+            },
             "args": [
                 "--experiment",
                 "default_6port_separator1_learned_dense_v2",
@@ -58,10 +70,22 @@
             "name": "Python: train single learned_dense d2 s2 debug",
             "type": "debugpy",
             "request": "launch",
+            "python": "${command:python.interpreterPath}",
             "program": "${workspaceFolder}/Model_AIIC_refactor/train.py",
             "cwd": "${workspaceFolder}/Model_AIIC_refactor",
             "console": "integratedTerminal",
             "justMyCode": true,
+            "windows": {
+                "console": "internalConsole",
+                "redirectOutput": true,
+                "env": {
+                    "PYTHONSTARTUP": "",
+                    "PYTHON_BASIC_REPL": ""
+                }
+            },
+            "linux": {
+                "console": "integratedTerminal"
+            },
             "args": [
                 "--experiment",
                 "default_6port_separator1_learned_dense_v2",
