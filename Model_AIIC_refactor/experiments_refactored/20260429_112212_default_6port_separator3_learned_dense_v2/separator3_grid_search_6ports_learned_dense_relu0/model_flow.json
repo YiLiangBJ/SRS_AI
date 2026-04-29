@@ -1,0 +1,277 @@
+{
+  "format": "srs_ai_model_flow_v1",
+  "model_type": "separator3",
+  "input_layout": "N x (2*seq_len) real-stacked float32 = [real_part, imag_part]",
+  "output_layout": "N x num_ports x (2*seq_len) real-stacked float32",
+  "dynamic_dimension_convention": "Dynamic dimensions are written as -1.",
+  "input_shape": [
+    -1,
+    24
+  ],
+  "output_shape": [
+    -1,
+    6,
+    24
+  ],
+  "input_shape_string": "[-1, 24]",
+  "output_shape_string": "[-1, 6, 24]",
+  "model_spec": {
+    "seq_len": 12,
+    "pos_values": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "normalize_energy": true,
+    "use_hidden_relu": false,
+    "residual_correction_mode": "learned_dense",
+    "model_type": "separator3",
+    "num_ports": 6,
+    "num_params": 24768
+  },
+  "component_specs": {
+    "task": {
+      "type": "channel_separator",
+      "params": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "snr_config": {
+          "type": "range",
+          "min": 0,
+          "max": 30,
+          "per_sample": true,
+          "sampling": "stratified",
+          "num_bins": 10
+        },
+        "tdl_config": [
+          "A-30",
+          "B-100",
+          "C-300"
+        ]
+      }
+    },
+    "model": {
+      "type": "separator3",
+      "params": {
+        "normalize_energy": true,
+        "use_hidden_relu": false,
+        "residual_correction_mode": "learned_dense"
+      },
+      "sweeps": [
+        {
+          "target": "params.use_hidden_relu",
+          "alias": "relu",
+          "values": [
+            false,
+            true
+          ]
+        }
+      ]
+    },
+    "training_strategy": {
+      "type": "standard_supervised",
+      "params": {
+        "batch_size": 4096,
+        "num_batches": 100000,
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.01
+          }
+        },
+        "loss": {
+          "type": "nmse"
+        },
+        "regularization": {
+          "learned_dense_mask_l2_to_one": 1e-05
+        },
+        "validation": {
+          "interval": 100,
+          "batches": 4
+        },
+        "early_stop": {
+          "patience": 5
+        },
+        "logging": {
+          "print_interval": 100
+        },
+        "checkpoints": {
+          "save_interval": 1000,
+          "keep_last_n": 2
+        },
+        "scheduler": {
+          "type": "reduce_on_plateau",
+          "params": {
+            "factor": 0.8,
+            "patience": 30,
+            "threshold": 0.005,
+            "threshold_mode": "abs",
+            "cooldown": 10,
+            "min_lr": 1e-06
+          }
+        }
+      }
+    }
+  },
+  "family": "separator3",
+  "loop_summary": "One hidden joint linear block and one output joint linear block, each followed by learned-dense residual correction; hidden ReLU is optional and output stays linear.",
+  "total_trainable_params": 24768,
+  "total_trainable_params_string": "24,768",
+  "nodes": [
+    {
+      "name": "mixed_signal",
+      "shape": [
+        -1,
+        24
+      ],
+      "shape_string": "[-1, 24]",
+      "description": "Real-stacked mixed input [real, imag].",
+      "why": "The task provides one mixed complex sequence flattened into real and imaginary blocks.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "normalized_input",
+      "shape": [
+        -1,
+        24
+      ],
+      "shape_string": "[-1, 24]",
+      "description": "Optional per-sample RMS normalization inside the model.",
+      "why": "Normalization rescales values but does not change tensor width.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "hidden_linear",
+      "shape": [
+        -1,
+        144
+      ],
+      "shape_string": "[-1, 144]",
+      "description": "First joint linear layer expands the input into one per-port real-stacked block.",
+      "why": "The hidden affine layer maps width 24 to expanded width 144 = num_ports * (2 * seq_len).",
+      "param_count_per_occurrence": 3600,
+      "param_count_per_occurrence_string": "3,600",
+      "effective_total_param_count": 3600,
+      "effective_total_param_count_string": "3,600"
+    },
+    {
+      "name": "hidden_port_features",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Hidden representation reshaped into one real-stacked port tensor per port.",
+      "why": "The expanded width 144 is partitioned into 6 port blocks of width 24.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "hidden_residual_corrected",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Hidden learned-dense residual correction adds back the mixed-signal reconstruction error per port.",
+      "why": "The hidden block sums across ports, computes the mixed-signal residual, and adds a per-port learned dense weighting of that residual back to each port estimate.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "flattened_hidden",
+      "shape": [
+        -1,
+        144
+      ],
+      "shape_string": "[-1, 144]",
+      "description": "Hidden port features flattened back into one expanded vector.",
+      "why": "The per-port hidden representation is flattened so the output linear layer can mix information across all ports jointly.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "output_linear",
+      "shape": [
+        -1,
+        144
+      ],
+      "shape_string": "[-1, 144]",
+      "description": "Second joint linear layer predicts the output per-port representation.",
+      "why": "The output affine layer keeps expanded width 144 and produces the final per-port real-stacked blocks.",
+      "param_count_per_occurrence": 20880,
+      "param_count_per_occurrence_string": "20,880",
+      "effective_total_param_count": 20880,
+      "effective_total_param_count_string": "20,880"
+    },
+    {
+      "name": "output_port_features",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Output representation reshaped into one real-stacked port tensor per port.",
+      "why": "The output width 144 is partitioned back into 6 port blocks of width 24.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "output_residual_corrected",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Output learned-dense residual correction produces the final separated port estimate.",
+      "why": "A second learned-dense residual correction re-enforces that the separated outputs sum back to the mixed input while preserving signed residual contributions.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "separated_channels",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Optional output RMS restoration to the original input scale.",
+      "why": "Rescaling restores amplitude but keeps the separated tensor shape unchanged.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    }
+  ]
+}

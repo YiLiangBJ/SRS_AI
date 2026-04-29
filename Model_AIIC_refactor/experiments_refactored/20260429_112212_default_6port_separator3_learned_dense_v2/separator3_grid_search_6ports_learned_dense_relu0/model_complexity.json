@@ -1,0 +1,235 @@
+{
+  "format": "srs_ai_model_complexity_v1",
+  "model_type": "separator3",
+  "input_shape": [
+    -1,
+    24
+  ],
+  "input_shape_string": "[-1, 24]",
+  "output_shape": [
+    -1,
+    6,
+    24
+  ],
+  "output_shape_string": "[-1, 6, 24]",
+  "counting_assumptions": [
+    "All counts are estimated for one forward pass of one sample; multiply by runtime batch size N for a first-order batch estimate.",
+    "MACs and multiply/add counts are counted from affine layers using scalar CPU-style arithmetic.",
+    "Bias accumulation is counted as additions inside the addition totals.",
+    "Normalization, activations, and residual corrections are included as estimated scalar ops where relevant.",
+    "Tensor reshapes, concatenations, indexing, and memory traffic are not counted as arithmetic FLOPs.",
+    "Latency depends on implementation and hardware; these counts are for fast complexity screening only."
+  ],
+  "summary": {
+    "trainable_parameters": 24768,
+    "trainable_parameters_string": "24,768",
+    "parameter_memory_bytes_fp32": 99072,
+    "parameter_memory_bytes_fp32_string": "0.094 MiB (99,072 bytes)",
+    "macs_per_sample": 24192,
+    "macs_per_sample_string": "24,192",
+    "multiplications_per_sample": 24360,
+    "multiplications_per_sample_string": "24,360",
+    "additions_per_sample": 24791,
+    "additions_per_sample_string": "24,791",
+    "other_scalar_ops_per_sample_estimate": 25,
+    "other_scalar_ops_per_sample_estimate_string": "25",
+    "flops_per_sample_estimate": 49176,
+    "flops_per_sample_estimate_string": "49,176",
+    "batch_scaling_rule": "Multiply the per-sample counts by runtime batch size N for a first-order batch estimate."
+  },
+  "entries": [
+    {
+      "name": "input_normalize_restore",
+      "repeat": "once per sample",
+      "why": "Per-sample RMS normalization and output rescaling are applied around the network when normalize_energy=true.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 168,
+      "multiplications_string": "168",
+      "additions": 23,
+      "additions_string": "23",
+      "other_ops": 25,
+      "other_ops_string": "25",
+      "flops_estimate": 216,
+      "flops_estimate_string": "216"
+    },
+    {
+      "name": "hidden_linear",
+      "repeat": "once per sample",
+      "why": "Hidden affine layer maps width 24 to expanded width 144.",
+      "parameters": 3600,
+      "parameters_string": "3,600",
+      "macs": 3456,
+      "macs_string": "3,456",
+      "multiplications": 3456,
+      "multiplications_string": "3,456",
+      "additions": 3456,
+      "additions_string": "3,456",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 6912,
+      "flops_estimate_string": "6,912"
+    },
+    {
+      "name": "hidden_residual_correction",
+      "repeat": "once per sample",
+      "why": "Hidden features are summed across ports, compared with the mixed input, and corrected with a learned dense per-port residual mask.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 288,
+      "additions_string": "288",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 288,
+      "flops_estimate_string": "288"
+    },
+    {
+      "name": "output_linear",
+      "repeat": "once per sample",
+      "why": "Output affine layer keeps expanded width 144 and predicts the final per-port representation.",
+      "parameters": 20880,
+      "parameters_string": "20,880",
+      "macs": 20736,
+      "macs_string": "20,736",
+      "multiplications": 20736,
+      "multiplications_string": "20,736",
+      "additions": 20736,
+      "additions_string": "20,736",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 41472,
+      "flops_estimate_string": "41,472"
+    },
+    {
+      "name": "output_residual_correction",
+      "repeat": "once per sample",
+      "why": "Output features are again corrected with a learned dense per-port residual mask before final output.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 288,
+      "additions_string": "288",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 288,
+      "flops_estimate_string": "288"
+    }
+  ],
+  "model_spec": {
+    "seq_len": 12,
+    "pos_values": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "normalize_energy": true,
+    "use_hidden_relu": false,
+    "residual_correction_mode": "learned_dense",
+    "model_type": "separator3",
+    "num_ports": 6,
+    "num_params": 24768
+  },
+  "component_specs": {
+    "task": {
+      "type": "channel_separator",
+      "params": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "snr_config": {
+          "type": "range",
+          "min": 0,
+          "max": 30,
+          "per_sample": true,
+          "sampling": "stratified",
+          "num_bins": 10
+        },
+        "tdl_config": [
+          "A-30",
+          "B-100",
+          "C-300"
+        ]
+      }
+    },
+    "model": {
+      "type": "separator3",
+      "params": {
+        "normalize_energy": true,
+        "use_hidden_relu": false,
+        "residual_correction_mode": "learned_dense"
+      },
+      "sweeps": [
+        {
+          "target": "params.use_hidden_relu",
+          "alias": "relu",
+          "values": [
+            false,
+            true
+          ]
+        }
+      ]
+    },
+    "training_strategy": {
+      "type": "standard_supervised",
+      "params": {
+        "batch_size": 4096,
+        "num_batches": 100000,
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.01
+          }
+        },
+        "loss": {
+          "type": "nmse"
+        },
+        "regularization": {
+          "learned_dense_mask_l2_to_one": 1e-05
+        },
+        "validation": {
+          "interval": 100,
+          "batches": 4
+        },
+        "early_stop": {
+          "patience": 5
+        },
+        "logging": {
+          "print_interval": 100
+        },
+        "checkpoints": {
+          "save_interval": 1000,
+          "keep_last_n": 2
+        },
+        "scheduler": {
+          "type": "reduce_on_plateau",
+          "params": {
+            "factor": 0.8,
+            "patience": 30,
+            "threshold": 0.005,
+            "threshold_mode": "abs",
+            "cooldown": 10,
+            "min_lr": 1e-06
+          }
+        }
+      }
+    }
+  }
+}
