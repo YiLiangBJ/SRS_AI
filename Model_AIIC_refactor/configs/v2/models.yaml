@@ -143,6 +143,16 @@ models:
       normalize_energy: true
       use_hidden_relu: false
       residual_correction_mode: learned_dense
+  separator3_grid_search_6ports_learned_dense:
+    type: separator3
+    params:
+      normalize_energy: true
+      use_hidden_relu: false
+      residual_correction_mode: learned_dense
+    sweeps:
+      - target: params.use_hidden_relu
+        alias: relu
+        values: [false, true]
 
   separator1_grid_search_6ports:
     type: separator1

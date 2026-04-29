@@ -106,6 +106,11 @@ experiments:
     task: channel_separator_6port_standard
     model: separator3_default
     training_strategy: supervised_nmse_plateau
+  default_6port_separator3_learned_dense_v2:
+    description: Default 6-port separator3 standard sweep over hidden ReLU settings with learned dense residual correction.
+    task: channel_separator_6port_standard
+    model: separator3_grid_search_6ports_learned_dense
+    training_strategy: supervised_nmse_plateau
 
   separator3_activation_ablation_v1:
     description: Compare separator3 with and without hidden ReLU under the quick 6-port task.

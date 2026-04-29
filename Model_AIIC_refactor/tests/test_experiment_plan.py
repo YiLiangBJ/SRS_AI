@@ -316,6 +316,19 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(len(suite.plan), 1)
         self.assertEqual(suite.plan[0].model_spec['model_type'], 'separator3')
         self.assertFalse(suite.plan[0].model_spec['use_hidden_relu'])
+    def test_learned_dense_separator3_standard_grid_search_builds_relu_off_and_on(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='default_6port_separator3_learned_dense_v2',
+        )
+
+        self.assertEqual(len(suite.plan), 2)
+        self.assertEqual({item.model_spec['model_type'] for item in suite.plan}, {'separator3'})
+        self.assertTrue(all(item.model_spec['residual_correction_mode'] == 'learned_dense' for item in suite.plan))
+        self.assertEqual({item.model_spec['use_hidden_relu'] for item in suite.plan}, {False, True})
+        self.assertTrue(any('relu0' in item.run_name for item in suite.plan))
+        self.assertTrue(any('relu1' in item.run_name for item in suite.plan))
 
     def test_separator3_activation_ablation_builds_relu_off_and_on(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
