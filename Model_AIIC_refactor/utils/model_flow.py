@@ -120,30 +120,25 @@ def _separator1_flow(model_spec: Mapping[str, Any]) -> Dict[str, Any]:
     _add_node(nodes, 'replicated_port_features', _shape(-1, num_ports, input_dim), f'Input copied to all {num_ports} ports before refinement.', why=f'The separator starts each port estimate from the same mixed input, so a port axis of size {num_ports} is introduced.')
     _add_node(nodes, 'port_stage_input', _shape(-1, input_dim), 'One port slice entering one refinement stage.', repeat=repeat_text, why=f'Each port-stage block consumes one real-stacked sequence of width {input_dim}.')
 
-    if mlp_depth == 2:
-        direct_params = _linear_param_count(input_dim, seq_len)
-        _add_node(nodes, 'real_branch_output', _shape(-1, seq_len), 'Real branch direct output.', repeat=repeat_text, why=f'The real branch projects one width-{input_dim} input directly down to one real channel width {seq_len}.', param_count_per_occurrence=direct_params, effective_total_param_count=direct_params * branch_instance_multiplier)
-        _add_node(nodes, 'imag_branch_output', _shape(-1, seq_len), 'Imag branch direct output.', repeat=repeat_text, why=f'The imaginary branch projects one width-{input_dim} input directly down to one imaginary channel width {seq_len}.', param_count_per_occurrence=direct_params, effective_total_param_count=direct_params * branch_instance_multiplier)
-    else:
-        input_hidden_params = _linear_param_count(input_dim, hidden_dim)
-        hidden_hidden_params = _linear_param_count(hidden_dim, hidden_dim)
-        output_params = _linear_param_count(hidden_dim, seq_len)
-        layer_norm_params = 2 * hidden_dim if use_hidden_layer_norm else 0
-        for hidden_idx in range(1, mlp_depth - 1):
-            hidden_params = input_hidden_params if hidden_idx == 1 else hidden_hidden_params
-            hidden_reason = (
-                f'The first branch affine layer maps width {input_dim} to hidden width {hidden_dim}.'
-                if hidden_idx == 1 else
-                f'This branch affine layer keeps the hidden width at {hidden_dim}.'
-            )
-            _add_node(nodes, f'real_branch_hidden_{hidden_idx}', _shape(-1, hidden_dim), f'Real branch hidden layer {hidden_idx}.', repeat=repeat_text, why=hidden_reason, param_count_per_occurrence=hidden_params, effective_total_param_count=hidden_params * branch_instance_multiplier)
-            if use_hidden_layer_norm:
-                _add_node(nodes, f'real_branch_hidden_{hidden_idx}_layer_norm', _shape(-1, hidden_dim), f'Real branch LayerNorm after hidden layer {hidden_idx}.', repeat=repeat_text, why='LayerNorm keeps the hidden width unchanged and adds one learned scale and bias per hidden feature.', param_count_per_occurrence=layer_norm_params, effective_total_param_count=layer_norm_params * branch_instance_multiplier)
-            _add_node(nodes, f'imag_branch_hidden_{hidden_idx}', _shape(-1, hidden_dim), f'Imag branch hidden layer {hidden_idx}.', repeat=repeat_text, why=hidden_reason, param_count_per_occurrence=hidden_params, effective_total_param_count=hidden_params * branch_instance_multiplier)
-            if use_hidden_layer_norm:
-                _add_node(nodes, f'imag_branch_hidden_{hidden_idx}_layer_norm', _shape(-1, hidden_dim), f'Imag branch LayerNorm after hidden layer {hidden_idx}.', repeat=repeat_text, why='LayerNorm keeps the hidden width unchanged and adds one learned scale and bias per hidden feature.', param_count_per_occurrence=layer_norm_params, effective_total_param_count=layer_norm_params * branch_instance_multiplier)
-        _add_node(nodes, 'real_branch_output', _shape(-1, seq_len), 'Real branch final linear output.', repeat=repeat_text, why=f'The real branch final affine layer reduces hidden width {hidden_dim} to one real channel width {seq_len}.', param_count_per_occurrence=output_params, effective_total_param_count=output_params * branch_instance_multiplier)
-        _add_node(nodes, 'imag_branch_output', _shape(-1, seq_len), 'Imag branch final linear output.', repeat=repeat_text, why=f'The imaginary branch final affine layer reduces hidden width {hidden_dim} to one imaginary channel width {seq_len}.', param_count_per_occurrence=output_params, effective_total_param_count=output_params * branch_instance_multiplier)
+    input_hidden_params = _linear_param_count(input_dim, hidden_dim)
+    hidden_hidden_params = _linear_param_count(hidden_dim, hidden_dim)
+    output_params = _linear_param_count(hidden_dim, seq_len)
+    layer_norm_params = 2 * hidden_dim if use_hidden_layer_norm else 0
+    for hidden_idx in range(1, mlp_depth):
+        hidden_params = input_hidden_params if hidden_idx == 1 else hidden_hidden_params
+        hidden_reason = (
+            f'The first branch affine layer maps width {input_dim} to hidden width {hidden_dim}.'
+            if hidden_idx == 1 else
+            f'This branch affine layer keeps the hidden width at {hidden_dim}.'
+        )
+        _add_node(nodes, f'real_branch_hidden_{hidden_idx}', _shape(-1, hidden_dim), f'Real branch hidden layer {hidden_idx}.', repeat=repeat_text, why=hidden_reason, param_count_per_occurrence=hidden_params, effective_total_param_count=hidden_params * branch_instance_multiplier)
+        if use_hidden_layer_norm:
+            _add_node(nodes, f'real_branch_hidden_{hidden_idx}_layer_norm', _shape(-1, hidden_dim), f'Real branch LayerNorm after hidden layer {hidden_idx}.', repeat=repeat_text, why='LayerNorm keeps the hidden width unchanged and adds one learned scale and bias per hidden feature.', param_count_per_occurrence=layer_norm_params, effective_total_param_count=layer_norm_params * branch_instance_multiplier)
+        _add_node(nodes, f'imag_branch_hidden_{hidden_idx}', _shape(-1, hidden_dim), f'Imag branch hidden layer {hidden_idx}.', repeat=repeat_text, why=hidden_reason, param_count_per_occurrence=hidden_params, effective_total_param_count=hidden_params * branch_instance_multiplier)
+        if use_hidden_layer_norm:
+            _add_node(nodes, f'imag_branch_hidden_{hidden_idx}_layer_norm', _shape(-1, hidden_dim), f'Imag branch LayerNorm after hidden layer {hidden_idx}.', repeat=repeat_text, why='LayerNorm keeps the hidden width unchanged and adds one learned scale and bias per hidden feature.', param_count_per_occurrence=layer_norm_params, effective_total_param_count=layer_norm_params * branch_instance_multiplier)
+    _add_node(nodes, 'real_branch_output', _shape(-1, seq_len), 'Real branch final linear output.', repeat=repeat_text, why=f'The real branch final affine layer reduces hidden width {hidden_dim} to one real channel width {seq_len}.', param_count_per_occurrence=output_params, effective_total_param_count=output_params * branch_instance_multiplier)
+    _add_node(nodes, 'imag_branch_output', _shape(-1, seq_len), 'Imag branch final linear output.', repeat=repeat_text, why=f'The imaginary branch final affine layer reduces hidden width {hidden_dim} to one imaginary channel width {seq_len}.', param_count_per_occurrence=output_params, effective_total_param_count=output_params * branch_instance_multiplier)
 
     _add_node(nodes, 'port_output', _shape(-1, input_dim), 'Real and imaginary branch outputs concatenated back to one port tensor.', repeat=repeat_text, why=f'Concatenating one real width-{seq_len} output and one imag width-{seq_len} output reconstructs one width-{input_dim} port tensor.')
     _add_node(nodes, 'stacked_stage_output', _shape(-1, num_ports, input_dim), 'All port outputs stacked for the current stage.', repeat=f'per stage ({num_stages} stages total)', why=f'Stacking all {num_ports} ports reintroduces the port axis while keeping each port width at {input_dim}.')

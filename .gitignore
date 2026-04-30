@@ -4,7 +4,8 @@ __pycache__/
 .venv/
 *.egg-info/
 *.egg
-
+**/NMSE_SNR30_LT_NEG25*.md
+Model_AIIC_refactor/experiments_refactored/_analysis_md_local/
 # TensorBoard logs
 **/tensorboard/
 **/tensorboard/**

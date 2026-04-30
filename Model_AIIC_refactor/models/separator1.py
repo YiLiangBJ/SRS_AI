@@ -35,10 +35,12 @@ class Separator1(BaseSeparatorModel):
         num_ports: Number of ports (default: 4)
         hidden_dim: Hidden dimension for MLPs (default: 64)
         num_stages: Number of refinement stages (default: 3)
-        mlp_depth: MLP depth - total layers including input/output (default: 3)
-                   - 2: Input -> Output (no hidden layer)
-                   - 3: Input -> Hidden -> Output (1 hidden layer, default)
-                   - 4: Input -> Hidden1 -> Hidden2 -> Output (2 hidden layers)
+        mlp_depth: Number of Linear layers per real/imag branch inside one stage (default: 3)
+                   - 2: Input -> Hidden -> Output
+                   - 3: Input -> Hidden1 -> Hidden2 -> Output
+                   - 4: Input -> Hidden1 -> Hidden2 -> Hidden3 -> Output
+                   Note: separator1 always projects through hidden_dim first, so even
+                   mlp_depth=2 still uses hidden_dim and is not a direct Input -> Output path.
         share_weights_across_stages: If True, same port uses same MLP across stages (default: False)
         use_hidden_layer_norm: Apply LayerNorm after each hidden linear layer (default: False)
         use_hidden_relu: Apply ReLU after each hidden normalization step (default: True)
@@ -126,7 +128,7 @@ class Separator1(BaseSeparatorModel):
         Args:
             seq_len: Sequence length
             hidden_dim: Hidden dimension
-            mlp_depth: Total number of layers (input + hidden + output)
+            mlp_depth: Number of Linear layers in each real/imag branch
         
         Returns:
             DualPathMLP module
@@ -138,6 +140,9 @@ class Separator1(BaseSeparatorModel):
                 if mlp_depth < 2:
                     raise ValueError(f"mlp_depth must be >= 2 (got {mlp_depth})")
                 
+                # The branch always starts with one projection to hidden_dim and ends
+                # with one projection back to seq_len. Any extra depth adds additional
+                # hidden_dim -> hidden_dim Linear layers in between.
                 num_hidden = mlp_depth - 2
                 
                 self.use_hidden_layer_norm = use_hidden_layer_norm
