@@ -12,6 +12,11 @@ class FullMLP(BaseSeparatorModel):
     Input is the same real-stacked mixed signal of length ``2 * seq_len``.
     The network predicts a flat vector of length ``num_ports * 2 * seq_len`` and
     reshapes it into ``(B, num_ports, 2 * seq_len)``.
+
+    ``mlp_depth`` follows the same linear-layer-count convention as separator1:
+    - 2: Input -> Hidden -> Output
+    - 3: Input -> Hidden1 -> Hidden2 -> Output
+    - 4: Input -> Hidden1 -> Hidden2 -> Hidden3 -> Output
     """
 
     def __init__(
@@ -69,16 +74,12 @@ class FullMLP(BaseSeparatorModel):
 
     def _build_network(self) -> nn.Sequential:
         layers = []
-        if self.mlp_depth == 2:
-            layers.append(nn.Linear(self.input_dim, self.output_dim))
-            return nn.Sequential(*layers)
-
         layers.extend([
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.ReLU(),
         ])
 
-        for _ in range(self.mlp_depth - 3):
+        for _ in range(self.mlp_depth - 2):
             layers.extend([
                 nn.Linear(self.hidden_dim, self.hidden_dim),
                 nn.ReLU(),

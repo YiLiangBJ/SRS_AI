@@ -74,19 +74,15 @@ def _full_mlp_flow(model_spec: Mapping[str, Any]) -> Dict[str, Any]:
     _add_node(nodes, 'mixed_signal', _shape(-1, input_dim), 'Real-stacked mixed input [real, imag].', why='Task output is one complex sequence flattened into real and imaginary blocks.')
     _add_node(nodes, 'normalized_input', _shape(-1, input_dim), 'Optional per-sample RMS normalization inside the model.', why='Normalization rescales values but does not change tensor rank or width.')
 
-    if mlp_depth == 2:
-        param_count = _linear_param_count(input_dim, output_dim)
-        _add_node(nodes, 'joint_linear_output', _shape(-1, output_dim), 'Single linear projection directly predicts all ports jointly.', why=f'One affine layer expands width from {input_dim} to {output_dim} so all {num_ports} ports are predicted at once.', param_count_per_occurrence=param_count, effective_total_param_count=param_count)
-    else:
-        first_hidden_params = _linear_param_count(input_dim, hidden_dim)
-        _add_node(nodes, 'joint_hidden_1', _shape(-1, hidden_dim), f'First hidden linear layer with hidden_dim={hidden_dim}.', why=f'The first affine layer maps the input width {input_dim} into the configured hidden width {hidden_dim}.', param_count_per_occurrence=first_hidden_params, effective_total_param_count=first_hidden_params)
-        _add_node(nodes, 'joint_hidden_1_relu', _shape(-1, hidden_dim), 'ReLU activation after the first hidden layer.', why='ReLU is elementwise, so it keeps the hidden shape unchanged.')
-        for layer_idx in range(2, mlp_depth - 1):
-            hidden_params = _linear_param_count(hidden_dim, hidden_dim)
-            _add_node(nodes, f'joint_hidden_{layer_idx}', _shape(-1, hidden_dim), f'Additional hidden linear layer {layer_idx}.', why=f'This affine layer keeps the same hidden width {hidden_dim} while adding capacity.', param_count_per_occurrence=hidden_params, effective_total_param_count=hidden_params)
-            _add_node(nodes, f'joint_hidden_{layer_idx}_relu', _shape(-1, hidden_dim), f'ReLU activation after hidden layer {layer_idx}.', why='ReLU is elementwise, so the hidden width stays the same.')
-        final_params = _linear_param_count(hidden_dim, output_dim)
-        _add_node(nodes, 'joint_linear_output', _shape(-1, output_dim), 'Final linear layer predicts all ports jointly.', why=f'The output affine layer expands hidden width {hidden_dim} to flat joint output width {output_dim}.', param_count_per_occurrence=final_params, effective_total_param_count=final_params)
+    first_hidden_params = _linear_param_count(input_dim, hidden_dim)
+    _add_node(nodes, 'joint_hidden_1', _shape(-1, hidden_dim), f'First hidden linear layer with hidden_dim={hidden_dim}.', why=f'The first affine layer maps the input width {input_dim} into the configured hidden width {hidden_dim}.', param_count_per_occurrence=first_hidden_params, effective_total_param_count=first_hidden_params)
+    _add_node(nodes, 'joint_hidden_1_relu', _shape(-1, hidden_dim), 'ReLU activation after the first hidden layer.', why='ReLU is elementwise, so it keeps the hidden shape unchanged.')
+    for layer_idx in range(2, mlp_depth):
+        hidden_params = _linear_param_count(hidden_dim, hidden_dim)
+        _add_node(nodes, f'joint_hidden_{layer_idx}', _shape(-1, hidden_dim), f'Additional hidden linear layer {layer_idx}.', why=f'This affine layer keeps the same hidden width {hidden_dim} while adding capacity.', param_count_per_occurrence=hidden_params, effective_total_param_count=hidden_params)
+        _add_node(nodes, f'joint_hidden_{layer_idx}_relu', _shape(-1, hidden_dim), f'ReLU activation after hidden layer {layer_idx}.', why='ReLU is elementwise, so the hidden width stays the same.')
+    final_params = _linear_param_count(hidden_dim, output_dim)
+    _add_node(nodes, 'joint_linear_output', _shape(-1, output_dim), 'Final linear layer predicts all ports jointly.', why=f'The output affine layer expands hidden width {hidden_dim} to flat joint output width {output_dim}.', param_count_per_occurrence=final_params, effective_total_param_count=final_params)
 
     _add_node(nodes, 'reshaped_channels', _shape(-1, num_ports, input_dim), 'Flat output reshaped into one real-stacked channel tensor per port.', why=f'The flat width {output_dim} is partitioned into {num_ports} port blocks of width {input_dim}.')
     _add_node(nodes, 'separated_channels', _shape(-1, num_ports, input_dim), 'Optional output RMS restoration to the original input scale.', why='Rescaling restores amplitude but keeps the separated tensor shape unchanged.')

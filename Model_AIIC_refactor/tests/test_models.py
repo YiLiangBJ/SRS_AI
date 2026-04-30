@@ -41,6 +41,42 @@ class TestModels(unittest.TestCase):
         num_params = sum(p.numel() for p in model.parameters())
         self.assertGreater(num_params, 0)
 
+    def test_full_mlp_depth2_uses_hidden_dim(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'hidden_dim': 8,
+            'mlp_depth': 2,
+            'normalize_energy': False,
+        }
+        model = create_model('full_mlp', config)
+        linear_layers = [layer for layer in model.network if isinstance(layer, torch.nn.Linear)]
+
+        self.assertEqual(len(linear_layers), 2)
+        self.assertEqual(linear_layers[0].in_features, 24)
+        self.assertEqual(linear_layers[0].out_features, 8)
+        self.assertEqual(linear_layers[1].in_features, 8)
+        self.assertEqual(linear_layers[1].out_features, 96)
+
+    def test_full_mlp_depth2_parameter_count_depends_on_hidden_dim(self):
+        small = create_model('full_mlp', {
+            'seq_len': 12,
+            'num_ports': 4,
+            'hidden_dim': 8,
+            'mlp_depth': 2,
+        })
+        large = create_model('full_mlp', {
+            'seq_len': 12,
+            'num_ports': 4,
+            'hidden_dim': 16,
+            'mlp_depth': 2,
+        })
+
+        self.assertNotEqual(
+            sum(parameter.numel() for parameter in small.parameters()),
+            sum(parameter.numel() for parameter in large.parameters()),
+        )
+
     def test_full_mlp_masked_residual_uses_pos_values_for_selected_taps(self):
         config = {
             'seq_len': 12,

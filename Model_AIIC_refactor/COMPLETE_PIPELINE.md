@@ -235,6 +235,14 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
+Current depth semantics are intentionally aligned across `full_mlp` and `separator1`:
+
+- `mlp_depth=2` means two Linear mappings
+- for `full_mlp`, that is `input -> hidden_dim -> output`
+- for `separator1`, that is `input -> hidden_dim -> seq_len` inside each real/imag branch of one stage
+
+So `full_mlp` with `mlp_depth=2` still uses `hidden_dim`; it is not a direct `input -> output` model.
+
 Inspect only one resolved run from a larger experiment:
 
 ```bash
