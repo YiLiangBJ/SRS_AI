@@ -177,17 +177,18 @@ python ./Model_AIIC_refactor/train.py \
 - `quick_full_mlp_three_stage_v2`: one-run 6-port smoke test for `nmse -> log -> weighted` staged full-MLP training
 - `full_mlp_nmse_v2`: one-run 6-port full-MLP baseline with plain NMSE loss
 - `full_mlp_arch_search_v2`: 9-run 6-port width/depth search for full-MLP
-- `full_mlp_capacity_search_v2`: default 16-run 6-port hidden-dim/depth search for full-MLP
-- `full_mlp_capacity_search_masked_v2`: default 16-run 6-port hidden-dim/depth search for full-MLP with masked residual correction
+- `full_mlp_capacity_search_v2`: default 20-run 6-port hidden-dim/depth search for full-MLP
+- `full_mlp_capacity_search_masked_v2`: default 20-run 6-port hidden-dim/depth search for full-MLP with masked residual correction
 - `quick_separator1_v2`: one-run 6-port smoke test for separator1
 - `quick_separator1_masked_v2`: one-run 6-port smoke test for separator1 with masked residual correction
-- `quick_separator3_v2`: one-run 6-port smoke test for separator3 with learned dense residual correction and no hidden ReLU
-- `separator3_activation_ablation_v1`: two-run quick ablation comparing separator3 with `use_hidden_relu=false/true`
-- `default_6port_separator3_learned_dense_v2`: two-run standard separator3 sweep comparing `use_hidden_relu=false/true` with learned dense residual correction
+- `quick_separator3_v2`: one-run 6-port smoke test for multi-stage separator3 with learned dense residual correction
+- `default_6port_separator3_learned_dense_v2`: four-run standard separator3 sweep over hidden_dim with learned dense residual correction
+- `quick_separator3_stage_templates_v1`: four-run quick smoke test for hand-designed separator3 stage-hidden templates
+- `separator3_stage_templates_learned_dense_v1`: four-run standard comparison of hand-designed separator3 stage-hidden templates
 - `compare_default_models_v2`: compare full_mlp_default, separator1_default, and separator2_default on the same 6-port task
 - `default_6port_separator1_v2`: default 20-run 6-port separator1 sweep over depth, stage count, weight sharing, and hidden dim for depth-3 variants
 - `default_6port_separator1_masked_v2`: default 20-run 6-port separator1 sweep with masked residual correction
-- `default_6port_separator3_v2`: default 6-port separator3 training run with learned dense residual correction and no hidden ReLU
+- `default_6port_separator3_v2`: default 6-port multi-stage separator3 training run with learned dense residual correction
 - `separator1_loss_search_v2`: compare supervised loss choices for 6-port separator1_default
 
 ## 5. Training
@@ -301,7 +302,7 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
-Quick CPU smoke test for separator3 with no hidden ReLU:
+Quick CPU smoke test for multi-stage separator3:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -309,7 +310,7 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
-Standard 6-port separator3 sweep over hidden ReLU on/off:
+Standard 6-port separator3 sweep over hidden_dim:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -317,14 +318,43 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
-Inspect the separator3 hidden-activation ablation without launching it:
+Quick separator3 stage-template smoke test:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
-  --experiment separator3_activation_ablation_v1 \
-  --plan_only \
+  --experiment quick_separator3_stage_templates_v1 \
   --device cpu
 ```
+
+Standard separator3 stage-template comparison:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment separator3_stage_templates_learned_dense_v1 \
+  --device cpu
+```
+
+`separator3` is now a staged joint MLP:
+
+- stage 1 maps `2*seq_len -> hidden_dim -> ... -> num_ports * 2 * seq_len`
+- later stages map `num_ports * 2 * seq_len -> hidden_dim -> ... -> num_ports * 2 * seq_len`
+- every stage ends with learned-dense residual correction
+- `stage_hidden_dims` can override the hidden width per stage, for example `[128, 64, 64]`
+
+Recommended starter templates for `stage_hidden_dims`:
+
+- `[128, 64]`
+- `[128, 64, 64]`
+- `[128, 128, 64]`
+- `[64, 64, 64]`
+
+Recommended VS Code debug flow for separator3:
+
+- train all hand-designed templates with `Python: train.py (separator3 stage templates)`
+- debug one explicit template with `Python: train single separator3 [128,64,64] debug`
+- evaluate one saved run with `Python: evaluate separator3 run`
+- benchmark one saved run with `Python: benchmark separator3 run`
+- export one saved checkpoint with `Python: export_onnx (separator3)` or `Python: export_matlab_bundle (separator3)`
 
 Resume one model from a previous checkpoint but train with new training parameters:
 
@@ -765,14 +795,16 @@ For `separator1`, it contains separate real and imaginary branch weights:
 - `p01_s01_imag_l01_weight`
 - `p01_s01_imag_l01_bias`
 
-For `separator3`, it contains the two joint linear layers and both learned-dense residual masks:
+For `separator3`, it contains every stage's joint MLP weights and the learned-dense residual mask for that stage:
 
-- `hidden_linear_weight`
-- `hidden_linear_bias`
-- `output_linear_weight`
-- `output_linear_bias`
-- `hidden_residual_mask`
-- `output_residual_mask`
+- `stage01_joint_l01_weight`
+- `stage01_joint_l01_bias`
+- `stage01_joint_l02_weight`
+- `stage01_joint_l02_bias`
+- `stage01_residual_mask`
+- `stage02_joint_l01_weight`
+- `stage02_joint_l01_bias`
+- `stage02_residual_mask`
 
 If `use_hidden_layer_norm=true`, hidden layers also include per-branch LayerNorm parameters:
 

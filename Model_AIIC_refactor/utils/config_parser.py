@@ -247,6 +247,7 @@ def generate_config_name(config: Dict[str, Any], base_name: str = None) -> str:
     # Note: num_ports is excluded - it's derived from pos_values
     key_params = {
         'hidden_dim': 'hd',
+        'stage_hidden_dims': 'shd',
         'num_stages': 'stages',
         'mlp_depth': 'depth',
         'share_weights_across_stages': 'share',
@@ -266,6 +267,8 @@ def generate_config_name(config: Dict[str, Any], base_name: str = None) -> str:
             # Format value
             if isinstance(value, bool):
                 value_str = '1' if value else '0'
+            elif isinstance(value, (list, tuple)):
+                value_str = '-'.join(str(item) for item in value)
             elif isinstance(value, float):
                 value_str = f"{value:.4f}".rstrip('0').rstrip('.')
             else:

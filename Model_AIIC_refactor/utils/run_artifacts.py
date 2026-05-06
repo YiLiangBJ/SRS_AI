@@ -130,8 +130,14 @@ def normalize_model_spec(model_spec: Dict[str, Any], num_params: Optional[int] =
         resolved.setdefault('activation_type', 'relu')
         resolved.setdefault('onnx_mode', False)
     elif model_type == 'separator3':
-        resolved.setdefault('use_hidden_relu', False)
+        if 'stage_hidden_dims' in resolved and 'num_stages' not in resolved:
+            resolved['num_stages'] = len(resolved['stage_hidden_dims'])
+        resolved.setdefault('hidden_dim', int(resolved['stage_hidden_dims'][0]) if 'stage_hidden_dims' in resolved else 128)
+        resolved.setdefault('num_stages', 2)
+        resolved.setdefault('mlp_depth', 2)
         resolved.setdefault('residual_correction_mode', 'learned_dense')
+        if 'stage_hidden_dims' not in resolved:
+            resolved['stage_hidden_dims'] = [int(resolved['hidden_dim'])] * int(resolved['num_stages'])
     elif model_type == 'full_mlp':
         resolved.setdefault('hidden_dim', 128)
         resolved.setdefault('mlp_depth', 3)

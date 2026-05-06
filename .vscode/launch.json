@@ -206,6 +206,192 @@
                 "--opset",
                 "13"
             ]
+        },
+        {
+            "name": "Python: train.py (separator3 stage templates)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${command:python.interpreterPath}",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/train.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "windows": {
+                "console": "internalConsole",
+                "redirectOutput": true,
+                "env": {
+                    "PYTHONSTARTUP": "",
+                    "PYTHON_BASIC_REPL": ""
+                }
+            },
+            "linux": {
+                "console": "integratedTerminal"
+            },
+            "args": [
+                "--experiment",
+                "separator3_stage_templates_learned_dense_v1",
+                "--batch_size",
+                "32",
+                "--num_batches",
+                "100",
+                "--device",
+                "auto",
+                "--save_dir",
+                "./experiments_refactored",
+                "--no-amp",
+                "--no-compile"
+            ]
+        },
+        {
+            "name": "Python: train single separator3 [128,64,64] debug",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${command:python.interpreterPath}",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/train.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "windows": {
+                "console": "internalConsole",
+                "redirectOutput": true,
+                "env": {
+                    "PYTHONSTARTUP": "",
+                    "PYTHON_BASIC_REPL": ""
+                }
+            },
+            "linux": {
+                "console": "integratedTerminal"
+            },
+            "args": [
+                "--experiment",
+                "quick_separator3_v2",
+                "--runs",
+                "separator3_default",
+                "--model_override",
+                "num_stages=3",
+                "--model_override",
+                "stage_hidden_dims=[128, 64, 64]",
+                "--model_override",
+                "hidden_dim=128",
+                "--model_override",
+                "mlp_depth=2",
+                "--num_batches",
+                "20",
+                "--batch_size",
+                "32",
+                "--device",
+                "cpu",
+                "--no-amp",
+                "--no-compile"
+            ]
+        },
+        {
+            "name": "Python: evaluate separator3 run",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${command:python.interpreterPath}",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/evaluate_models_refactored.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "windows": {
+                "console": "internalConsole",
+                "redirectOutput": true,
+                "env": {
+                    "PYTHONSTARTUP": "",
+                    "PYTHON_BASIC_REPL": ""
+                }
+            },
+            "linux": {
+                "console": "integratedTerminal"
+            },
+            "args": [
+                "--run_dir",
+                "${input:separator3RunDir}",
+                "--snr_range",
+                "30:-3:0",
+                "--tdl",
+                "A-30,B-100,C-300",
+                "--num_batches",
+                "100",
+                "--batch_size",
+                "2048",
+                "--device",
+                "auto",
+                "--no-amp",
+                "--no-compile"
+            ]
+        },
+        {
+            "name": "Python: benchmark separator3 run",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/benchmark_latency.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--run_dir",
+                "${input:separator3RunDir}",
+                "--device",
+                "cpu",
+                "--runtime_backends",
+                "pytorch",
+                "--execution_modes",
+                "eager",
+                "--precision_profiles",
+                "fp32",
+                "--batch_sizes",
+                "1",
+                "--thread_counts",
+                "1",
+                "--warmup_iters",
+                "1",
+                "--measure_iters",
+                "2"
+            ]
+        },
+        {
+            "name": "Python: export_matlab_bundle (separator3)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/export_matlab_bundle.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--checkpoint",
+                "${input:separator3Checkpoint}"
+            ]
+        },
+        {
+            "name": "Python: export_onnx (separator3)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/export_onnx.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--checkpoint",
+                "${input:separator3Checkpoint}",
+                "--opset",
+                "13"
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "separator3RunDir",
+            "type": "promptString",
+            "description": "Separator3 run directory path",
+            "default": "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/<timestamp>_separator3_stage_templates_learned_dense_v1/<run_name>"
+        },
+        {
+            "id": "separator3Checkpoint",
+            "type": "promptString",
+            "description": "Separator3 checkpoint path",
+            "default": "${workspaceFolder}/Model_AIIC_refactor/experiments_refactored/<timestamp>_separator3_stage_templates_learned_dense_v1/<run_name>/model.pth"
         }
     ]
 }

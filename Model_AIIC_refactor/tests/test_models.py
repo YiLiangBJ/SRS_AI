@@ -342,22 +342,44 @@ class TestModels(unittest.TestCase):
             'seq_len': 12,
             'num_ports': 4,
             'normalize_energy': True,
-            'use_hidden_relu': False,
+            'hidden_dim': 64,
+            'num_stages': 2,
+            'mlp_depth': 2,
             'residual_correction_mode': 'learned_dense',
         }
         model = create_model('separator3', config)
         self.assertIsInstance(model, Separator3)
-        self.assertFalse(model.use_hidden_relu)
         self.assertEqual(model.residual_correction_mode, 'learned_dense')
-        self.assertEqual(model.hidden_residual_mask.shape, (4, 24))
-        self.assertEqual(model.output_residual_mask.shape, (4, 24))
+        self.assertEqual(model.num_stages, 2)
+        self.assertEqual(model.stage_hidden_dims, [64, 64])
+        self.assertEqual(model.learned_residual_masks.shape, (2, 4, 24))
+
+    def test_separator3_supports_stage_specific_hidden_dims(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': True,
+            'stage_hidden_dims': [128, 64, 64],
+            'num_stages': 3,
+            'mlp_depth': 2,
+            'residual_correction_mode': 'learned_dense',
+        }
+        model = create_model('separator3', config)
+
+        self.assertEqual(model.stage_hidden_dims, [128, 64, 64])
+        self.assertEqual(model.stages[0].network[0].in_features, 24)
+        self.assertEqual(model.stages[0].network[0].out_features, 128)
+        self.assertEqual(model.stages[1].network[0].in_features, 96)
+        self.assertEqual(model.stages[1].network[0].out_features, 64)
 
     def test_separator3_forward_real(self):
         config = {
             'seq_len': 12,
             'num_ports': 4,
             'normalize_energy': True,
-            'use_hidden_relu': False,
+            'hidden_dim': 64,
+            'num_stages': 2,
+            'mlp_depth': 2,
             'residual_correction_mode': 'learned_dense',
         }
         model = create_model('separator3', config)
@@ -370,7 +392,9 @@ class TestModels(unittest.TestCase):
             'seq_len': 12,
             'num_ports': 4,
             'normalize_energy': True,
-            'use_hidden_relu': False,
+            'hidden_dim': 64,
+            'num_stages': 2,
+            'mlp_depth': 2,
             'residual_correction_mode': 'learned_dense',
         }
         model = create_model('separator3', config)
@@ -384,16 +408,16 @@ class TestModels(unittest.TestCase):
             'seq_len': 12,
             'num_ports': 4,
             'normalize_energy': False,
-            'use_hidden_relu': False,
+            'hidden_dim': 64,
+            'num_stages': 2,
+            'mlp_depth': 2,
             'residual_correction_mode': 'learned_dense',
         }
         model = create_model('separator3', config)
-        model.hidden_linear.weight.data.zero_()
-        model.hidden_linear.bias.data.zero_()
-        model.output_linear.weight.data.zero_()
-        model.output_linear.bias.data.zero_()
-        model.hidden_residual_mask.data.zero_()
-        model.output_residual_mask.data.zero_()
+        for stage in model.stages:
+            for parameter in stage.parameters():
+                parameter.data.zero_()
+        model.learned_residual_masks.data.zero_()
 
         y = torch.arange(1.0, 25.0).unsqueeze(0)
         h = model(y)
@@ -404,16 +428,16 @@ class TestModels(unittest.TestCase):
             'seq_len': 12,
             'num_ports': 4,
             'normalize_energy': False,
-            'use_hidden_relu': False,
+            'hidden_dim': 64,
+            'num_stages': 2,
+            'mlp_depth': 2,
             'residual_correction_mode': 'learned_dense',
         }
         model = create_model('separator3', config)
-        model.hidden_linear.weight.data.zero_()
-        model.hidden_linear.bias.data.zero_()
-        model.output_linear.weight.data.zero_()
-        model.output_linear.bias.data.zero_()
-        model.hidden_residual_mask.data.fill_(1.0)
-        model.output_residual_mask.data.fill_(1.0)
+        for stage in model.stages:
+            for parameter in stage.parameters():
+                parameter.data.zero_()
+        model.learned_residual_masks.data.fill_(1.0)
 
         y = torch.arange(1.0, 25.0).unsqueeze(0)
         h = model(y)
@@ -425,25 +449,16 @@ class TestModels(unittest.TestCase):
             'seq_len': 12,
             'num_ports': 4,
             'normalize_energy': False,
-            'use_hidden_relu': False,
+            'hidden_dim': 64,
+            'num_stages': 2,
+            'mlp_depth': 2,
             'residual_correction_mode': 'learned_dense',
         }
         model = create_model('separator3', config)
         y = torch.randn(2, config['seq_len'] * 2)
         loss = model(y).sum()
         loss.backward()
-        self.assertIsNotNone(model.hidden_residual_mask.grad)
-        self.assertIsNotNone(model.output_residual_mask.grad)
-
-    def test_separator3_hidden_relu_is_configurable(self):
-        base = {
-            'seq_len': 12,
-            'num_ports': 4,
-            'normalize_energy': True,
-            'residual_correction_mode': 'learned_dense',
-        }
-        self.assertFalse(create_model('separator3', {**base, 'use_hidden_relu': False}).use_hidden_relu)
-        self.assertTrue(create_model('separator3', {**base, 'use_hidden_relu': True}).use_hidden_relu)
+        self.assertIsNotNone(model.learned_residual_masks.grad)
     
     def test_separator1_forward_real(self):
         """Test Separator1 forward pass with real stacked input"""

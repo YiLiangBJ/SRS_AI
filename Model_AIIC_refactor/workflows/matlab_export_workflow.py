@@ -88,16 +88,14 @@ def _export_full_mlp_weights(model: torch.nn.Module) -> Dict[str, np.ndarray]:
 
 
 def _export_separator3_weights(model: torch.nn.Module) -> Dict[str, np.ndarray]:
-    mat_data: Dict[str, np.ndarray] = {
-        'hidden_linear_weight': _to_numpy(model.hidden_linear.weight),
-        'hidden_linear_bias': _to_numpy(model.hidden_linear.bias),
-        'output_linear_weight': _to_numpy(model.output_linear.weight),
-        'output_linear_bias': _to_numpy(model.output_linear.bias),
-    }
-    if model.hidden_residual_mask is not None:
-        mat_data['hidden_residual_mask'] = _to_numpy(model.hidden_residual_mask)
-    if model.output_residual_mask is not None:
-        mat_data['output_residual_mask'] = _to_numpy(model.output_residual_mask)
+    mat_data: Dict[str, np.ndarray] = {}
+    for stage_idx, stage in enumerate(model.stages, start=1):
+        for layer_idx, layer in enumerate(_linear_layers(stage.network), start=1):
+            prefix = f'stage{stage_idx:02d}_joint_l{layer_idx:02d}'
+            mat_data[f'{prefix}_weight'] = _to_numpy(layer.weight)
+            mat_data[f'{prefix}_bias'] = _to_numpy(layer.bias)
+        if model.learned_residual_masks is not None:
+            mat_data[f'stage{stage_idx:02d}_residual_mask'] = _to_numpy(model.learned_residual_masks[stage_idx - 1])
     return mat_data
 
 
@@ -122,7 +120,8 @@ def _build_bundle_contents(model_type: str, mlp_depth: int | None, linear_layer_
         bundle_contents['full_mlp_field_pattern'] = 'joint_l##_weight/bias'
     elif model_type == 'separator3':
         bundle_contents['linear_layers_in_separator3'] = linear_layer_count
-        bundle_contents['separator3_field_pattern'] = 'hidden_linear_weight/bias, output_linear_weight/bias, hidden_residual_mask, output_residual_mask'
+        bundle_contents['linear_layers_per_stage'] = mlp_depth
+        bundle_contents['separator3_field_pattern'] = 'stage##_joint_l##_weight/bias, stage##_residual_mask'
     else:
         raise ValueError(f'Unsupported model_type for Matlab bundle export: {model_type}')
 
@@ -142,7 +141,7 @@ def export_run_to_matlab_bundle(
     model_type = model_spec['model_type']
     num_ports = int(model_spec['num_ports'])
     mlp_depth = int(model_spec['mlp_depth']) if 'mlp_depth' in model_spec else None
-    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else (2 if model_type == 'separator3' else int(model_spec['mlp_depth']))
+    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else (sum(len(_linear_layers(stage.network)) for stage in model.stages) if model_type == 'separator3' else int(model_spec['mlp_depth']))
 
     if output_root is None:
         output_root = artifacts.run_dir / 'matlab_exports'
@@ -253,7 +252,7 @@ def export_checkpoint_to_matlab_bundle(
     model_type = model_spec['model_type']
     num_ports = int(model_spec['num_ports'])
     mlp_depth = int(model_spec['mlp_depth']) if 'mlp_depth' in model_spec else None
-    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else (2 if model_type == 'separator3' else int(model_spec['mlp_depth']))
+    linear_layer_count = len(_linear_layers(model.network)) if model_type == 'full_mlp' else (sum(len(_linear_layers(stage.network)) for stage in model.stages) if model_type == 'separator3' else int(model_spec['mlp_depth']))
 
     if output_root is None:
         output_root = artifacts.run_dir / 'matlab_exports'

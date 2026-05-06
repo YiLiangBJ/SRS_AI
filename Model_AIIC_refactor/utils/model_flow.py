@@ -208,26 +208,45 @@ def _separator3_flow(model_spec: Mapping[str, Any]) -> Dict[str, Any]:
     num_ports = _num_ports(model_spec)
     input_dim = seq_len * 2
     expanded_dim = num_ports * input_dim
+    num_stages = int(model_spec.get('num_stages', 2))
+    mlp_depth = int(model_spec.get('mlp_depth', 2))
+    stage_hidden_dims = model_spec.get('stage_hidden_dims')
+    if stage_hidden_dims is None:
+        stage_hidden_dims = [int(model_spec.get('hidden_dim', 128))] * num_stages
+    else:
+        stage_hidden_dims = [int(value) for value in stage_hidden_dims]
     total_trainable_params = int(model_spec.get('num_params', 0))
-    use_hidden_relu = bool(model_spec.get('use_hidden_relu', False))
 
     nodes: List[Dict[str, Any]] = []
     _add_node(nodes, 'mixed_signal', _shape(-1, input_dim), 'Real-stacked mixed input [real, imag].', why='The task provides one mixed complex sequence flattened into real and imaginary blocks.')
     _add_node(nodes, 'normalized_input', _shape(-1, input_dim), 'Optional per-sample RMS normalization inside the model.', why='Normalization rescales values but does not change tensor width.')
-    _add_node(nodes, 'hidden_linear', _shape(-1, expanded_dim), 'First joint linear layer expands the input into one per-port real-stacked block.', why=f'The hidden affine layer maps width {input_dim} to expanded width {expanded_dim} = num_ports * (2 * seq_len).', param_count_per_occurrence=_linear_param_count(input_dim, expanded_dim), effective_total_param_count=_linear_param_count(input_dim, expanded_dim))
-    if use_hidden_relu:
-        _add_node(nodes, 'hidden_relu', _shape(-1, expanded_dim), 'Optional hidden ReLU before hidden residual correction.', why='ReLU is applied only inside the hidden block and does not change tensor width.')
-    _add_node(nodes, 'hidden_port_features', _shape(-1, num_ports, input_dim), 'Hidden representation reshaped into one real-stacked port tensor per port.', why=f'The expanded width {expanded_dim} is partitioned into {num_ports} port blocks of width {input_dim}.')
-    _add_node(nodes, 'hidden_residual_corrected', _shape(-1, num_ports, input_dim), 'Hidden learned-dense residual correction adds back the mixed-signal reconstruction error per port.', why='The hidden block sums across ports, computes the mixed-signal residual, and adds a per-port learned dense weighting of that residual back to each port estimate.')
-    _add_node(nodes, 'flattened_hidden', _shape(-1, expanded_dim), 'Hidden port features flattened back into one expanded vector.', why='The per-port hidden representation is flattened so the output linear layer can mix information across all ports jointly.')
-    _add_node(nodes, 'output_linear', _shape(-1, expanded_dim), 'Second joint linear layer predicts the output per-port representation.', why=f'The output affine layer keeps expanded width {expanded_dim} and produces the final per-port real-stacked blocks.', param_count_per_occurrence=_linear_param_count(expanded_dim, expanded_dim), effective_total_param_count=_linear_param_count(expanded_dim, expanded_dim))
-    _add_node(nodes, 'output_port_features', _shape(-1, num_ports, input_dim), 'Output representation reshaped into one real-stacked port tensor per port.', why=f'The output width {expanded_dim} is partitioned back into {num_ports} port blocks of width {input_dim}.')
-    _add_node(nodes, 'output_residual_corrected', _shape(-1, num_ports, input_dim), 'Output learned-dense residual correction produces the final separated port estimate.', why='A second learned-dense residual correction re-enforces that the separated outputs sum back to the mixed input while preserving signed residual contributions.')
+    for stage_idx in range(num_stages):
+        stage_num = stage_idx + 1
+        hidden_dim = stage_hidden_dims[stage_idx]
+        stage_input_dim = input_dim if stage_idx == 0 else expanded_dim
+        repeat = 'once' if stage_idx == 0 else f'stage {stage_num}'
+        _add_node(nodes, f'stage_{stage_num}_input', _shape(-1, stage_input_dim), f'Input to stage {stage_num}.', repeat=repeat, why=(
+            f'The first stage consumes the mixed signal width {input_dim} directly.' if stage_idx == 0 else
+            f'Stage {stage_num} consumes the flattened joint output of the previous stage, so the width is {expanded_dim}.'
+        ))
+        first_hidden_params = _linear_param_count(stage_input_dim, hidden_dim)
+        _add_node(nodes, f'stage_{stage_num}_hidden_1', _shape(-1, hidden_dim), f'First hidden linear layer of stage {stage_num}.', repeat=repeat, why=f'The first affine layer of stage {stage_num} maps width {stage_input_dim} to hidden width {hidden_dim}.', param_count_per_occurrence=first_hidden_params, effective_total_param_count=first_hidden_params)
+        _add_node(nodes, f'stage_{stage_num}_hidden_1_relu', _shape(-1, hidden_dim), f'ReLU after the first hidden layer of stage {stage_num}.', repeat=repeat, why='ReLU is applied after every hidden linear layer and keeps the hidden shape unchanged.')
+        for layer_idx in range(2, mlp_depth):
+            hidden_params = _linear_param_count(hidden_dim, hidden_dim)
+            _add_node(nodes, f'stage_{stage_num}_hidden_{layer_idx}', _shape(-1, hidden_dim), f'Additional hidden linear layer {layer_idx} of stage {stage_num}.', repeat=repeat, why=f'This affine layer keeps hidden width {hidden_dim} inside stage {stage_num}.', param_count_per_occurrence=hidden_params, effective_total_param_count=hidden_params)
+            _add_node(nodes, f'stage_{stage_num}_hidden_{layer_idx}_relu', _shape(-1, hidden_dim), f'ReLU after hidden layer {layer_idx} of stage {stage_num}.', repeat=repeat, why='ReLU is elementwise, so the hidden width stays the same.')
+        output_params = _linear_param_count(hidden_dim, expanded_dim)
+        _add_node(nodes, f'stage_{stage_num}_joint_output', _shape(-1, expanded_dim), f'Joint stage output before residual correction for stage {stage_num}.', repeat=repeat, why=f'The final affine layer of stage {stage_num} maps hidden width {hidden_dim} to expanded width {expanded_dim} = num_ports * (2 * seq_len).', param_count_per_occurrence=output_params, effective_total_param_count=output_params)
+        _add_node(nodes, f'stage_{stage_num}_port_features', _shape(-1, num_ports, input_dim), f'Stage {stage_num} output reshaped into one real-stacked port tensor per port.', repeat=repeat, why=f'The expanded width {expanded_dim} is partitioned into {num_ports} port blocks of width {input_dim}.')
+        _add_node(nodes, f'stage_{stage_num}_residual_corrected', _shape(-1, num_ports, input_dim), f'Learned-dense residual correction after stage {stage_num}.', repeat=repeat, why='Stage output is summed across ports, compared with the mixed input, and corrected with one learned dense per-port residual mask for that stage.')
+        if stage_idx < num_stages - 1:
+            _add_node(nodes, f'stage_{stage_num}_flattened_output', _shape(-1, expanded_dim), f'Flattened stage {stage_num} output passed to the next stage.', repeat=repeat, why='The per-port output is flattened back to one joint vector so the next stage can process all ports jointly again.')
     _add_node(nodes, 'separated_channels', _shape(-1, num_ports, input_dim), 'Optional output RMS restoration to the original input scale.', why='Rescaling restores amplitude but keeps the separated tensor shape unchanged.')
 
     return {
         'family': 'separator3',
-        'loop_summary': 'One hidden joint linear block and one output joint linear block, each followed by learned-dense residual correction; hidden ReLU is optional and output stays linear.',
+        'loop_summary': f'{num_stages} joint refinement stages; stage 1 maps {input_dim} to {expanded_dim}, later stages map {expanded_dim} to {expanded_dim}, and every stage ends with learned-dense residual correction.',
         'total_trainable_params': total_trainable_params,
         'total_trainable_params_string': _format_param_count(total_trainable_params),
         'nodes': nodes,

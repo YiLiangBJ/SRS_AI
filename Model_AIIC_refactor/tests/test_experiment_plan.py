@@ -67,7 +67,9 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(len(suite.plan), 1)
         self.assertEqual(suite.plan[0].model_spec['model_type'], 'separator3')
         self.assertEqual(suite.plan[0].model_spec['residual_correction_mode'], 'learned_dense')
-        self.assertFalse(suite.plan[0].model_spec['use_hidden_relu'])
+        self.assertEqual(suite.plan[0].model_spec['hidden_dim'], 128)
+        self.assertEqual(suite.plan[0].model_spec['num_stages'], 2)
+        self.assertEqual(suite.plan[0].model_spec['mlp_depth'], 2)
         self.assertEqual(suite.plan[0].model_spec['num_ports'], 6)
 
     def test_build_full_mlp_experiment_suite(self):
@@ -315,7 +317,10 @@ class TestExperimentPlan(unittest.TestCase):
 
         self.assertEqual(len(suite.plan), 1)
         self.assertEqual(suite.plan[0].model_spec['model_type'], 'separator3')
-        self.assertFalse(suite.plan[0].model_spec['use_hidden_relu'])
+        self.assertEqual(suite.plan[0].model_spec['hidden_dim'], 128)
+        self.assertEqual(suite.plan[0].model_spec['num_stages'], 2)
+        self.assertEqual(suite.plan[0].model_spec['mlp_depth'], 2)
+
     def test_learned_dense_separator3_standard_grid_search_builds_relu_off_and_on(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
         suite = build_experiment_suite(
@@ -323,25 +328,30 @@ class TestExperimentPlan(unittest.TestCase):
             experiment_name='default_6port_separator3_learned_dense_v2',
         )
 
-        self.assertEqual(len(suite.plan), 2)
+        self.assertEqual(len(suite.plan), 4)
         self.assertEqual({item.model_spec['model_type'] for item in suite.plan}, {'separator3'})
         self.assertTrue(all(item.model_spec['residual_correction_mode'] == 'learned_dense' for item in suite.plan))
-        self.assertEqual({item.model_spec['use_hidden_relu'] for item in suite.plan}, {False, True})
-        self.assertTrue(any('relu0' in item.run_name for item in suite.plan))
-        self.assertTrue(any('relu1' in item.run_name for item in suite.plan))
+        self.assertEqual({item.model_spec['hidden_dim'] for item in suite.plan}, {32, 64, 128, 256})
+        self.assertTrue(all(item.model_spec['num_stages'] == 2 for item in suite.plan))
+        self.assertTrue(all(item.model_spec['mlp_depth'] == 2 for item in suite.plan))
+        self.assertTrue(any('hd32' in item.run_name for item in suite.plan))
+        self.assertTrue(any('hd256' in item.run_name for item in suite.plan))
 
-    def test_separator3_activation_ablation_builds_relu_off_and_on(self):
+    def test_separator3_stage_templates_experiment_builds_hand_designed_variants(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
         suite = build_experiment_suite(
             config_dir=config_dir,
-            experiment_name='separator3_activation_ablation_v1',
+            experiment_name='separator3_stage_templates_learned_dense_v1',
         )
 
-        self.assertEqual(len(suite.plan), 2)
+        self.assertEqual(len(suite.plan), 4)
         self.assertEqual({item.model_spec['model_type'] for item in suite.plan}, {'separator3'})
-        self.assertEqual({item.model_spec['use_hidden_relu'] for item in suite.plan}, {False, True})
-        self.assertTrue(any('relu0' in item.run_name for item in suite.plan))
-        self.assertTrue(any('relu1' in item.run_name for item in suite.plan))
+        self.assertEqual(
+            {tuple(item.model_spec['stage_hidden_dims']) for item in suite.plan},
+            {(128, 64), (128, 64, 64), (128, 128, 64), (64, 64, 64)},
+        )
+        self.assertEqual({item.model_spec['num_stages'] for item in suite.plan}, {2, 3})
+        self.assertTrue(all(item.model_spec['residual_correction_mode'] == 'learned_dense' for item in suite.plan))
 
     def test_build_experiment_suite_can_filter_to_requested_runs(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'

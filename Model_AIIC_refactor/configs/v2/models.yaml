@@ -141,18 +141,62 @@ models:
     type: separator3
     params:
       normalize_energy: true
-      use_hidden_relu: false
+      hidden_dim: 128
+      num_stages: 2
+      mlp_depth: 2
       residual_correction_mode: learned_dense
   separator3_grid_search_6ports_learned_dense:
     type: separator3
     params:
       normalize_energy: true
-      use_hidden_relu: false
+      hidden_dim: 128
+      num_stages: 2
+      mlp_depth: 2
       residual_correction_mode: learned_dense
     sweeps:
-      - target: params.use_hidden_relu
-        alias: relu
-        values: [false, true]
+      - target: params.hidden_dim
+        alias: hd
+        values: [32, 64, 128, 256]
+
+  separator3_template_128_64_learned_dense:
+    type: separator3
+    params:
+      normalize_energy: true
+      hidden_dim: 128
+      stage_hidden_dims: [128, 64]
+      num_stages: 2
+      mlp_depth: 2
+      residual_correction_mode: learned_dense
+
+  separator3_template_128_64_64_learned_dense:
+    type: separator3
+    params:
+      normalize_energy: true
+      hidden_dim: 128
+      stage_hidden_dims: [128, 64, 64]
+      num_stages: 3
+      mlp_depth: 2
+      residual_correction_mode: learned_dense
+
+  separator3_template_128_128_64_learned_dense:
+    type: separator3
+    params:
+      normalize_energy: true
+      hidden_dim: 128
+      stage_hidden_dims: [128, 128, 64]
+      num_stages: 3
+      mlp_depth: 2
+      residual_correction_mode: learned_dense
+
+  separator3_template_64_64_64_learned_dense:
+    type: separator3
+    params:
+      normalize_energy: true
+      hidden_dim: 64
+      stage_hidden_dims: [64, 64, 64]
+      num_stages: 3
+      mlp_depth: 2
+      residual_correction_mode: learned_dense
 
   separator1_grid_search_6ports:
     type: separator1

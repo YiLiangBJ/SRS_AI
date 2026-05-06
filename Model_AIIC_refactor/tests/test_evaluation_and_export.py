@@ -167,6 +167,38 @@ def _python_bundle_forward_full_mlp(weights, model_spec, input_data):
     return _restore_real_stacked_output(features, input_rms, model_spec)
 
 
+def _python_bundle_forward_separator3(weights, model_spec, input_data):
+    num_ports = int(model_spec['num_ports'])
+    seq_len = int(model_spec['seq_len'])
+    num_stages = int(model_spec['num_stages'])
+
+    normalized_input, input_rms = _normalize_real_stacked_input(input_data, model_spec)
+    stage_input = normalized_input
+
+    for stage_idx in range(1, num_stages + 1):
+        x = stage_input
+        layer_idx = 1
+        while f'stage{stage_idx:02d}_joint_l{layer_idx:02d}_weight' in weights:
+            prefix = f'stage{stage_idx:02d}_joint_l{layer_idx:02d}'
+            x = x @ weights[f'{prefix}_weight'].t() + weights[f'{prefix}_bias']
+            if f'stage{stage_idx:02d}_joint_l{layer_idx + 1:02d}_weight' in weights:
+                x = torch.relu(x)
+            layer_idx += 1
+
+        features = x.view(-1, num_ports, seq_len * 2)
+        residual = normalized_input - features.sum(dim=1)
+        if model_spec.get('residual_correction_mode', 'learned_dense') == 'learned_dense':
+            residual_mask = weights[f'stage{stage_idx:02d}_residual_mask']
+            features = features + residual.unsqueeze(1) * residual_mask.unsqueeze(0)
+        elif model_spec.get('residual_correction_mode') == 'masked':
+            raise ValueError('Masked separator3 Matlab test helper is not implemented for this rewrite')
+        else:
+            features = features + residual.unsqueeze(1)
+        stage_input = features.reshape(features.shape[0], -1)
+
+    return _restore_real_stacked_output(features, input_rms, model_spec)
+
+
 class TestEvaluationAndExport(unittest.TestCase):
     """Exercise the shared run-artifact, evaluation, and export workflows."""
 
@@ -694,6 +726,56 @@ class TestEvaluationAndExport(unittest.TestCase):
         }
         reconstructed = _python_bundle_forward_full_mlp(weights, manifest['model_spec'], sample_input)
         self.assertTrue(torch.allclose(reconstructed, reference_output, atol=1e-5, rtol=1e-5))
+
+    def test_export_run_to_onnx_supports_separator3(self):
+        run_dir = self._create_run(
+            'demo_run_separator3',
+            model_spec_override={
+                'model_type': 'separator3',
+                'hidden_dim': 64,
+                'num_stages': 2,
+                'mlp_depth': 2,
+                'stage_hidden_dims': [64, 64],
+                'residual_correction_mode': 'learned_dense',
+            },
+        )
+
+        manifest = export_run_to_onnx(
+            run_dir=run_dir,
+            batch_size=1,
+            dynamic_batch=True,
+            validate=False,
+        )
+
+        self.assertEqual(manifest['model_spec']['model_type'], 'separator3')
+        self.assertTrue(Path(manifest['onnx_path']).exists())
+
+    def test_separator3_matlab_bundle_matches_exported_reference_output(self):
+        run_dir = self._create_run(
+            'demo_run_separator3_bundle',
+            model_spec_override={
+                'model_type': 'separator3',
+                'hidden_dim': 64,
+                'num_stages': 2,
+                'mlp_depth': 2,
+                'stage_hidden_dims': [128, 64],
+                'normalize_energy': True,
+                'residual_correction_mode': 'learned_dense',
+            },
+        )
+        manifest = export_run_to_matlab_bundle(run_dir=run_dir)
+        mat_data = loadmat(manifest['mat_path'])
+        sample_input = torch.from_numpy(mat_data['sample_input']).float()
+        reference_output = torch.from_numpy(mat_data['reference_output']).float()
+
+        weights = {
+            key: torch.from_numpy(value).float()
+            for key, value in mat_data.items()
+            if not key.startswith('__') and key not in {'sample_input', 'reference_output', 'pos_values'}
+        }
+        reconstructed = _python_bundle_forward_separator3(weights, manifest['model_spec'], sample_input)
+        self.assertTrue(torch.allclose(reconstructed, reference_output, atol=1e-5, rtol=1e-5))
+        self.assertEqual(manifest['bundle_contents']['separator3_field_pattern'], 'stage##_joint_l##_weight/bias, stage##_residual_mask')
 
     def test_export_runs_to_onnx_rejects_shared_output_root_for_multiple_runs(self):
         self._create_second_run()

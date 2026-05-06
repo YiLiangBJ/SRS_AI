@@ -294,38 +294,48 @@ def _separator3_entries(model: torch.nn.Module, model_spec: Mapping[str, Any]) -
             why='Per-sample RMS normalization and output rescaling are applied around the network when normalize_energy=true.',
             ops=_normalization_ops(model.seq_len, model.num_ports, model.normalize_energy),
         ),
-        _finalize_entry(
-            name='hidden_linear',
-            repeat='once per sample',
-            why=f'Hidden affine layer maps width {model.input_dim} to expanded width {expanded_dim}.',
-            ops=_linear_ops(model.input_dim, expanded_dim),
-        ),
     ]
-    if model.use_hidden_relu:
+    for stage_idx, stage in enumerate(model.stages, start=1):
+        linear_layers = [layer for layer in stage.network if isinstance(layer, nn.Linear)]
+        stage_hidden_dim = model.stage_hidden_dims[stage_idx - 1]
+        stage_input_dim = model.input_dim if stage_idx == 1 else expanded_dim
         entries.append(_finalize_entry(
-            name='hidden_relu',
+            name=f'stage_{stage_idx:02d}_hidden_linear_01',
             repeat='once per sample',
-            why='Optional hidden ReLU is applied before hidden residual correction.',
-            ops=_relu_ops(expanded_dim),
+            why=f'Stage {stage_idx} first affine layer maps width {stage_input_dim} to hidden width {stage_hidden_dim}.',
+            ops=_linear_ops(stage_input_dim, stage_hidden_dim),
         ))
-    entries.append(_finalize_entry(
-        name='hidden_residual_correction',
-        repeat='once per sample',
-        why='Hidden features are summed across ports, compared with the mixed input, and corrected with a learned dense per-port residual mask.',
-        ops=_residual_ops(model.seq_len, model.num_ports),
-    ))
-    entries.append(_finalize_entry(
-        name='output_linear',
-        repeat='once per sample',
-        why=f'Output affine layer keeps expanded width {expanded_dim} and predicts the final per-port representation.',
-        ops=_linear_ops(expanded_dim, expanded_dim),
-    ))
-    entries.append(_finalize_entry(
-        name='output_residual_correction',
-        repeat='once per sample',
-        why='Output features are again corrected with a learned dense per-port residual mask before final output.',
-        ops=_residual_ops(model.seq_len, model.num_ports),
-    ))
+        entries.append(_finalize_entry(
+            name=f'stage_{stage_idx:02d}_hidden_relu_01',
+            repeat='once per sample',
+            why=f'Stage {stage_idx} applies ReLU after the first hidden affine layer.',
+            ops=_relu_ops(stage_hidden_dim),
+        ))
+        for layer_idx in range(2, len(linear_layers)):
+            entries.append(_finalize_entry(
+                name=f'stage_{stage_idx:02d}_hidden_linear_{layer_idx:02d}',
+                repeat='once per sample',
+                why=f'Stage {stage_idx} additional hidden affine layer keeps width {stage_hidden_dim}.',
+                ops=_linear_ops(stage_hidden_dim, stage_hidden_dim),
+            ))
+            entries.append(_finalize_entry(
+                name=f'stage_{stage_idx:02d}_hidden_relu_{layer_idx:02d}',
+                repeat='once per sample',
+                why=f'Stage {stage_idx} applies ReLU after hidden affine layer {layer_idx}.',
+                ops=_relu_ops(stage_hidden_dim),
+            ))
+        entries.append(_finalize_entry(
+            name=f'stage_{stage_idx:02d}_joint_output',
+            repeat='once per sample',
+            why=f'Stage {stage_idx} output affine layer maps hidden width {stage_hidden_dim} to expanded width {expanded_dim}.',
+            ops=_linear_ops(stage_hidden_dim, expanded_dim),
+        ))
+        entries.append(_finalize_entry(
+            name=f'stage_{stage_idx:02d}_residual_correction',
+            repeat='once per sample',
+            why=f'Stage {stage_idx} output is summed across ports, compared with the mixed input, and corrected with a learned dense per-port residual mask.',
+            ops=_residual_ops(model.seq_len, model.num_ports),
+        ))
     return entries
 
 
