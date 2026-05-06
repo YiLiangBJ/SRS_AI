@@ -107,7 +107,7 @@ experiments:
     model: separator3_default
     training_strategy: supervised_nmse_plateau
   default_6port_separator3_learned_dense_v2:
-    description: Default 6-port multi-stage separator3 sweep over hidden_dim with learned dense residual correction.
+    description: Default 6-port multi-stage separator3 sweep over hidden_dim, mlp_depth, and num_stages with learned dense residual correction.
     task: channel_separator_6port_standard
     model: separator3_grid_search_6ports_learned_dense
     training_strategy: supervised_nmse_plateau

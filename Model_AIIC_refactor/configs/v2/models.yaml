@@ -157,6 +157,12 @@ models:
       - target: params.hidden_dim
         alias: hd
         values: [32, 64, 128, 256]
+      - target: params.mlp_depth
+        alias: depth
+        values: [2, 3]
+      - target: params.num_stages
+        alias: stages
+        values: [2, 3, 4, 5]
 
   separator3_template_128_64_learned_dense:
     type: separator3

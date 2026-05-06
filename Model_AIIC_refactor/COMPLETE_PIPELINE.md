@@ -182,7 +182,7 @@ python ./Model_AIIC_refactor/train.py \
 - `quick_separator1_v2`: one-run 6-port smoke test for separator1
 - `quick_separator1_masked_v2`: one-run 6-port smoke test for separator1 with masked residual correction
 - `quick_separator3_v2`: one-run 6-port smoke test for multi-stage separator3 with learned dense residual correction
-- `default_6port_separator3_learned_dense_v2`: four-run standard separator3 sweep over hidden_dim with learned dense residual correction
+- `default_6port_separator3_learned_dense_v2`: 32-run standard separator3 sweep over hidden_dim, depth, and stage count with learned dense residual correction
 - `quick_separator3_stage_templates_v1`: four-run quick smoke test for hand-designed separator3 stage-hidden templates
 - `separator3_stage_templates_learned_dense_v1`: four-run standard comparison of hand-designed separator3 stage-hidden templates
 - `compare_default_models_v2`: compare full_mlp_default, separator1_default, and separator2_default on the same 6-port task
@@ -310,7 +310,7 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
-Standard 6-port separator3 sweep over hidden_dim:
+Standard 6-port separator3 sweep over hidden_dim, depth, and stage count:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
