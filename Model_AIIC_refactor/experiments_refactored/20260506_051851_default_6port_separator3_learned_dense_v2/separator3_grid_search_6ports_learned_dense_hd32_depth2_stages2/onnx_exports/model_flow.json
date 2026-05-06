@@ -1,0 +1,402 @@
+{
+  "format": "srs_ai_model_flow_v1",
+  "model_type": "separator3",
+  "input_layout": "N x (2*seq_len) real-stacked float32 = [real_part, imag_part]",
+  "output_layout": "N x num_ports x (2*seq_len) real-stacked float32",
+  "dynamic_dimension_convention": "Dynamic dimensions are written as -1.",
+  "input_shape": [
+    -1,
+    24
+  ],
+  "output_shape": [
+    -1,
+    6,
+    24
+  ],
+  "input_shape_string": "[-1, 24]",
+  "output_shape_string": "[-1, 6, 24]",
+  "model_spec": {
+    "seq_len": 12,
+    "pos_values": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "normalize_energy": true,
+    "hidden_dim": 32,
+    "num_stages": 2,
+    "mlp_depth": 2,
+    "residual_correction_mode": "learned_dense",
+    "model_type": "separator3",
+    "num_ports": 6,
+    "stage_hidden_dims": [
+      32,
+      32
+    ],
+    "num_params": 15232
+  },
+  "component_specs": {
+    "task": {
+      "type": "channel_separator",
+      "params": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "snr_config": {
+          "type": "range",
+          "min": 0,
+          "max": 30,
+          "per_sample": true,
+          "sampling": "stratified",
+          "num_bins": 10
+        },
+        "tdl_config": [
+          "A-30",
+          "B-100",
+          "C-300"
+        ]
+      }
+    },
+    "model": {
+      "type": "separator3",
+      "params": {
+        "normalize_energy": true,
+        "hidden_dim": 32,
+        "num_stages": 2,
+        "mlp_depth": 2,
+        "residual_correction_mode": "learned_dense"
+      },
+      "sweeps": [
+        {
+          "target": "params.hidden_dim",
+          "alias": "hd",
+          "values": [
+            32,
+            64,
+            128,
+            256
+          ]
+        },
+        {
+          "target": "params.mlp_depth",
+          "alias": "depth",
+          "values": [
+            2,
+            3
+          ]
+        },
+        {
+          "target": "params.num_stages",
+          "alias": "stages",
+          "values": [
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    "training_strategy": {
+      "type": "standard_supervised",
+      "params": {
+        "batch_size": 4096,
+        "num_batches": 100000,
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.01
+          }
+        },
+        "loss": {
+          "type": "nmse"
+        },
+        "regularization": {
+          "learned_dense_mask_l2_to_one": 1e-05
+        },
+        "validation": {
+          "interval": 100,
+          "batches": 4
+        },
+        "early_stop": {
+          "patience": 5
+        },
+        "logging": {
+          "print_interval": 100
+        },
+        "checkpoints": {
+          "save_interval": 1000,
+          "keep_last_n": 2
+        },
+        "scheduler": {
+          "type": "reduce_on_plateau",
+          "params": {
+            "factor": 0.8,
+            "patience": 30,
+            "threshold": 0.005,
+            "threshold_mode": "abs",
+            "cooldown": 10,
+            "min_lr": 1e-06
+          }
+        }
+      }
+    }
+  },
+  "family": "separator3",
+  "loop_summary": "2 joint refinement stages; stage 1 maps 24 to 144, later stages map 144 to 144, and every stage ends with learned-dense residual correction.",
+  "total_trainable_params": 15232,
+  "total_trainable_params_string": "15,232",
+  "nodes": [
+    {
+      "name": "mixed_signal",
+      "shape": [
+        -1,
+        24
+      ],
+      "shape_string": "[-1, 24]",
+      "description": "Real-stacked mixed input [real, imag].",
+      "why": "The task provides one mixed complex sequence flattened into real and imaginary blocks.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "normalized_input",
+      "shape": [
+        -1,
+        24
+      ],
+      "shape_string": "[-1, 24]",
+      "description": "Optional per-sample RMS normalization inside the model.",
+      "why": "Normalization rescales values but does not change tensor width.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    },
+    {
+      "name": "stage_1_input",
+      "shape": [
+        -1,
+        24
+      ],
+      "shape_string": "[-1, 24]",
+      "description": "Input to stage 1.",
+      "why": "The first stage consumes the mixed signal width 24 directly.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "once"
+    },
+    {
+      "name": "stage_1_hidden_1",
+      "shape": [
+        -1,
+        32
+      ],
+      "shape_string": "[-1, 32]",
+      "description": "First hidden linear layer of stage 1.",
+      "why": "The first affine layer of stage 1 maps width 24 to hidden width 32.",
+      "param_count_per_occurrence": 800,
+      "param_count_per_occurrence_string": "800",
+      "effective_total_param_count": 800,
+      "effective_total_param_count_string": "800",
+      "repeat": "once"
+    },
+    {
+      "name": "stage_1_hidden_1_relu",
+      "shape": [
+        -1,
+        32
+      ],
+      "shape_string": "[-1, 32]",
+      "description": "ReLU after the first hidden layer of stage 1.",
+      "why": "ReLU is applied after every hidden linear layer and keeps the hidden shape unchanged.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "once"
+    },
+    {
+      "name": "stage_1_joint_output",
+      "shape": [
+        -1,
+        144
+      ],
+      "shape_string": "[-1, 144]",
+      "description": "Joint stage output before residual correction for stage 1.",
+      "why": "The final affine layer of stage 1 maps hidden width 32 to expanded width 144 = num_ports * (2 * seq_len).",
+      "param_count_per_occurrence": 4752,
+      "param_count_per_occurrence_string": "4,752",
+      "effective_total_param_count": 4752,
+      "effective_total_param_count_string": "4,752",
+      "repeat": "once"
+    },
+    {
+      "name": "stage_1_port_features",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Stage 1 output reshaped into one real-stacked port tensor per port.",
+      "why": "The expanded width 144 is partitioned into 6 port blocks of width 24.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "once"
+    },
+    {
+      "name": "stage_1_residual_corrected",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Learned-dense residual correction after stage 1.",
+      "why": "Stage output is summed across ports, compared with the mixed input, and corrected with one learned dense per-port residual mask for that stage.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "once"
+    },
+    {
+      "name": "stage_1_flattened_output",
+      "shape": [
+        -1,
+        144
+      ],
+      "shape_string": "[-1, 144]",
+      "description": "Flattened stage 1 output passed to the next stage.",
+      "why": "The per-port output is flattened back to one joint vector so the next stage can process all ports jointly again.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "once"
+    },
+    {
+      "name": "stage_2_input",
+      "shape": [
+        -1,
+        144
+      ],
+      "shape_string": "[-1, 144]",
+      "description": "Input to stage 2.",
+      "why": "Stage 2 consumes the flattened joint output of the previous stage, so the width is 144.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "stage 2"
+    },
+    {
+      "name": "stage_2_hidden_1",
+      "shape": [
+        -1,
+        32
+      ],
+      "shape_string": "[-1, 32]",
+      "description": "First hidden linear layer of stage 2.",
+      "why": "The first affine layer of stage 2 maps width 144 to hidden width 32.",
+      "param_count_per_occurrence": 4640,
+      "param_count_per_occurrence_string": "4,640",
+      "effective_total_param_count": 4640,
+      "effective_total_param_count_string": "4,640",
+      "repeat": "stage 2"
+    },
+    {
+      "name": "stage_2_hidden_1_relu",
+      "shape": [
+        -1,
+        32
+      ],
+      "shape_string": "[-1, 32]",
+      "description": "ReLU after the first hidden layer of stage 2.",
+      "why": "ReLU is applied after every hidden linear layer and keeps the hidden shape unchanged.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "stage 2"
+    },
+    {
+      "name": "stage_2_joint_output",
+      "shape": [
+        -1,
+        144
+      ],
+      "shape_string": "[-1, 144]",
+      "description": "Joint stage output before residual correction for stage 2.",
+      "why": "The final affine layer of stage 2 maps hidden width 32 to expanded width 144 = num_ports * (2 * seq_len).",
+      "param_count_per_occurrence": 4752,
+      "param_count_per_occurrence_string": "4,752",
+      "effective_total_param_count": 4752,
+      "effective_total_param_count_string": "4,752",
+      "repeat": "stage 2"
+    },
+    {
+      "name": "stage_2_port_features",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Stage 2 output reshaped into one real-stacked port tensor per port.",
+      "why": "The expanded width 144 is partitioned into 6 port blocks of width 24.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "stage 2"
+    },
+    {
+      "name": "stage_2_residual_corrected",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Learned-dense residual correction after stage 2.",
+      "why": "Stage output is summed across ports, compared with the mixed input, and corrected with one learned dense per-port residual mask for that stage.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0",
+      "repeat": "stage 2"
+    },
+    {
+      "name": "separated_channels",
+      "shape": [
+        -1,
+        6,
+        24
+      ],
+      "shape_string": "[-1, 6, 24]",
+      "description": "Optional output RMS restoration to the original input scale.",
+      "why": "Rescaling restores amplitude but keeps the separated tensor shape unchanged.",
+      "param_count_per_occurrence": 0,
+      "param_count_per_occurrence_string": "0",
+      "effective_total_param_count": 0,
+      "effective_total_param_count_string": "0"
+    }
+  ]
+}
