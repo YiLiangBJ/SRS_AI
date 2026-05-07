@@ -1,0 +1,51 @@
+nohup: ignoring input
+================================================================================
+Latency Benchmark
+================================================================================
+Device: cpu
+Runtime backends: ['onnxruntime']
+Execution modes: ['eager', 'jit', 'compile']
+Precision profiles: ['fp32']
+Batch sizes: 1,2,4,8,16,32,64,128
+Batch antennas: 8,16,32,64
+Batch RBGs: 1,2,4,8,17,34,68
+Thread counts: 1
+Warmup iterations: 20
+Measure iterations: 50
+
+Benchmark tasks: 16 total
+[1/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=1 threads=1
+  -> done: prep=4.625 ms, p50=0.016 ms, throughput=60202.594 samples/s
+[2/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=2 threads=1
+  -> done: prep=4.204 ms, p50=0.017 ms, throughput=108227.099 samples/s
+[3/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=4 threads=1
+  -> done: prep=4.191 ms, p50=0.020 ms, throughput=194067.926 samples/s
+[4/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=8 threads=1
+  -> done: prep=4.177 ms, p50=0.024 ms, throughput=336667.180 samples/s
+[5/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=16 threads=1
+  -> done: prep=4.222 ms, p50=0.034 ms, throughput=483743.497 samples/s
+[6/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=32 threads=1
+  -> done: prep=4.138 ms, p50=0.045 ms, throughput=708750.813 samples/s
+[7/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=64 threads=1
+  -> done: prep=4.182 ms, p50=0.071 ms, throughput=884030.161 samples/s
+[8/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=128 threads=1
+  -> done: prep=4.179 ms, p50=0.127 ms, throughput=1004362.385 samples/s
+[9/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=136 threads=1
+  -> done: prep=4.175 ms, p50=0.135 ms, throughput=1003224.926 samples/s
+[10/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=256 threads=1
+  -> done: prep=4.081 ms, p50=0.236 ms, throughput=1082921.316 samples/s
+[11/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=272 threads=1
+  -> done: prep=4.166 ms, p50=0.256 ms, throughput=1061975.815 samples/s
+[12/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=512 threads=1
+  -> done: prep=4.213 ms, p50=0.487 ms, throughput=1051824.935 samples/s
+[13/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=544 threads=1
+  -> done: prep=4.072 ms, p50=0.517 ms, throughput=1052149.968 samples/s
+[14/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=1088 threads=1
+  -> done: prep=4.436 ms, p50=1.136 ms, throughput=956310.851 samples/s
+[15/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=2176 threads=1
+  -> done: prep=4.223 ms, p50=2.257 ms, throughput=960985.890 samples/s
+[16/16] Benchmarking run=separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=4352 threads=1
+  -> done: prep=4.330 ms, p50=4.623 ms, throughput=941099.852 samples/s
+Benchmark completed
+  - separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2: /home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260506_051851_default_6port_separator3_learned_dense_v2/separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2/latency/20260507_030500_cpu/LATENCY_REPORT.md
+Aggregate report: Model_AIIC_refactor/experiments_refactored/20260506_051851_default_6port_separator3_learned_dense_v2/latency/20260507_030500_separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2_cpu/LATENCY_REPORT.md
