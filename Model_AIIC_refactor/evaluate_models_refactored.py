@@ -11,6 +11,7 @@ from workflows.evaluation_workflow import (
     evaluate_models_programmatic,
 )
 from workflows.plotting_workflow import generate_plots_for_target_programmatic, generate_plots_programmatic
+from workflows.types import EvaluationRequest
 
 
 def build_parser():
@@ -27,6 +28,7 @@ def build_parser():
     parser.add_argument('--batches_per_snr', type=int, default=None, help='Friendly alias for --num_batches')
     parser.add_argument('--batch_size', type=int, default=2048, help='Batch size for evaluation')
     parser.add_argument('--device', type=str, default='auto', help='auto, cpu, cuda, cuda:0, ...')
+    parser.add_argument('--override', action='append', default=None, help='Universal override for evaluation CLI args in key=value form')
     parser.add_argument('--no-amp', dest='use_amp', action='store_false', help='Disable AMP on GPU during evaluation')
     parser.add_argument('--no-compile', dest='compile', action='store_false', help='Disable torch.compile on GPU')
     plot_group = parser.add_mutually_exclusive_group()
@@ -39,39 +41,37 @@ def build_parser():
 
 def main():
     """Parse CLI args and dispatch to the evaluation workflow."""
-    args = build_parser().parse_args()
-    if args.batches_per_snr is not None:
-        args.num_batches = args.batches_per_snr
-    if args.runs and not args.exp_dir:
+    request = EvaluationRequest.from_namespace(build_parser().parse_args())
+    if request.runs and not request.exp_dir:
         raise ValueError('--runs requires --exp_dir')
 
-    if args.list_runs:
-        if not args.exp_dir:
+    if request.list_runs:
+        if not request.exp_dir:
             raise ValueError('--list_runs requires --exp_dir')
-        run_dirs = discover_run_dirs(args.exp_dir)
+        run_dirs = discover_run_dirs(request.exp_dir)
         print(f'Evaluable runs: {len(run_dirs)}')
         for run_dir in run_dirs:
             print(f'  - {run_dir.name}')
         return
 
-    device = resolve_device(args.device)
+    device = resolve_device(request.device)
     if device.type == 'cpu':
-        args.compile = False
-        args.use_amp = False
+        request.compile = False
+        request.use_amp = False
 
     target_dirs = resolve_run_selection(
-        exp_dir=args.exp_dir,
-        run_dir=args.run_dir,
-        run_dirs=args.run_dirs,
-        runs=args.runs,
+        exp_dir=request.exp_dir,
+        run_dir=request.run_dir,
+        run_dirs=request.run_dirs,
+        runs=request.runs,
     )
-    snr_values = parse_snr_range(args.snr_range)
-    tdl_configs = split_csv_arg(args.tdl)
+    snr_values = parse_snr_range(request.snr_range)
+    tdl_configs = split_csv_arg(request.tdl)
     output_dir = resolve_evaluation_output_dir(
-        explicit_output=args.output,
-        exp_dir=Path(args.exp_dir) if args.exp_dir else None,
+        explicit_output=request.output,
+        exp_dir=Path(request.exp_dir) if request.exp_dir else None,
         model_dirs=target_dirs,
-        force_exp_dir=bool(args.exp_dir),
+        force_exp_dir=bool(request.exp_dir),
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,30 +82,30 @@ def main():
     print(f'Runs: {[run_dir.name for run_dir in target_dirs]}')
     print(f'SNR values: {snr_values}')
     print(f'TDL configs: {tdl_configs}')
-    print(f'Batches per SNR: {args.num_batches}')
-    print(f'Batch size: {args.batch_size}')
+    print(f'Batches per SNR: {request.num_batches}')
+    print(f'Batch size: {request.batch_size}')
     print(f'Output: {output_dir}')
     print()
 
     results = evaluate_models_programmatic(
-        exp_dir=Path(args.exp_dir) if args.exp_dir else None,
+        exp_dir=Path(request.exp_dir) if request.exp_dir else None,
         output_dir=output_dir,
-        snr_range=args.snr_range,
+        snr_range=request.snr_range,
         tdl_list=tdl_configs,
-        num_batches=args.num_batches,
-        batch_size=args.batch_size,
+        num_batches=request.num_batches,
+        batch_size=request.batch_size,
         device=device,
-        use_amp=args.use_amp,
-        compile=args.compile,
+        use_amp=request.use_amp,
+        compile=request.compile,
         model_dirs=target_dirs,
     )
 
-    if args.plot_after_eval:
+    if request.plot_after_eval:
         print('\n' + '=' * 80)
         print('Generating Evaluation Plots')
         print('=' * 80)
-        if args.exp_dir:
-            generated_files = generate_plots_for_target_programmatic(args.exp_dir, args.output and Path(args.output) / 'plots')
+        if request.exp_dir:
+            generated_files = generate_plots_for_target_programmatic(request.exp_dir, request.output and Path(request.output) / 'plots')
         elif len(target_dirs) == 1:
             run_eval_dir = Path(next(iter(results['artifacts']['per_run_output_dirs'].values())))
             generated_files = generate_plots_programmatic(
@@ -120,7 +120,7 @@ def main():
             if aggregate_dir:
                 generated_files.extend(generate_plots_programmatic(aggregate_dir, Path(aggregate_dir) / 'plots'))
         print(f'Generated {len(generated_files)} plot(s)')
-        if args.exp_dir and results['artifacts']['aggregate_output_dir']:
+        if request.exp_dir and results['artifacts']['aggregate_output_dir']:
             print(f"Experiment comparison plots: {Path(results['artifacts']['aggregate_output_dir']) / 'plots'}")
 
 

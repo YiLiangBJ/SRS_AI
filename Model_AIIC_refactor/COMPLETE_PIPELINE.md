@@ -254,7 +254,7 @@ python ./Model_AIIC_refactor/train.py \
   --device cpu
 ```
 
-Inspect one resolved run with temporary debug overrides applied after experiment resolution:
+Inspect one resolved run with temporary overrides applied after experiment resolution:
 
 ```bash
 python ./Model_AIIC_refactor/train.py \
@@ -263,6 +263,34 @@ python ./Model_AIIC_refactor/train.py \
   --model_override mlp_depth=2 \
   --model_override num_stages=2 \
   --training_override batch_size=16 \
+  --plan_only \
+  --device cpu
+```
+
+Inspect an entire resolved experiment after applying experiment-wide overrides through the universal `--override` entrypoint. The override is applied after sweep resolution, duplicate plans that collapse to the same final task/model/training specs are removed automatically, and generated run names are suffixed with override tokens so the saved directories remain distinguishable:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment default_6port_separator3_learned_dense_v2 \
+  --override model.num_stages=1 \
+  --plan_only \
+  --device cpu
+```
+
+For training, the universal `--override` scopes are:
+
+- `task.<path>=value`
+- `model.<path>=value`
+- `training.<path>=value`
+
+Example:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment quick_separator3_v2 \
+  --override task.seq_len=16 \
+  --override model.num_stages=1 \
+  --override training.batch_size=8 \
   --plan_only \
   --device cpu
 ```
@@ -392,8 +420,10 @@ python ./Model_AIIC_refactor/train.py \
 | `--batch_size` | Optional override applied after recipe resolution |
 | `--num_batches` | Optional override applied after recipe resolution |
 | `--runs` | Keep only selected run names from the resolved experiment plan |
-| `--model_override` | Debug-only override applied to resolved `model_spec`, repeatable `key=value` |
-| `--training_override` | Debug-only override applied to resolved `training_spec`, repeatable `key=value` |
+| `--override` | Preferred universal override entrypoint; training supports `task.*`, `model.*`, and `training.*` |
+| `--task_override` | Deprecated compatibility alias for task-scoped training override in `key=value` form |
+| `--model_override` | Deprecated compatibility alias for model-scoped training override; duplicate collapsed plans are removed automatically |
+| `--training_override` | Deprecated compatibility alias for training-scoped override; override tokens are appended to generated run names |
 | `--init_checkpoint` | Initialize weights from one existing checkpoint; model spec must match exactly |
 | `--device` | `auto`, `cpu`, `cuda`, `cuda:0`, ... |
 | `--save_dir` | Parent output directory |
@@ -623,6 +653,16 @@ python ./Model_AIIC_refactor/evaluate_models_refactored.py \
   --tdl "A-30,B-100,C-300" \
   --num_batches 100 \
   --batch_size 2048
+```
+
+Evaluation also supports the same universal `--override` entrypoint for command parameters. This keeps the mental model aligned with training and benchmarking.
+
+```bash
+python ./Model_AIIC_refactor/evaluate_models_refactored.py \
+  --exp_dir "./Model_AIIC_refactor/experiments_refactored/20260421_000000_compare_default_models_v2" \
+  --override batch_size=4096 \
+  --override num_batches=50 \
+  --override plot_after_eval=false
 ```
 
 Plot later from an experiment or evaluation directory:
@@ -1266,6 +1306,16 @@ Example: benchmark one run on CPU across the default batch and thread profiles:
 python ./Model_AIIC_refactor/benchmark_latency.py \
   --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
   --device cpu
+```
+
+The benchmark CLI also supports the same universal `--override` entrypoint for its own command parameters.
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --override thread_counts=1,2,4 \
+  --override measure_iters=100 \
+  --override batch_sizes=1,2,4,8,16,32,64,128
 ```
 
 Example: benchmark one run on CPU with only TorchScript JIT mode:

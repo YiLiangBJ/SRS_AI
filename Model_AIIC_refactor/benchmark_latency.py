@@ -4,6 +4,7 @@ import argparse
 
 from benchmarks.workflow import benchmark_latency_programmatic, default_thread_counts, normalize_latency_selection, parse_execution_modes, parse_precision_profiles, parse_runtime_backends, resolve_latency_device
 from utils import discover_run_dirs
+from workflows.types import LatencyBenchmarkRequest
 
 
 def build_parser():
@@ -13,6 +14,7 @@ def build_parser():
     parser.add_argument('--run_dirs', type=str, default=None, help='Multiple trained run directories, comma-separated')
     parser.add_argument('--runs', type=str, default=None, help='Run names inside --exp_dir, comma-separated')
     parser.add_argument('--list_runs', action='store_true', help='List benchmarkable runs inside --exp_dir and exit')
+    parser.add_argument('--override', action='append', default=None, help='Universal override for benchmark CLI args in key=value form')
     parser.add_argument('--device', type=str, default='cpu', help='cpu, cuda, cuda:0, or auto')
     parser.add_argument('--runtime_backends', type=str, default=None, help='Comma-separated runtime backends. Defaults: pytorch; cpu also supports onnxruntime when installed')
     parser.add_argument('--execution_modes', type=str, default=None, help='Comma-separated execution modes. Defaults: cpu->eager,jit,compile; cuda->eager')
@@ -28,27 +30,27 @@ def build_parser():
 
 
 def main():
-    args = build_parser().parse_args()
-    args.exp_dir, args.run_dir, args.run_dirs, args.runs = normalize_latency_selection(
-        exp_dir=args.exp_dir,
-        run_dir=args.run_dir,
-        run_dirs=args.run_dirs,
-        runs=args.runs,
+    request = LatencyBenchmarkRequest.from_namespace(build_parser().parse_args())
+    request.exp_dir, request.run_dir, request.run_dirs, request.runs = normalize_latency_selection(
+        exp_dir=request.exp_dir,
+        run_dir=request.run_dir,
+        run_dirs=request.run_dirs,
+        runs=request.runs,
     )
 
-    if args.list_runs:
-        if not args.exp_dir:
+    if request.list_runs:
+        if not request.exp_dir:
             raise ValueError('--list_runs requires --exp_dir')
-        run_dirs = discover_run_dirs(args.exp_dir)
+        run_dirs = discover_run_dirs(request.exp_dir)
         print(f'Benchmarkable runs: {len(run_dirs)}')
         for run_dir in run_dirs:
             print(f'  - {run_dir.name}')
         return
 
-    resolved_device = resolve_latency_device(args.device)
-    resolved_runtime_backends = parse_runtime_backends(resolved_device.type, args.runtime_backends)
-    resolved_execution_modes = parse_execution_modes(resolved_device.type, args.execution_modes)
-    resolved_precisions = parse_precision_profiles(resolved_device.type, args.precision_profiles)
+    resolved_device = resolve_latency_device(request.device)
+    resolved_runtime_backends = parse_runtime_backends(resolved_device.type, request.runtime_backends)
+    resolved_execution_modes = parse_execution_modes(resolved_device.type, request.execution_modes)
+    resolved_precisions = parse_precision_profiles(resolved_device.type, request.precision_profiles)
     print('=' * 80)
     print('Latency Benchmark')
     print('=' * 80)
@@ -56,31 +58,31 @@ def main():
     print(f'Runtime backends: {resolved_runtime_backends}')
     print(f'Execution modes: {resolved_execution_modes}')
     print(f'Precision profiles: {resolved_precisions}')
-    print(f'Batch sizes: {args.batch_sizes}')
-    if args.batch_antennas or args.batch_rbgs:
-        print(f'Batch antennas: {args.batch_antennas}')
-        print(f'Batch RBGs: {args.batch_rbgs}')
-    print(f'Thread counts: {args.thread_counts or default_thread_counts(resolved_device.type)}')
-    print(f'Warmup iterations: {args.warmup_iters}')
-    print(f'Measure iterations: {args.measure_iters}')
+    print(f'Batch sizes: {request.batch_sizes}')
+    if request.batch_antennas or request.batch_rbgs:
+        print(f'Batch antennas: {request.batch_antennas}')
+        print(f'Batch RBGs: {request.batch_rbgs}')
+    print(f'Thread counts: {request.thread_counts or default_thread_counts(resolved_device.type)}')
+    print(f'Warmup iterations: {request.warmup_iters}')
+    print(f'Measure iterations: {request.measure_iters}')
     print()
 
     artifacts = benchmark_latency_programmatic(
-        exp_dir=args.exp_dir,
-        run_dir=args.run_dir,
-        run_dirs=args.run_dirs,
-        runs=args.runs,
+        exp_dir=request.exp_dir,
+        run_dir=request.run_dir,
+        run_dirs=request.run_dirs,
+        runs=request.runs,
         device=str(resolved_device),
-        runtime_backends=args.runtime_backends,
-        execution_modes=args.execution_modes,
-        precision_profiles=args.precision_profiles,
-        batch_sizes=args.batch_sizes,
-        batch_antennas=args.batch_antennas,
-        batch_rbgs=args.batch_rbgs,
-        thread_counts=args.thread_counts,
-        warmup_iters=args.warmup_iters,
-        measure_iters=args.measure_iters,
-        output_dir=args.output,
+        runtime_backends=request.runtime_backends,
+        execution_modes=request.execution_modes,
+        precision_profiles=request.precision_profiles,
+        batch_sizes=request.batch_sizes,
+        batch_antennas=request.batch_antennas,
+        batch_rbgs=request.batch_rbgs,
+        thread_counts=request.thread_counts,
+        warmup_iters=request.warmup_iters,
+        measure_iters=request.measure_iters,
+        output_dir=request.output,
     )
     print('Benchmark completed')
     for run_name, run_artifacts in artifacts['per_run_artifacts'].items():

@@ -382,6 +382,38 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(suite.plan[0].model_spec['hidden_dim'], 16)
         self.assertEqual(suite.plan[0].model_spec['num_stages'], 1)
         self.assertEqual(suite.plan[0].training_spec['batch_size'], 8)
+        self.assertIn('mo_hidden_dim16', suite.plan[0].run_name)
+        self.assertIn('mo_num_stages1', suite.plan[0].run_name)
+        self.assertIn('to_batch_size8', suite.plan[0].run_name)
+        self.assertIn('mo_hidden_dim16', suite.plan[0].model_label)
+        self.assertIn('to_batch_size8', suite.plan[0].training_label)
+
+    def test_build_experiment_suite_can_apply_task_overrides(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='quick_separator3_v2',
+            task_overrides={'seq_len': 16},
+        )
+
+        self.assertEqual(len(suite.plan), 1)
+        self.assertEqual(suite.plan[0].task_spec['params']['seq_len'], 16)
+        self.assertEqual(suite.plan[0].model_spec['seq_len'], 16)
+        self.assertIn('tover_seq_len16', suite.plan[0].run_name)
+
+    def test_build_experiment_suite_can_apply_experiment_wide_overrides_without_runs(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='default_6port_separator3_learned_dense_v2',
+            model_overrides={'num_stages': 1},
+        )
+
+        self.assertEqual(len(suite.plan), 8)
+        self.assertEqual({item.model_spec['num_stages'] for item in suite.plan}, {1})
+        self.assertTrue(all('mo_num_stages1' in item.run_name for item in suite.plan))
+        self.assertEqual(len(suite.model_variants_by_recipe['separator3_grid_search_6ports_learned_dense']), 8)
+        self.assertEqual([item.task_index for item in suite.plan], list(range(1, 9)))
 
     def test_multi_stage_training_strategy_compiles(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'

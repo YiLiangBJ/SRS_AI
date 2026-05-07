@@ -329,6 +329,7 @@ def run_training_experiment(request):
         num_batches_override=request.num_batches,
         experiment_name=request.experiment,
         run_names=request.runs,
+        task_overrides=request.task_overrides,
         model_overrides=request.model_overrides,
         training_overrides=request.training_overrides,
     )
