@@ -1239,6 +1239,13 @@ Supported first-version benchmark dimensions:
 - batch size: default `1,2,4,8,16,32,64,128`
 - CPU threads / cores: default `1,2,4,8`
 
+For large batch studies, `benchmark_latency.py` also supports generating batch sizes from antenna-count and RBG-count products:
+
+- `--batch_antennas 8,16,32,64`
+- `--batch_rbgs 1,2,4,8,17,34,68`
+
+When both are provided, the CLI expands `antenna_count * rbg_count` products, unions them with any explicit `--batch_sizes`, de-duplicates them, and benchmarks the resulting ascending batch list.
+
 Current default behavior is intentionally CPU-centric:
 
 - `benchmark_latency.py` defaults to `--device cpu`
@@ -1347,6 +1354,65 @@ python ./Model_AIIC_refactor/benchmark_latency.py \
   --device cpu \
   --batch_sizes 1,2,4,8,16,32,64,128
 ```
+
+Example: benchmark one run on CPU with a batch sweep generated from antenna count times RBG count, while keeping the legacy small-batch anchors:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu \
+  --runtime_backends onnxruntime \
+  --precision_profiles fp32 \
+  --thread_counts 1 \
+  --batch_sizes 1,2,4,8,16,32,64,128 \
+  --batch_antennas 8,16,32,64 \
+  --batch_rbgs 1,2,4,8,17,34,68
+```
+
+This command is a good first pass for the specific deployment question where batch size represents `antenna_count * rbg_count`, with:
+
+- antenna count in `{8,16,32,64}`
+- RBG count up to `68`
+- maximum batch size `64 * 68 = 4352`
+
+The generated batch set covers:
+
+- the existing low-batch latency anchors `1..128`
+- intermediate deployment-relevant products such as `136,256,272,512,544,1088,2176`
+- the full upper bound `4352`
+
+Example: run the same large-batch study over a whole experiment directory instead of a single run:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --exp_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>" \
+  --device cpu \
+  --runtime_backends onnxruntime \
+  --precision_profiles fp32 \
+  --thread_counts 1 \
+  --batch_sizes 1,2,4,8,16,32,64,128 \
+  --batch_antennas 8,16,32,64 \
+  --batch_rbgs 1,2,4,8,17,34,68
+```
+
+Example: after identifying representative large-batch points, run a focused thread-scaling follow-up instead of sweeping threads over every batch size:
+
+```bash
+python ./Model_AIIC_refactor/benchmark_latency.py \
+  --run_dir "./Model_AIIC_refactor/experiments_refactored/<experiment>/<run_name>" \
+  --device cpu \
+  --runtime_backends onnxruntime \
+  --precision_profiles fp32 \
+  --thread_counts 1,2,4,8 \
+  --batch_sizes 128,256,512,1088,2176,4352
+```
+
+Recommended evaluation workflow for the `antenna_count * rbg_count` deployment case:
+
+1. Start with `--thread_counts 1` and the generated batch grid above.
+2. Plot or inspect latency growth and throughput gain from `128` up to `4352`.
+3. Check whether throughput begins to flatten, which indicates diminishing amortization of fixed overhead.
+4. Only after that, run a second pass with selected large batch sizes and `1,2,4,8` threads to see whether higher thread counts help throughput enough to justify the latency penalty.
 
 The benchmark writes run-local results under:
 

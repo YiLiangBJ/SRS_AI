@@ -22,11 +22,13 @@ from benchmarks.workflow import (
     build_latency_task_matrix,
     default_thread_counts,
     export_latency_csv_from_results,
+    generate_product_batch_sizes,
     normalize_latency_selection,
     parse_csv_ints,
     parse_execution_modes,
     parse_precision_profiles,
     parse_runtime_backends,
+    resolve_batch_sizes,
     resolve_latency_output_dir,
 )
 from benchmarks.plotting import generate_latency_comparison_plots
@@ -107,6 +109,8 @@ class TestLatencyBenchmark(unittest.TestCase):
         args = parser.parse_args(['--run_dir', str(self.run_dir)])
         self.assertEqual(args.device, 'cpu')
         self.assertEqual(args.batch_sizes, '1,2,4,8,16,32,64,128')
+        self.assertIsNone(args.batch_antennas)
+        self.assertIsNone(args.batch_rbgs)
         self.assertIsNone(args.runtime_backends)
         self.assertIsNone(args.execution_modes)
         self.assertIsNone(args.thread_counts)
@@ -141,6 +145,21 @@ class TestLatencyBenchmark(unittest.TestCase):
         counts = parse_csv_ints('1,4,all-physical', default_thread_counts('cpu'))
         self.assertGreaterEqual(len(counts), 2)
         self.assertEqual(counts[0], 1)
+
+    def test_generate_product_batch_sizes(self):
+        sizes = generate_product_batch_sizes('8,16,64', '1,4,68')
+        self.assertEqual(sizes, [8, 16, 32, 64, 256, 544, 1088, 4352])
+
+    def test_resolve_batch_sizes_combines_manual_and_generated_values(self):
+        sizes = resolve_batch_sizes('1,2,128', batch_antennas='8,16,32,64', batch_rbgs='1,2,4,8,17,34,68')
+        self.assertEqual(
+            sizes,
+            [1, 2, 8, 16, 32, 64, 128, 136, 256, 272, 512, 544, 1088, 2176, 4352],
+        )
+
+    def test_resolve_batch_sizes_requires_complete_product_axes(self):
+        with self.assertRaises(ValueError):
+            resolve_batch_sizes(None, batch_antennas='8,16', batch_rbgs=None)
 
     def test_cpu_bf16_precision_materializes_model_and_input_without_autocast(self):
         model = create_model('full_mlp', self.model_spec)
@@ -709,13 +728,83 @@ class TestLatencyBenchmark(unittest.TestCase):
         self.assertIn('thread_group', reader.fieldnames)
         self.assertEqual(rows[0]['cpu_model_name'], 'Test CPU')
         self.assertEqual(rows[0]['runtime_backend'], 'pytorch')
-        self.assertEqual(rows[0]['trainable_parameters'], '2400')
+        self.assertEqual(rows[0]['trainable_parameters'], '1064')
         self.assertEqual(rows[0]['thread_group'], 'single-thread')
         self.assertEqual(rows[0]['latency_per_sample_us'], '1000.0')
         plot_files = artifacts['aggregate_artifacts']['plot_files']
         self.assertTrue(any(path.endswith('bs1_p50_comparison.jpg') for path in plot_files))
         self.assertTrue(any('p50_latency_vs_batch_threads_1.jpg' in path for path in plot_files))
         self.assertTrue(any('throughput_vs_batch_threads_1.jpg' in path for path in plot_files))
+
+    def test_benchmark_latency_programmatic_accepts_generated_batch_grid(self):
+        fake_results = [
+            {
+                'status': 'ok',
+                'run_dir': str(self.run_dir),
+                'run_name': self.run_dir.name,
+                'device': 'cpu',
+                'runtime_backend': 'onnxruntime',
+                'execution_mode': 'onnxruntime',
+                'precision': 'fp32',
+                'requested_precision_profile': 'fp32',
+                'effective_execution_dtype': 'float32',
+                'batch_size': batch_size,
+                'num_threads': 1,
+                'warmup_iters': 1,
+                'measure_iters': 2,
+                'graph_prep_time_ms': 0.0,
+                'p50_latency_ms': float(batch_size),
+                'p90_latency_ms': float(batch_size),
+                'p95_latency_ms': float(batch_size),
+                'p99_latency_ms': float(batch_size),
+                'mean_latency_ms': float(batch_size),
+                'std_latency_ms': 0.1,
+                'min_latency_ms': float(batch_size),
+                'max_latency_ms': float(batch_size),
+                'throughput_samples_per_sec': 1000.0 / float(batch_size),
+                'latency_samples_ms': [float(batch_size)],
+                'hardware_manifest': {
+                    'device': 'cpu',
+                    'num_threads': 1,
+                    'hostname': 'test-host',
+                    'cpu_model_name': 'Test CPU',
+                    'cpu_capability': 'AVX2',
+                    'cpu_flag_summary': ['avx2'],
+                    'mkldnn_available': True,
+                    'mkldnn_enabled': True,
+                    'onednn_version': '3.1.1',
+                    'torch_compile_available': True,
+                    'logical_cpu_count': 8,
+                    'physical_cpu_count': 4,
+                    'python_version': '3.11',
+                    'pytorch_version': '2.1.2',
+                    'env': {'OMP_NUM_THREADS': '1'},
+                },
+                'model_spec': self.model_spec,
+                'metadata': self.metadata,
+                'component_specs': self.component_specs,
+            }
+            for batch_size in [1, 2, 8, 16, 32, 64, 128, 256, 544, 1088, 4352]
+        ]
+
+        with patch('benchmarks.workflow.execute_latency_task', side_effect=fake_results), patch('sys.stdout', new_callable=io.StringIO):
+            artifacts = benchmark_latency_programmatic(
+                run_dir=self.run_dir,
+                device='cpu',
+                runtime_backends='onnxruntime',
+                precision_profiles='fp32',
+                execution_modes='jit',
+                batch_sizes='1,2,128',
+                batch_antennas='8,16,64',
+                batch_rbgs='1,4,68',
+                thread_counts='1',
+                warmup_iters=1,
+                measure_iters=2,
+            )
+
+        with open(Path(artifacts['per_run_artifacts'][self.run_dir.name]['json_path']), 'r', encoding='utf-8') as input_file:
+            saved = json.load(input_file)
+        self.assertEqual(saved['batch_sizes'], [1, 2, 8, 16, 32, 64, 128, 256, 544, 1088, 4352])
 
     def test_export_latency_csv_from_existing_json(self):
         latency_dir = self.root / 'backfill_case'

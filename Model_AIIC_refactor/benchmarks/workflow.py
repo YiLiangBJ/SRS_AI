@@ -144,6 +144,31 @@ def parse_csv_ints(value: Optional[str], default: Iterable[int]) -> List[int]:
     return list(dict.fromkeys(max(1, item) for item in resolved))
 
 
+def generate_product_batch_sizes(batch_antennas: Optional[str], batch_rbgs: Optional[str]) -> List[int]:
+    if batch_antennas is None and batch_rbgs is None:
+        return []
+    if not batch_antennas or not batch_rbgs:
+        raise ValueError('batch_antennas and batch_rbgs must be provided together')
+    antennas = parse_csv_ints(batch_antennas, [])
+    rbgs = parse_csv_ints(batch_rbgs, [])
+    if not antennas or not rbgs:
+        raise ValueError('batch_antennas and batch_rbgs must both resolve to at least one positive integer')
+    return sorted({antenna_count * rbg_count for antenna_count in antennas for rbg_count in rbgs})
+
+
+def resolve_batch_sizes(
+    batch_sizes: Optional[str],
+    batch_antennas: Optional[str] = None,
+    batch_rbgs: Optional[str] = None,
+) -> List[int]:
+    if batch_antennas is None and batch_rbgs is None:
+        return parse_csv_ints(batch_sizes, DEFAULT_BATCH_SIZES)
+
+    manual_sizes = parse_csv_ints(batch_sizes, []) if batch_sizes is not None else []
+    generated_sizes = generate_product_batch_sizes(batch_antennas, batch_rbgs)
+    return sorted({*manual_sizes, *generated_sizes})
+
+
 def parse_precision_profiles(device_type: str, value: Optional[str]) -> List[str]:
     if value is None:
         return list(DEFAULT_CPU_PRECISIONS if device_type == 'cpu' else DEFAULT_CUDA_PRECISIONS)
@@ -1326,6 +1351,8 @@ def benchmark_latency_programmatic(
     execution_modes: Optional[str] = None,
     precision_profiles: Optional[str] = None,
     batch_sizes: Optional[str] = None,
+    batch_antennas: Optional[str] = None,
+    batch_rbgs: Optional[str] = None,
     thread_counts: Optional[str] = None,
     warmup_iters: int = 20,
     measure_iters: int = 50,
@@ -1340,7 +1367,7 @@ def benchmark_latency_programmatic(
     resolved_device = resolve_latency_device(device)
     benchmark_id = datetime.now().strftime('%Y%m%d_%H%M%S')
     target_dirs = resolve_run_selection(exp_dir=exp_dir, run_dir=run_dir, run_dirs=run_dirs, runs=runs)
-    resolved_batch_sizes = parse_csv_ints(batch_sizes, DEFAULT_BATCH_SIZES)
+    resolved_batch_sizes = resolve_batch_sizes(batch_sizes, batch_antennas=batch_antennas, batch_rbgs=batch_rbgs)
     resolved_thread_counts = parse_csv_ints(thread_counts, default_thread_counts(resolved_device.type))
     resolved_runtime_backends = parse_runtime_backends(resolved_device.type, runtime_backends)
     resolved_execution_modes = parse_execution_modes(resolved_device.type, execution_modes)

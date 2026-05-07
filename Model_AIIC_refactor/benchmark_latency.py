@@ -18,6 +18,8 @@ def build_parser():
     parser.add_argument('--execution_modes', type=str, default=None, help='Comma-separated execution modes. Defaults: cpu->eager,jit,compile; cuda->eager')
     parser.add_argument('--precision_profiles', type=str, default=None, help='Comma-separated precision profiles. Defaults: cpu->fp32,bf16; cuda->fp32,fp16,bf16')
     parser.add_argument('--batch_sizes', type=str, default='1,2,4,8,16,32,64,128', help='Comma-separated batch sizes')
+    parser.add_argument('--batch_antennas', type=str, default=None, help='Comma-separated antenna counts used to generate batch sizes as antenna_count * rbg_count')
+    parser.add_argument('--batch_rbgs', type=str, default=None, help='Comma-separated RBG counts used to generate batch sizes as antenna_count * rbg_count')
     parser.add_argument('--thread_counts', type=str, default=None, help='Comma-separated CPU thread/core counts. Supports all-physical token.')
     parser.add_argument('--warmup_iters', type=int, default=20, help='Warmup iterations per config')
     parser.add_argument('--measure_iters', type=int, default=50, help='Measured iterations per config')
@@ -55,6 +57,9 @@ def main():
     print(f'Execution modes: {resolved_execution_modes}')
     print(f'Precision profiles: {resolved_precisions}')
     print(f'Batch sizes: {args.batch_sizes}')
+    if args.batch_antennas or args.batch_rbgs:
+        print(f'Batch antennas: {args.batch_antennas}')
+        print(f'Batch RBGs: {args.batch_rbgs}')
     print(f'Thread counts: {args.thread_counts or default_thread_counts(resolved_device.type)}')
     print(f'Warmup iterations: {args.warmup_iters}')
     print(f'Measure iterations: {args.measure_iters}')
@@ -70,6 +75,8 @@ def main():
         execution_modes=args.execution_modes,
         precision_profiles=args.precision_profiles,
         batch_sizes=args.batch_sizes,
+        batch_antennas=args.batch_antennas,
+        batch_rbgs=args.batch_rbgs,
         thread_counts=args.thread_counts,
         warmup_iters=args.warmup_iters,
         measure_iters=args.measure_iters,
