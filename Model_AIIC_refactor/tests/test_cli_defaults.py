@@ -71,6 +71,15 @@ class TestCliDefaults(unittest.TestCase):
         self.assertEqual(request.model_overrides, {'num_stages': 1})
         self.assertEqual(request.training_overrides, {'batch_size': 16})
 
+    def test_train_request_parses_sweep_override(self):
+        parser = train.build_parser()
+        args = parser.parse_args([
+            '--experiment', 'demo',
+            '--override', 'model.sweeps.depth.values=[2,3,4,5,6]',
+        ])
+        request = TrainRequest.from_namespace(args)
+        self.assertEqual(request.model_overrides, {'sweeps.depth.values': [2, 3, 4, 5, 6]})
+
     def test_train_request_merges_universal_and_legacy_overrides(self):
         parser = train.build_parser()
         args = parser.parse_args([

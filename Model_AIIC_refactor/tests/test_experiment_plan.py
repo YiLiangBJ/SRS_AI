@@ -415,6 +415,19 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(len(suite.model_variants_by_recipe['separator3_grid_search_6ports_learned_dense']), 8)
         self.assertEqual([item.task_index for item in suite.plan], list(range(1, 9)))
 
+    def test_build_experiment_suite_can_override_separator3_depth_sweep_values(self):
+        config_dir = Path(__file__).resolve().parents[1] / 'configs'
+        suite = build_experiment_suite(
+            config_dir=config_dir,
+            experiment_name='default_6port_separator3_learned_dense_v2',
+            model_overrides={'sweeps.depth.values': [2, 3, 4, 5, 6]},
+        )
+
+        self.assertEqual(len(suite.plan), 80)
+        self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3, 4, 5, 6})
+        self.assertTrue(any('depth6' in item.run_name for item in suite.plan))
+        self.assertTrue(all('mo_sweeps_depth_values2-3-4-5-6' in item.run_name for item in suite.plan))
+
     def test_multi_stage_training_strategy_compiles(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
         suite = build_experiment_suite(

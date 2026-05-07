@@ -82,6 +82,35 @@ def _set_nested_value(mapping: Dict[str, Any], path: str, value: Any) -> None:
     current[parts[-1]] = value
 
 
+def _apply_recipe_override(base_payload: Dict[str, Any], path: str, value: Any) -> None:
+    parts = [part for part in path.split('.') if part]
+    if not parts:
+        raise ValueError('Recipe override path cannot be empty')
+
+    if parts[0] != 'sweeps':
+        _set_nested_value(base_payload, path, value)
+        return
+
+    if len(parts) < 3:
+        raise ValueError(
+            f"Sweep override '{path}' must use sweeps.<alias|target|index>.<field> form"
+        )
+
+    sweep_identifier = parts[1]
+    remaining_path = '.'.join(parts[2:])
+    sweeps = base_payload.get('sweeps', [])
+    for index, sweep in enumerate(sweeps):
+        alias = str(sweep.get('alias') or '')
+        target = str(sweep.get('target') or '')
+        if sweep_identifier in {alias, target, str(index)}:
+            _set_nested_value(sweep, remaining_path, value)
+            return
+
+    raise ValueError(
+        f"Sweep override '{path}' did not match any sweep alias/target/index in recipe"
+    )
+
+
 def _append_tokens(label: str, tokens: Sequence[str]) -> str:
     if not tokens:
         return label
@@ -223,6 +252,9 @@ def build_component_experiment_data(
     experiment_name: str,
     batch_size_override: Optional[int] = None,
     num_batches_override: Optional[int] = None,
+    task_recipe_overrides: Optional[Mapping[str, Any]] = None,
+    model_recipe_overrides: Optional[Mapping[str, Any]] = None,
+    training_recipe_overrides: Optional[Mapping[str, Any]] = None,
     default_training_config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     catalog = load_component_catalog(config_dir)
@@ -245,10 +277,16 @@ def build_component_experiment_data(
     task_recipe = catalog['tasks'].get(task_recipe_name)
     if not task_recipe:
         raise ValueError(f"Task recipe '{task_recipe_name}' not found")
+    task_recipe = deepcopy(task_recipe)
+    for path, value in (task_recipe_overrides or {}).items():
+        _apply_recipe_override(task_recipe, path, value)
 
     training_recipe = catalog['training_strategies'].get(training_recipe_name)
     if not training_recipe:
         raise ValueError(f"Training strategy '{training_recipe_name}' not found")
+    training_recipe = deepcopy(training_recipe)
+    for path, value in (training_recipe_overrides or {}).items():
+        _apply_recipe_override(training_recipe, path, value)
 
     task_variants_raw = _expand_local_sweeps(
         recipe_name=task_recipe_name,
@@ -279,6 +317,9 @@ def build_component_experiment_data(
         if not model_recipe:
             missing_model_recipes.append(model_recipe_name)
             continue
+        model_recipe = deepcopy(model_recipe)
+        for path, value in (model_recipe_overrides or {}).items():
+            _apply_recipe_override(model_recipe, path, value)
         model_variants_raw_by_recipe[model_recipe_name] = _expand_local_sweeps(
             recipe_name=model_recipe_name,
             base_payload={**deepcopy(model_recipe), 'params': deepcopy(model_recipe.get('params', {}))},

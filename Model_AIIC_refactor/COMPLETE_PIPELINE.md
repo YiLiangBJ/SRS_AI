@@ -283,6 +283,14 @@ For training, the universal `--override` scopes are:
 - `model.<path>=value`
 - `training.<path>=value`
 
+If you need to replace a component recipe's local sweep range before plan expansion, use:
+
+- `task.sweeps.<alias>.values=...`
+- `model.sweeps.<alias>.values=...`
+- `training.sweeps.<alias>.values=...`
+
+Here `<alias>` is the sweep alias from YAML such as `depth`, `hd`, or `stages`. The override is applied before sweep expansion, so it changes the generated search space itself rather than merely collapsing already-expanded runs.
+
 Example:
 
 ```bash
@@ -291,6 +299,25 @@ python ./Model_AIIC_refactor/train.py \
   --override task.seq_len=16 \
   --override model.num_stages=1 \
   --override training.batch_size=8 \
+  --plan_only \
+  --device cpu
+```
+
+Example: replace the separator3 depth sweep from `[2,3]` to `[2,3,4,5,6]` for `default_6port_separator3_learned_dense_v2`:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment default_6port_separator3_learned_dense_v2 \
+  --override model.sweeps.depth.values=[2,3,4,5,6] \
+  --device cuda
+```
+
+If you want to inspect the generated run plan first:
+
+```bash
+python ./Model_AIIC_refactor/train.py \
+  --experiment default_6port_separator3_learned_dense_v2 \
+  --override model.sweeps.depth.values=[2,3,4,5,6] \
   --plan_only \
   --device cpu
 ```

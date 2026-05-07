@@ -178,6 +178,17 @@ def _apply_component_override(raw_spec: Dict[str, Any], path: str, value: Any) -
     _set_nested_value(raw_spec, path, value)
 
 
+def _split_recipe_and_resolved_overrides(overrides: Optional[Dict[str, Any]]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    recipe_overrides: Dict[str, Any] = {}
+    resolved_overrides: Dict[str, Any] = {}
+    for path, value in (overrides or {}).items():
+        if path.startswith('sweeps.'):
+            recipe_overrides[path] = value
+        else:
+            resolved_overrides[path] = value
+    return recipe_overrides, resolved_overrides
+
+
 def _deduplicate_plan_items(plan: Sequence[ExperimentPlanItem]) -> List[ExperimentPlanItem]:
     deduplicated: List[ExperimentPlanItem] = []
     seen_signatures = set()
@@ -259,11 +270,17 @@ def build_experiment_suite(
         raise ValueError('Component-based experiment suite requires an experiment_name from configs/v2/experiments.yaml')
 
     component_catalog = load_component_catalog(config_dir)
+    task_recipe_overrides, resolved_task_overrides = _split_recipe_and_resolved_overrides(task_overrides)
+    model_recipe_overrides, resolved_model_overrides = _split_recipe_and_resolved_overrides(model_overrides)
+    training_recipe_overrides, resolved_training_overrides = _split_recipe_and_resolved_overrides(training_overrides)
     component_data = build_component_experiment_data(
         config_dir=config_dir,
         experiment_name=experiment_name,
         batch_size_override=batch_size_override,
         num_batches_override=num_batches_override,
+        task_recipe_overrides=task_recipe_overrides,
+        model_recipe_overrides=model_recipe_overrides,
+        training_recipe_overrides=training_recipe_overrides,
         default_training_config=DEFAULT_TRAINING_CONFIG,
     )
 
@@ -345,7 +362,7 @@ def build_experiment_suite(
     model_override_tokens = _build_override_tokens('mo_', model_overrides)
     training_override_tokens = _build_override_tokens('to_', training_overrides)
 
-    if task_overrides or model_overrides or training_overrides:
+    if resolved_task_overrides or resolved_model_overrides or resolved_training_overrides or task_recipe_overrides or model_recipe_overrides or training_recipe_overrides:
         overridden_plan: List[ExperimentPlanItem] = []
         for item in plan:
             task_raw_spec = deepcopy(item.component_specs.get('task', {}))
@@ -354,11 +371,11 @@ def build_experiment_suite(
             task_class = get_task_class(task_raw_spec.get('type'))
             training_strategy_class = get_training_strategy_class(training_raw_spec.get('type'))
 
-            for key, value in (task_overrides or {}).items():
+            for key, value in resolved_task_overrides.items():
                 _apply_component_override(task_raw_spec, key, value)
-            for key, value in (model_overrides or {}).items():
+            for key, value in resolved_model_overrides.items():
                 _apply_component_override(model_raw_spec, key, value)
-            for key, value in (training_overrides or {}).items():
+            for key, value in resolved_training_overrides.items():
                 _apply_component_override(training_raw_spec, key, value)
 
             model_spec = task_class.compile_model_spec(task_raw_spec, model_raw_spec)
