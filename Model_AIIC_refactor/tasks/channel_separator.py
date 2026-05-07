@@ -91,10 +91,10 @@ class ChannelSeparatorTask(BaseTask):
         pos_values = model_spec['pos_values']
         num_ports = len(pos_values)
 
-        total_mse = torch.tensor(0.0, device=resolved_device)
-        total_power = torch.tensor(0.0, device=resolved_device)
-        port_mse = torch.zeros(num_ports, device=resolved_device)
-        port_power = torch.zeros(num_ports, device=resolved_device)
+        total_mse = torch.tensor(0.0, device=resolved_device, dtype=torch.float64)
+        total_power = torch.tensor(0.0, device=resolved_device, dtype=torch.float64)
+        port_mse = torch.zeros(num_ports, device=resolved_device, dtype=torch.float64)
+        port_power = torch.zeros(num_ports, device=resolved_device, dtype=torch.float64)
         autocast_context = torch.cuda.amp.autocast if use_amp and resolved_device.type == 'cuda' else None
 
         with torch.no_grad():
@@ -115,17 +115,24 @@ class ChannelSeparatorTask(BaseTask):
                 else:
                     h_pred = model(y)
 
-                diff = h_pred - h_targets
+                diff = (h_pred - h_targets).to(torch.float64)
+                target64 = h_targets.to(torch.float64)
                 total_mse += diff.pow(2).sum()
-                total_power += h_targets.pow(2).sum()
+                total_power += target64.pow(2).sum()
                 port_mse += diff.pow(2).sum(dim=(0, 2))
-                port_power += h_targets.pow(2).sum(dim=(0, 2))
+                port_power += target64.pow(2).sum(dim=(0, 2))
 
         nmse = (total_mse / (total_power + 1e-10)).cpu().item()
-        nmse_db = 10 * np.log10(nmse) if nmse > 0 else -100
+        if not np.isfinite(nmse) or nmse <= 0:
+            nmse = float('inf')
+            nmse_db = 100.0
+        else:
+            nmse_db = float(10 * np.log10(nmse))
+
         port_nmse = (port_mse / (port_power + 1e-10)).cpu().numpy()
-        port_nmse_db = 10 * np.log10(port_nmse)
-        port_nmse_db[np.isinf(port_nmse_db)] = -100
+        invalid_mask = ~np.isfinite(port_nmse) | (port_nmse <= 0)
+        port_nmse = np.where(invalid_mask, np.inf, port_nmse)
+        port_nmse_db = np.where(np.isfinite(port_nmse), 10 * np.log10(port_nmse), 100.0)
 
         return {
             'snr_db': float(snr_db),

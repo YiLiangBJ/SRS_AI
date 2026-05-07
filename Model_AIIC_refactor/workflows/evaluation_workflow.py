@@ -64,6 +64,12 @@ def evaluate_at_snr(
     )
 
 
+def _evaluation_result_is_nonfinite(point_result):
+    nmse = point_result.get('nmse')
+    nmse_db = point_result.get('nmse_db')
+    return not np.isfinite(nmse) or not np.isfinite(nmse_db)
+
+
 def save_evaluation_results(results, output_dir: Path):
     """Persist evaluation results in JSON and NumPy formats."""
     output_dir = Path(output_dir)
@@ -258,6 +264,22 @@ def evaluate_models_programmatic(
                         device=device,
                         use_amp=use_amp,
                     )
+                    if use_amp and device.type == 'cuda' and _evaluation_result_is_nonfinite(point_result):
+                        print(
+                            f'Warning: non-finite evaluation detected for {run_name} at SNR={snr_db} dB, '
+                            f'TDL={tdl_config} under AMP; retrying in full precision.'
+                        )
+                        point_result = evaluate_at_snr(
+                            task=task,
+                            model=model,
+                            model_spec=model_spec,
+                            snr_db=snr_db,
+                            tdl_config=tdl_config,
+                            num_batches=num_batches,
+                            batch_size=batch_size,
+                            device=device,
+                            use_amp=False,
+                        )
 
                     tdl_results['snr'].append(point_result['snr_db'])
                     tdl_results['nmse'].append(point_result['nmse'])

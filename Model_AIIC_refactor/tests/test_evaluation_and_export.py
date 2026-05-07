@@ -528,6 +528,50 @@ class TestEvaluationAndExport(unittest.TestCase):
             run_eval_dir = Path(results['artifacts']['per_run_output_dirs'][run_dir.name])
             self.assertTrue((run_eval_dir / 'plots' / 'nmse_vs_snr_combined.png').exists())
 
+    def test_evaluate_models_programmatic_retries_nonfinite_amp_result_in_full_precision(self):
+        nonfinite_eval_result = {
+            'snr_db': 20.0,
+            'tdl_config': 'A-30',
+            'nmse': float('nan'),
+            'nmse_db': float('nan'),
+            'per_port_nmse': [float('nan')] * 4,
+            'per_port_nmse_db': [100.0] * 4,
+            'num_samples': 8,
+        }
+        recovered_eval_result = {
+            'snr_db': 20.0,
+            'tdl_config': 'A-30',
+            'nmse': 0.1,
+            'nmse_db': -10.0,
+            'per_port_nmse': [0.1, 0.2, 0.3, 0.4],
+            'per_port_nmse_db': [-10.0, -7.0, -5.2, -4.0],
+            'num_samples': 8,
+        }
+
+        with patch(
+            'workflows.evaluation_workflow.evaluate_at_snr',
+            side_effect=[nonfinite_eval_result, recovered_eval_result],
+        ) as mocked_evaluate_at_snr:
+            results = evaluate_models_programmatic(
+                exp_dir=self.root,
+                output_dir=self.root / 'evaluation_results_retry',
+                snr_range='20',
+                tdl_list='A-30',
+                num_batches=1,
+                batch_size=8,
+                device='cuda' if torch.cuda.is_available() else 'cpu',
+                use_amp=True,
+                compile=False,
+            )
+
+        model_results = results['models'][self.run_dir.name]['tdl_results']['A-30']
+        if torch.cuda.is_available():
+            self.assertEqual(mocked_evaluate_at_snr.call_count, 2)
+            self.assertEqual(model_results['nmse'], [0.1])
+            self.assertEqual(model_results['nmse_db'], [-10.0])
+        else:
+            self.assertEqual(mocked_evaluate_at_snr.call_count, 1)
+
     def test_export_run_to_onnx_writes_manifest(self):
         manifest = export_run_to_onnx(
             run_dir=self.run_dir,
