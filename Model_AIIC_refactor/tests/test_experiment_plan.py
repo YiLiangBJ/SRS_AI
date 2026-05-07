@@ -382,11 +382,13 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(suite.plan[0].model_spec['hidden_dim'], 16)
         self.assertEqual(suite.plan[0].model_spec['num_stages'], 1)
         self.assertEqual(suite.plan[0].training_spec['batch_size'], 8)
-        self.assertIn('mo_hidden_dim16', suite.plan[0].run_name)
-        self.assertIn('mo_num_stages1', suite.plan[0].run_name)
-        self.assertIn('to_batch_size8', suite.plan[0].run_name)
-        self.assertIn('mo_hidden_dim16', suite.plan[0].model_label)
-        self.assertIn('to_batch_size8', suite.plan[0].training_label)
+        self.assertIn('hd16', suite.plan[0].run_name)
+        self.assertIn('stages1', suite.plan[0].run_name)
+        self.assertIn('batch_size8', suite.plan[0].run_name)
+        self.assertNotIn('mo_', suite.plan[0].run_name)
+        self.assertNotIn('to_', suite.plan[0].run_name)
+        self.assertIn('hd16', suite.plan[0].model_label)
+        self.assertIn('batch_size8', suite.plan[0].training_label)
 
     def test_build_experiment_suite_can_apply_task_overrides(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
@@ -399,7 +401,8 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(len(suite.plan), 1)
         self.assertEqual(suite.plan[0].task_spec['params']['seq_len'], 16)
         self.assertEqual(suite.plan[0].model_spec['seq_len'], 16)
-        self.assertIn('tover_seq_len16', suite.plan[0].run_name)
+        self.assertIn('seq_len16', suite.plan[0].run_name)
+        self.assertNotIn('tover_', suite.plan[0].run_name)
 
     def test_build_experiment_suite_can_apply_experiment_wide_overrides_without_runs(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
@@ -411,9 +414,12 @@ class TestExperimentPlan(unittest.TestCase):
 
         self.assertEqual(len(suite.plan), 8)
         self.assertEqual({item.model_spec['num_stages'] for item in suite.plan}, {1})
-        self.assertTrue(all('mo_num_stages1' in item.run_name for item in suite.plan))
+        self.assertTrue(all('stages1' in item.run_name for item in suite.plan))
+        self.assertTrue(all('stages2' not in item.run_name for item in suite.plan))
         self.assertEqual(len(suite.model_variants_by_recipe['separator3_grid_search_6ports_learned_dense']), 8)
         self.assertEqual([item.task_index for item in suite.plan], list(range(1, 9)))
+        self.assertEqual([item.model_index for item in suite.plan], list(range(1, 9)))
+        self.assertTrue(all(item.model_total == 8 for item in suite.plan))
 
     def test_build_experiment_suite_can_override_separator3_depth_sweep_values(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'
@@ -426,7 +432,7 @@ class TestExperimentPlan(unittest.TestCase):
         self.assertEqual(len(suite.plan), 80)
         self.assertEqual({item.model_spec['mlp_depth'] for item in suite.plan}, {2, 3, 4, 5, 6})
         self.assertTrue(any('depth6' in item.run_name for item in suite.plan))
-        self.assertTrue(all('mo_sweeps_depth_values2-3-4-5-6' in item.run_name for item in suite.plan))
+        self.assertTrue(all('mo_' not in item.run_name for item in suite.plan))
 
     def test_multi_stage_training_strategy_compiles(self):
         config_dir = Path(__file__).resolve().parents[1] / 'configs'

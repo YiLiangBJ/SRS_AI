@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from .component_experiment_plan import _append_tokens, _format_name_value, _set_nested_value, build_component_experiment_data, load_component_catalog
+from .component_experiment_plan import _append_tokens, _format_name_value, _nested_get, _set_nested_value, build_component_experiment_data, load_component_catalog
 
 try:
     from tasks import get_task_class
@@ -189,6 +189,115 @@ def _split_recipe_and_resolved_overrides(overrides: Optional[Dict[str, Any]]) ->
     return recipe_overrides, resolved_overrides
 
 
+def _normalize_component_override_path(path: str, raw_spec: Dict[str, Any]) -> str:
+    if path.startswith('params.'):
+        return path
+    root_key = path.split('.', 1)[0]
+    if root_key in raw_spec:
+        return path
+    if isinstance(raw_spec.get('params'), dict):
+        return f'params.{path}'
+    return path
+
+
+def _render_component_label(
+    base_label: str,
+    recipe_definition: Optional[Dict[str, Any]],
+    raw_spec: Dict[str, Any],
+    resolved_overrides: Optional[Dict[str, Any]],
+) -> str:
+    if not resolved_overrides:
+        return base_label
+
+    label_parts = base_label.split('_')
+    extra_tokens: List[str] = []
+    sweep_entries = []
+    for sweep in (recipe_definition or {}).get('sweeps', []):
+        target = str(sweep.get('target') or '')
+        if not target:
+            continue
+        alias = str(sweep.get('alias') or target.split('.')[-1])
+        sweep_entries.append((alias, target))
+
+    for path, value in resolved_overrides.items():
+        normalized_path = _normalize_component_override_path(path, raw_spec)
+        matched_alias = None
+        for alias, target in sweep_entries:
+            if normalized_path == target:
+                final_value = _nested_get(raw_spec, *target.split('.'))
+                replacement = f"{alias}{_format_name_value(final_value)}"
+                for index, part in enumerate(label_parts):
+                    if part.startswith(alias):
+                        label_parts[index] = replacement
+                        break
+                else:
+                    label_parts.append(replacement)
+                matched_alias = alias
+                break
+
+        if matched_alias is None:
+            extra_tokens.append(f"{path.replace('.', '_')}{_format_name_value(value)}")
+
+    rendered = '_'.join(label_parts)
+    return _append_tokens(rendered, extra_tokens)
+
+
+def _reindex_plan_variants(plan: Sequence[ExperimentPlanItem]) -> List[ExperimentPlanItem]:
+    model_index_map: Dict[tuple[str, str], tuple[int, int]] = {}
+    training_index_map: Dict[str, tuple[int, int]] = {}
+
+    per_recipe_labels: Dict[str, List[str]] = {}
+    for item in plan:
+        per_recipe_labels.setdefault(item.model_recipe_name, [])
+        if item.model_label not in per_recipe_labels[item.model_recipe_name]:
+            per_recipe_labels[item.model_recipe_name].append(item.model_label)
+
+    for recipe_name, labels in per_recipe_labels.items():
+        total = len(labels)
+        for index, label in enumerate(labels, 1):
+            model_index_map[(recipe_name, label)] = (index, total)
+
+    training_labels: List[str] = []
+    for item in plan:
+        if item.training_label not in training_labels:
+            training_labels.append(item.training_label)
+    training_total = len(training_labels)
+    for index, label in enumerate(training_labels, 1):
+        training_index_map[label] = (index, training_total)
+
+    reindexed_plan: List[ExperimentPlanItem] = []
+    for task_index, item in enumerate(plan, 1):
+        model_index, model_total = model_index_map[(item.model_recipe_name, item.model_label)]
+        training_index, training_total = training_index_map[item.training_label]
+        reindexed_plan.append(
+            ExperimentPlanItem(
+                task_index=task_index,
+                run_name=item.run_name,
+                model_variant=ModelVariant(
+                    recipe_name=item.model_variant.recipe_name,
+                    label=item.model_variant.label,
+                    spec=item.model_variant.spec,
+                    index=model_index,
+                    total=model_total,
+                ),
+                training_variant=TrainingVariant(
+                    recipe_name=item.training_variant.recipe_name,
+                    label=item.training_variant.label,
+                    spec=item.training_variant.spec,
+                    index=training_index,
+                    total=training_total,
+                ),
+                task_recipe_name=item.task_recipe_name,
+                task_label=item.task_label,
+                task_variant_index=item.task_variant_index,
+                task_variant_total=item.task_variant_total,
+                component_specs=item.component_specs,
+                schema_version=item.schema_version,
+            )
+        )
+    return reindexed_plan
+
+
 def _deduplicate_plan_items(plan: Sequence[ExperimentPlanItem]) -> List[ExperimentPlanItem]:
     deduplicated: List[ExperimentPlanItem] = []
     seen_signatures = set()
@@ -206,7 +315,7 @@ def _deduplicate_plan_items(plan: Sequence[ExperimentPlanItem]) -> List[Experime
             continue
         seen_signatures.add(signature)
         deduplicated.append(item)
-    return [
+    deduplicated_plan = [
         ExperimentPlanItem(
             task_index=index,
             run_name=item.run_name,
@@ -221,6 +330,7 @@ def _deduplicate_plan_items(plan: Sequence[ExperimentPlanItem]) -> List[Experime
         )
         for index, item in enumerate(deduplicated, 1)
     ]
+    return _reindex_plan_variants(deduplicated_plan)
 
 
 def _collect_suite_views_from_plan(
@@ -384,10 +494,21 @@ def build_experiment_suite(
                 training_raw_spec,
                 DEFAULT_TRAINING_CONFIG,
             )
-            task_label = _append_tokens(item.task_label or item.task_recipe_name or '', task_override_tokens)
-            model_label = _append_tokens(item.model_variant.label, model_override_tokens)
-            training_label = _append_tokens(item.training_variant.label, training_override_tokens)
-            run_name = _append_tokens(item.run_name, [*task_override_tokens, *model_override_tokens, *training_override_tokens])
+            task_recipe_definition = component_catalog['tasks'].get(item.task_recipe_name or '')
+            model_recipe_definition = component_catalog['models'].get(item.model_recipe_name or '')
+            training_recipe_definition = component_catalog['training_strategies'].get(item.training_recipe_name or '')
+
+            base_task_label = item.task_label or item.task_recipe_name or ''
+            task_label = _render_component_label(base_task_label, task_recipe_definition, task_raw_spec, resolved_task_overrides)
+            model_label = _render_component_label(item.model_variant.label, model_recipe_definition, model_raw_spec, resolved_model_overrides)
+            training_label = _render_component_label(item.training_variant.label, training_recipe_definition, training_raw_spec, resolved_training_overrides)
+
+            run_name_parts = [model_label]
+            if item.training_total > 1 or training_label != item.training_recipe_name:
+                run_name_parts.append(training_label)
+            if (item.task_variant_total or 0) > 1 or task_label != (item.task_recipe_name or ''):
+                run_name_parts.append(task_label)
+            run_name = '_'.join(part for part in run_name_parts if part)
             overridden_plan.append(
                 ExperimentPlanItem(
                     task_index=item.task_index,
