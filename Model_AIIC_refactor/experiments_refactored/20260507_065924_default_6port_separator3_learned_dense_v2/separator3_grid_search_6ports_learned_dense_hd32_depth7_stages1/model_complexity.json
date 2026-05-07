@@ -1,0 +1,437 @@
+{
+  "format": "srs_ai_model_complexity_v1",
+  "model_type": "separator3",
+  "input_shape": [
+    -1,
+    24
+  ],
+  "input_shape_string": "[-1, 24]",
+  "output_shape": [
+    -1,
+    6,
+    24
+  ],
+  "output_shape_string": "[-1, 6, 24]",
+  "counting_assumptions": [
+    "All counts are estimated for one forward pass of one sample; multiply by runtime batch size N for a first-order batch estimate.",
+    "MACs and multiply/add counts are counted from affine layers using scalar CPU-style arithmetic.",
+    "Bias accumulation is counted as additions inside the addition totals.",
+    "Normalization, activations, and residual corrections are included as estimated scalar ops where relevant.",
+    "Tensor reshapes, concatenations, indexing, and memory traffic are not counted as arithmetic FLOPs.",
+    "Latency depends on implementation and hardware; these counts are for fast complexity screening only."
+  ],
+  "summary": {
+    "trainable_parameters": 10976,
+    "trainable_parameters_string": "10,976",
+    "parameter_memory_bytes_fp32": 43904,
+    "parameter_memory_bytes_fp32_string": "0.042 MiB (43,904 bytes)",
+    "macs_per_sample": 10496,
+    "macs_per_sample_string": "10,496",
+    "multiplications_per_sample": 10664,
+    "multiplications_per_sample_string": "10,664",
+    "additions_per_sample": 10807,
+    "additions_per_sample_string": "10,807",
+    "other_scalar_ops_per_sample_estimate": 217,
+    "other_scalar_ops_per_sample_estimate_string": "217",
+    "flops_per_sample_estimate": 21688,
+    "flops_per_sample_estimate_string": "21,688",
+    "batch_scaling_rule": "Multiply the per-sample counts by runtime batch size N for a first-order batch estimate."
+  },
+  "entries": [
+    {
+      "name": "input_normalize_restore",
+      "repeat": "once per sample",
+      "why": "Per-sample RMS normalization and output rescaling are applied around the network when normalize_energy=true.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 168,
+      "multiplications_string": "168",
+      "additions": 23,
+      "additions_string": "23",
+      "other_ops": 25,
+      "other_ops_string": "25",
+      "flops_estimate": 216,
+      "flops_estimate_string": "216"
+    },
+    {
+      "name": "stage_01_hidden_linear_01",
+      "repeat": "once per sample",
+      "why": "Stage 1 first affine layer maps width 24 to hidden width 32.",
+      "parameters": 800,
+      "parameters_string": "800",
+      "macs": 768,
+      "macs_string": "768",
+      "multiplications": 768,
+      "multiplications_string": "768",
+      "additions": 768,
+      "additions_string": "768",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 1536,
+      "flops_estimate_string": "1,536"
+    },
+    {
+      "name": "stage_01_hidden_relu_01",
+      "repeat": "once per sample",
+      "why": "Stage 1 applies ReLU after the first hidden affine layer.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 0,
+      "additions_string": "0",
+      "other_ops": 32,
+      "other_ops_string": "32",
+      "flops_estimate": 32,
+      "flops_estimate_string": "32"
+    },
+    {
+      "name": "stage_01_hidden_linear_02",
+      "repeat": "once per sample",
+      "why": "Stage 1 additional hidden affine layer keeps width 32.",
+      "parameters": 1056,
+      "parameters_string": "1,056",
+      "macs": 1024,
+      "macs_string": "1,024",
+      "multiplications": 1024,
+      "multiplications_string": "1,024",
+      "additions": 1024,
+      "additions_string": "1,024",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 2048,
+      "flops_estimate_string": "2,048"
+    },
+    {
+      "name": "stage_01_hidden_relu_02",
+      "repeat": "once per sample",
+      "why": "Stage 1 applies ReLU after hidden affine layer 2.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 0,
+      "additions_string": "0",
+      "other_ops": 32,
+      "other_ops_string": "32",
+      "flops_estimate": 32,
+      "flops_estimate_string": "32"
+    },
+    {
+      "name": "stage_01_hidden_linear_03",
+      "repeat": "once per sample",
+      "why": "Stage 1 additional hidden affine layer keeps width 32.",
+      "parameters": 1056,
+      "parameters_string": "1,056",
+      "macs": 1024,
+      "macs_string": "1,024",
+      "multiplications": 1024,
+      "multiplications_string": "1,024",
+      "additions": 1024,
+      "additions_string": "1,024",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 2048,
+      "flops_estimate_string": "2,048"
+    },
+    {
+      "name": "stage_01_hidden_relu_03",
+      "repeat": "once per sample",
+      "why": "Stage 1 applies ReLU after hidden affine layer 3.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 0,
+      "additions_string": "0",
+      "other_ops": 32,
+      "other_ops_string": "32",
+      "flops_estimate": 32,
+      "flops_estimate_string": "32"
+    },
+    {
+      "name": "stage_01_hidden_linear_04",
+      "repeat": "once per sample",
+      "why": "Stage 1 additional hidden affine layer keeps width 32.",
+      "parameters": 1056,
+      "parameters_string": "1,056",
+      "macs": 1024,
+      "macs_string": "1,024",
+      "multiplications": 1024,
+      "multiplications_string": "1,024",
+      "additions": 1024,
+      "additions_string": "1,024",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 2048,
+      "flops_estimate_string": "2,048"
+    },
+    {
+      "name": "stage_01_hidden_relu_04",
+      "repeat": "once per sample",
+      "why": "Stage 1 applies ReLU after hidden affine layer 4.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 0,
+      "additions_string": "0",
+      "other_ops": 32,
+      "other_ops_string": "32",
+      "flops_estimate": 32,
+      "flops_estimate_string": "32"
+    },
+    {
+      "name": "stage_01_hidden_linear_05",
+      "repeat": "once per sample",
+      "why": "Stage 1 additional hidden affine layer keeps width 32.",
+      "parameters": 1056,
+      "parameters_string": "1,056",
+      "macs": 1024,
+      "macs_string": "1,024",
+      "multiplications": 1024,
+      "multiplications_string": "1,024",
+      "additions": 1024,
+      "additions_string": "1,024",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 2048,
+      "flops_estimate_string": "2,048"
+    },
+    {
+      "name": "stage_01_hidden_relu_05",
+      "repeat": "once per sample",
+      "why": "Stage 1 applies ReLU after hidden affine layer 5.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 0,
+      "additions_string": "0",
+      "other_ops": 32,
+      "other_ops_string": "32",
+      "flops_estimate": 32,
+      "flops_estimate_string": "32"
+    },
+    {
+      "name": "stage_01_hidden_linear_06",
+      "repeat": "once per sample",
+      "why": "Stage 1 additional hidden affine layer keeps width 32.",
+      "parameters": 1056,
+      "parameters_string": "1,056",
+      "macs": 1024,
+      "macs_string": "1,024",
+      "multiplications": 1024,
+      "multiplications_string": "1,024",
+      "additions": 1024,
+      "additions_string": "1,024",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 2048,
+      "flops_estimate_string": "2,048"
+    },
+    {
+      "name": "stage_01_hidden_relu_06",
+      "repeat": "once per sample",
+      "why": "Stage 1 applies ReLU after hidden affine layer 6.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 0,
+      "additions_string": "0",
+      "other_ops": 32,
+      "other_ops_string": "32",
+      "flops_estimate": 32,
+      "flops_estimate_string": "32"
+    },
+    {
+      "name": "stage_01_joint_output",
+      "repeat": "once per sample",
+      "why": "Stage 1 output affine layer maps hidden width 32 to expanded width 144.",
+      "parameters": 4752,
+      "parameters_string": "4,752",
+      "macs": 4608,
+      "macs_string": "4,608",
+      "multiplications": 4608,
+      "multiplications_string": "4,608",
+      "additions": 4608,
+      "additions_string": "4,608",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 9216,
+      "flops_estimate_string": "9,216"
+    },
+    {
+      "name": "stage_01_residual_correction",
+      "repeat": "once per sample",
+      "why": "Stage 1 output is summed across ports, compared with the mixed input, and corrected with a learned dense per-port residual mask.",
+      "parameters": 0,
+      "parameters_string": "0",
+      "macs": 0,
+      "macs_string": "0",
+      "multiplications": 0,
+      "multiplications_string": "0",
+      "additions": 288,
+      "additions_string": "288",
+      "other_ops": 0,
+      "other_ops_string": "0",
+      "flops_estimate": 288,
+      "flops_estimate_string": "288"
+    }
+  ],
+  "model_spec": {
+    "seq_len": 12,
+    "pos_values": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "normalize_energy": true,
+    "hidden_dim": 32,
+    "num_stages": 1,
+    "mlp_depth": 7,
+    "residual_correction_mode": "learned_dense",
+    "model_type": "separator3",
+    "num_ports": 6,
+    "stage_hidden_dims": [
+      32
+    ],
+    "num_params": 10976
+  },
+  "component_specs": {
+    "task": {
+      "type": "channel_separator",
+      "params": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "snr_config": {
+          "type": "range",
+          "min": 0,
+          "max": 30,
+          "per_sample": true,
+          "sampling": "stratified",
+          "num_bins": 10
+        },
+        "tdl_config": [
+          "A-30",
+          "B-100",
+          "C-300"
+        ]
+      }
+    },
+    "model": {
+      "type": "separator3",
+      "params": {
+        "normalize_energy": true,
+        "hidden_dim": 32,
+        "num_stages": 1,
+        "mlp_depth": 7,
+        "residual_correction_mode": "learned_dense"
+      },
+      "sweeps": [
+        {
+          "target": "params.hidden_dim",
+          "alias": "hd",
+          "values": [
+            32,
+            64,
+            128,
+            256
+          ]
+        },
+        {
+          "target": "params.mlp_depth",
+          "alias": "depth",
+          "values": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        },
+        {
+          "target": "params.num_stages",
+          "alias": "stages",
+          "values": [
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    "training_strategy": {
+      "type": "standard_supervised",
+      "params": {
+        "batch_size": 4096,
+        "num_batches": 100000,
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.01
+          }
+        },
+        "loss": {
+          "type": "nmse"
+        },
+        "regularization": {
+          "learned_dense_mask_l2_to_one": 1e-05
+        },
+        "validation": {
+          "interval": 100,
+          "batches": 4
+        },
+        "early_stop": {
+          "patience": 5
+        },
+        "logging": {
+          "print_interval": 100
+        },
+        "checkpoints": {
+          "save_interval": 1000,
+          "keep_last_n": 2
+        },
+        "scheduler": {
+          "type": "reduce_on_plateau",
+          "params": {
+            "factor": 0.8,
+            "patience": 30,
+            "threshold": 0.005,
+            "threshold_mode": "abs",
+            "cooldown": 10,
+            "min_lr": 1e-06
+          }
+        }
+      }
+    }
+  }
+}

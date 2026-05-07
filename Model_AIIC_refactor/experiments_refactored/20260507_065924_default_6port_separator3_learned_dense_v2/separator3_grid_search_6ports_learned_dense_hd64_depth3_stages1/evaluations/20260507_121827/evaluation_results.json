@@ -1,0 +1,439 @@
+{
+  "timestamp": "2026-05-07T12:19:31.501926",
+  "evaluation_name": "20260507_121827",
+  "output_dir": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260507_065924_default_6port_separator3_learned_dense_v2/separator3_grid_search_6ports_learned_dense_hd64_depth3_stages1/evaluations/20260507_121827",
+  "config": {
+    "snr_list": [
+      30.0,
+      27.0,
+      24.0,
+      21.0,
+      18.0,
+      15.0,
+      12.0,
+      9.0,
+      6.0,
+      3.0,
+      0.0
+    ],
+    "tdl_list": [
+      "A-30"
+    ],
+    "num_batches": 100,
+    "batch_size": 2048,
+    "total_samples_per_point": 204800,
+    "run_names": [
+      "separator3_grid_search_6ports_learned_dense_hd64_depth3_stages1"
+    ],
+    "run_count": 1
+  },
+  "models": {
+    "separator3_grid_search_6ports_learned_dense_hd64_depth3_stages1": {
+      "model_spec": {
+        "seq_len": 12,
+        "pos_values": [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10
+        ],
+        "normalize_energy": true,
+        "hidden_dim": 64,
+        "num_stages": 1,
+        "mlp_depth": 3,
+        "residual_correction_mode": "learned_dense",
+        "model_type": "separator3",
+        "num_ports": 6,
+        "stage_hidden_dims": [
+          64
+        ],
+        "num_params": 15264
+      },
+      "training_spec": {
+        "batch_size": 4096,
+        "num_batches": 100000,
+        "learning_rate": 0.01,
+        "loss_type": "nmse",
+        "print_interval": 100,
+        "validation_batches": 4,
+        "patience": 5,
+        "keep_last_n_checkpoints": 2,
+        "lr_scheduler": {
+          "enabled": true,
+          "factor": 0.8,
+          "patience": 30,
+          "threshold": 0.005,
+          "threshold_mode": "abs",
+          "cooldown": 10,
+          "min_lr": 1e-06
+        },
+        "optimizer": {
+          "type": "adam"
+        },
+        "learned_dense_mask_regularization": 1e-05,
+        "validation_interval": 100,
+        "early_stop_loss": null,
+        "save_interval": 1000,
+        "strategy_type": "standard_supervised"
+      },
+      "metadata": {
+        "experiment_name": "default_6port_separator3_learned_dense_v2",
+        "schema_version": "v2",
+        "task_recipe_name": "channel_separator_6port_standard",
+        "task_label": "channel_separator_6port_standard",
+        "model_recipe_name": "separator3_grid_search_6ports_learned_dense",
+        "model_label": "separator3_grid_search_6ports_learned_dense_hd64_depth3_stages1",
+        "run_name": "separator3_grid_search_6ports_learned_dense_hd64_depth3_stages1",
+        "training_recipe_name": "supervised_nmse_plateau",
+        "training_label": "supervised_nmse_plateau",
+        "training_duration": 371.00380992889404,
+        "init_checkpoint_path": null,
+        "timestamp": "2026-05-07T07:57:21.662025"
+      },
+      "component_specs": {
+        "task": {
+          "type": "channel_separator",
+          "params": {
+            "seq_len": 12,
+            "pos_values": [
+              0,
+              2,
+              4,
+              6,
+              8,
+              10
+            ],
+            "snr_config": {
+              "type": "range",
+              "min": 0,
+              "max": 30,
+              "per_sample": true,
+              "sampling": "stratified",
+              "num_bins": 10
+            },
+            "tdl_config": [
+              "A-30",
+              "B-100",
+              "C-300"
+            ]
+          }
+        },
+        "model": {
+          "type": "separator3",
+          "params": {
+            "normalize_energy": true,
+            "hidden_dim": 64,
+            "num_stages": 1,
+            "mlp_depth": 3,
+            "residual_correction_mode": "learned_dense"
+          },
+          "sweeps": [
+            {
+              "target": "params.hidden_dim",
+              "alias": "hd",
+              "values": [
+                32,
+                64,
+                128,
+                256
+              ]
+            },
+            {
+              "target": "params.mlp_depth",
+              "alias": "depth",
+              "values": [
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ]
+            },
+            {
+              "target": "params.num_stages",
+              "alias": "stages",
+              "values": [
+                2,
+                3,
+                4,
+                5
+              ]
+            }
+          ]
+        },
+        "training_strategy": {
+          "type": "standard_supervised",
+          "params": {
+            "batch_size": 4096,
+            "num_batches": 100000,
+            "optimizer": {
+              "type": "adam",
+              "params": {
+                "learning_rate": 0.01
+              }
+            },
+            "loss": {
+              "type": "nmse"
+            },
+            "regularization": {
+              "learned_dense_mask_l2_to_one": 1e-05
+            },
+            "validation": {
+              "interval": 100,
+              "batches": 4
+            },
+            "early_stop": {
+              "patience": 5
+            },
+            "logging": {
+              "print_interval": 100
+            },
+            "checkpoints": {
+              "save_interval": 1000,
+              "keep_last_n": 2
+            },
+            "scheduler": {
+              "type": "reduce_on_plateau",
+              "params": {
+                "factor": 0.8,
+                "patience": 30,
+                "threshold": 0.005,
+                "threshold_mode": "abs",
+                "cooldown": 10,
+                "min_lr": 1e-06
+              }
+            }
+          }
+        }
+      },
+      "checkpoint_path": "/home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260507_065924_default_6port_separator3_learned_dense_v2/separator3_grid_search_6ports_learned_dense_hd64_depth3_stages1/model.pth",
+      "tdl_results": {
+        "A-30": {
+          "snr": [
+            30.0,
+            27.0,
+            24.0,
+            21.0,
+            18.0,
+            15.0,
+            12.0,
+            9.0,
+            6.0,
+            3.0,
+            0.0
+          ],
+          "nmse": [
+            0.004001226127445297,
+            0.0059865502657180545,
+            0.00989915458978411,
+            0.017607165147489244,
+            0.032565703869957316,
+            0.06140988491472483,
+            0.11714703631281012,
+            0.2238158762229346,
+            0.4318728582823123,
+            0.8388330461688354,
+            1.6461866970917418
+          ],
+          "nmse_db": [
+            -23.978069039755102,
+            -22.228233666168506,
+            -20.044018935508618,
+            -17.543105622558357,
+            -14.872395306164186,
+            -12.117617165072112,
+            -9.312686940860006,
+            -6.5010911033910865,
+            -3.6464408900324274,
+            -0.7632446866201965,
+            2.1647908781352583
+          ],
+          "port_nmse": [
+            [
+              0.004083830336619534,
+              0.003967657399024075,
+              0.0038428673284003605,
+              0.003735889789441677,
+              0.004414745587691316,
+              0.003960960013683163
+            ],
+            [
+              0.006066787534923309,
+              0.005934818898575559,
+              0.005898966987999129,
+              0.005657340595686784,
+              0.0064258507121644735,
+              0.005934285074805083
+            ],
+            [
+              0.01000597710353067,
+              0.009840726482340679,
+              0.009921827654793677,
+              0.009452742091814719,
+              0.010373006696216278,
+              0.009800878691155318
+            ],
+            [
+              0.01765093821068781,
+              0.017639206294464593,
+              0.017736753888926957,
+              0.017026368531827766,
+              0.018136592884417706,
+              0.01745163630027261
+            ],
+            [
+              0.03272268031063831,
+              0.032453248143752236,
+              0.032912791097191745,
+              0.03192449429878987,
+              0.03319161850721814,
+              0.03218714465455041
+            ],
+            [
+              0.0612292409947295,
+              0.06115665902803033,
+              0.06176779799655567,
+              0.06107288364091302,
+              0.06234806045865676,
+              0.06088005600431508
+            ],
+            [
+              0.11665631259208945,
+              0.11680805215956133,
+              0.11770972731621764,
+              0.11708340729237954,
+              0.11821874858682505,
+              0.1164081475461598
+            ],
+            [
+              0.22389360755916393,
+              0.22336579101156775,
+              0.2231165882719356,
+              0.22326009571119862,
+              0.22632463495130503,
+              0.22293784625242716
+            ],
+            [
+              0.4343292034864802,
+              0.429059009227696,
+              0.43228267853399077,
+              0.42972762889552263,
+              0.4357448441501557,
+              0.4300933881059826
+            ],
+            [
+              0.8442109583109653,
+              0.8372825650175613,
+              0.8400613513370283,
+              0.8341537031184058,
+              0.8449179635175291,
+              0.8323695083158388
+            ],
+            [
+              1.6607819152467271,
+              1.6356406720521308,
+              1.6539829048126284,
+              1.6308170298828883,
+              1.6657696169875102,
+              1.6302305400445452
+            ]
+          ],
+          "port_nmse_db": [
+            [
+              -23.889323090436243,
+              -24.014658355443288,
+              -24.15344608910159,
+              -24.276059441505424,
+              -23.550943188237568,
+              -24.021995418230254
+            ],
+            [
+              -22.170412142245887,
+              -22.26592529034464,
+              -22.292240342376893,
+              -22.473876741189557,
+              -21.92069368363759,
+              -22.26631594614899
+            ],
+            [
+              -19.997404952385043,
+              -20.069728390050958,
+              -20.034083210634044,
+              -20.24442191215584,
+              -19.840953417488272,
+              -20.087349861837282
+            ],
+            [
+              -17.532322053529057,
+              -17.535209605698107,
+              -17.5112586010316,
+              -17.688779706378178,
+              -17.414442955821148,
+              -17.581638464777093
+            ],
+            [
+              -14.85151130537226,
+              -14.887418295165594,
+              -14.826352867512,
+              -14.958759734689174,
+              -14.789715697783297,
+              -14.923175481908828
+            ],
+            [
+              -12.130411240991974,
+              -12.13556248003387,
+              -12.092378808541635,
+              -12.141515737036572,
+              -12.051770521325821,
+              -12.155249567244446
+            ],
+            [
+              -9.330917553722951,
+              -9.32527218114638,
+              -9.291876463732267,
+              -9.31504647472045,
+              -9.273136422186742,
+              -9.340166218295519
+            ],
+            [
+              -6.499583058913254,
+              -6.509833393337683,
+              -6.5146813958998315,
+              -6.511888934135247,
+              -6.45268171449069,
+              -6.518161987993687
+            ],
+            [
+              -3.6218096850414576,
+              -3.674829744362551,
+              -3.6423216619620953,
+              -3.668067229017981,
+              -3.6076774287633757,
+              -3.664372338726895
+            ],
+            [
+              -0.7354901476974736,
+              -0.7712795213996975,
+              -0.7568899539745978,
+              -0.787539178684738,
+              -0.7318545640087376,
+              -0.796838374137048
+            ],
+            [
+              2.203126070310109,
+              2.1368790123922734,
+              2.1853101647172095,
+              2.1240523794417925,
+              2.216149364527129,
+              2.1224902476558
+            ]
+          ]
+        }
+      }
+    }
+  }
+}
