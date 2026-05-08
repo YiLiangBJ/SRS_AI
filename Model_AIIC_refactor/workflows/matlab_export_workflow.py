@@ -58,6 +58,121 @@ def _short_model_tag(manifest: Dict[str, object]) -> str:
     return '_'.join(parts)
 
 
+def _build_deliver_package(component_dir: Path, short_tag: str) -> Dict[str, str]:
+    deliver_dir = component_dir / 'deliver'
+    deliver_dir.mkdir(parents=True, exist_ok=True)
+
+    required_files = [
+        'matlab_model_bundle.mat',
+        'matlab_model_bundle_manifest.json',
+        'import_refactor_matlab_bundle.m',
+        'predict_refactor_matlab_bundle.m',
+        'describe_refactor_model_io.m',
+        'resolve_refactor_export_dir.m',
+        'prepare_refactor_input.m',
+        'load_srs_ai_matlab_component.m',
+        'init_model.m',
+        'predict_model.m',
+        'split_ports.m',
+        f'init_{short_tag}.m',
+        f'predict_{short_tag}.m',
+    ]
+    for file_name in required_files:
+        shutil.copy2(component_dir / file_name, deliver_dir / file_name)
+
+    demo_script = textwrap.dedent(
+        f"""
+        function demo_deliver_two_call()
+        %DEMO_DELIVER_TWO_CALL Minimal delivery demo showing init once, infer twice.
+        %
+        % This simulates a slot-based caller:
+        %   - first call: load manifest / weights and cache state
+        %   - second call: reuse the cached state directly
+        persistent state
+        componentDir = fileparts(mfilename('fullpath'));
+
+        inputA = randn(2, 24, 'single');
+        if isempty(state)
+            disp("First call: state is empty, running init_model(...)");
+            state = init_model(componentDir);
+        else
+            disp("First call: state already exists");
+        end
+        [outputA, portsA] = predict_model(state, inputA);
+        disp("First call output size: " + mat2str(size(outputA)));
+        disp("First call port[1] size: " + mat2str(size(portsA{{1}})));
+
+        inputB = randn(3, 24, 'single');
+        if isempty(state)
+            error("demo_deliver_two_call:MissingState", "State should already be initialized before second call.");
+        else
+            disp("Second call: reusing cached state, skipping init_model(...)");
+        end
+        [outputB, portsB] = predict_model(state, inputB);
+        disp("Second call output size: " + mat2str(size(outputB)));
+        disp("Second call port[1] size: " + mat2str(size(portsB{{1}})));
+
+        [refOutput, refPorts] = predict_model(state, single(state.weights.sample_input));
+        maxAbsDiff = max(abs(refOutput(:) - single(state.weights.reference_output(:))));
+        disp("Reference max abs diff: " + string(maxAbsDiff));
+        end
+        """
+    ).lstrip()
+    demo_path = deliver_dir / 'demo_deliver_two_call.m'
+    demo_path.write_text(demo_script, encoding='utf-8')
+
+    readme_text = textwrap.dedent(
+        f"""
+        # Deliver Folder
+
+        This folder is the minimal handoff set for deployment.
+
+        Main API:
+
+        ```matlab
+        state = init_model();
+        outputData = predict_model(state, x);
+        ports = split_ports(outputData);
+        ```
+
+        Short model-specific aliases:
+
+        ```matlab
+        state = init_{short_tag}();
+        outputData = predict_{short_tag}(state, x);
+        ```
+
+        Input / output contract:
+
+        - input: `N x 24`
+        - output: `N x 6 x 24`
+        - `ports{{k}}`: `N x 24`
+
+        Demo:
+
+        - run `demo_deliver_two_call.m`
+        - first call initializes and caches state
+        - second call reuses cached state without repeating load / parse
+        """
+    ).lstrip()
+    readme_path = deliver_dir / 'README_DELIVER.md'
+    readme_path.write_text(readme_text, encoding='utf-8')
+
+    deliver_files = {name: str(deliver_dir / name) for name in required_files}
+    deliver_files['demo_deliver_two_call.m'] = str(demo_path)
+    deliver_files['README_DELIVER.md'] = str(readme_path)
+    return {
+        'deliver_dir': str(deliver_dir),
+        'files': deliver_files,
+        'entrypoints': {
+            'init': str(deliver_dir / 'init_model.m'),
+            'predict': str(deliver_dir / 'predict_model.m'),
+            'split_ports': str(deliver_dir / 'split_ports.m'),
+            'demo': str(demo_path),
+        },
+    }
+
+
 def _write_component_package_files(component_dir: Path, manifest: Dict[str, object]) -> Dict[str, str]:
     run_name = str(manifest['run_name'])
     short_tag = _short_model_tag(manifest)
@@ -188,6 +303,7 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
         """
         %% Quick start: one-time init, then inference
         componentDir = fileparts(fileparts(mfilename('fullpath')));
+        addpath(componentDir);
         state = init_model(componentDir);
         inputData = randn(8, 24, 'single');
         [outputData, ports, debug] = predict_model(state, inputData);
@@ -202,6 +318,7 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
         f"""
         %% Step 1: locate the component package root
         componentDir = fileparts(fileparts(mfilename('fullpath')));
+        addpath(componentDir);
 
         %% Step 2: one-time initialization
         state = init_model(componentDir);
@@ -245,6 +362,8 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
         function [outputData, ports, state] = demo_sim_platform_loop(inputData, resetState)
         %DEMO_SIM_PLATFORM_LOOP Template for first-slot init and later-slot reuse.
         persistent cachedState
+        componentDir = fileparts(fileparts(mfilename('fullpath')));
+        addpath(componentDir);
         if nargin < 2
             resetState = false;
         end
@@ -252,11 +371,45 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
             cachedState = [];
         end
         if isempty(cachedState)
-            componentDir = fileparts(fileparts(mfilename('fullpath')));
             cachedState = init_model(componentDir);
         end
         [outputData, ports] = predict_model(cachedState, inputData);
         state = cachedState;
+        end
+        """
+    ).lstrip()
+
+    demo_init_wrapper = textwrap.dedent(
+        """
+        function state = init_model(componentDir)
+        %INIT_MODEL Demo-local wrapper so scripts under demo/ run directly.
+        if nargin < 1 || isempty(componentDir)
+            componentDir = fileparts(fileparts(mfilename('fullpath')));
+        end
+        addpath(componentDir);
+        state = feval('init_model', componentDir);
+        end
+        """
+    ).lstrip()
+
+    demo_predict_wrapper = textwrap.dedent(
+        """
+        function [outputData, ports, debug] = predict_model(state, inputData)
+        %PREDICT_MODEL Demo-local wrapper so scripts under demo/ run directly.
+        componentDir = fileparts(fileparts(mfilename('fullpath')));
+        addpath(componentDir);
+        [outputData, ports, debug] = feval('predict_model', state, inputData);
+        end
+        """
+    ).lstrip()
+
+    demo_split_wrapper = textwrap.dedent(
+        """
+        function ports = split_ports(outputData)
+        %SPLIT_PORTS Demo-local wrapper so scripts under demo/ run directly.
+        componentDir = fileparts(fileparts(mfilename('fullpath')));
+        addpath(componentDir);
+        ports = feval('split_ports', outputData);
         end
         """
     ).lstrip()
@@ -361,6 +514,9 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
         (component_dir / file_name).write_text(content, encoding='utf-8')
 
     demo_files = {
+        'init_model.m': demo_init_wrapper,
+        'predict_model.m': demo_predict_wrapper,
+        'split_ports.m': demo_split_wrapper,
         'demo_quick_start.m': demo_quick_start,
         'demo_step_by_step.m': demo_step_by_step,
         'demo_sim_platform_loop.m': demo_sim_platform,
@@ -392,6 +548,7 @@ def _build_matlab_component_package(run_output_dir: Path, manifest: Dict[str, ob
     shutil.copy2(manifest_path, copied_manifest_path)
 
     wrapper_paths = _write_component_package_files(component_dir, manifest)
+    deliver_info = _build_deliver_package(component_dir, _short_model_tag(manifest))
     return {
         'component_root': str(component_root),
         'component_dir': str(component_dir),
@@ -407,6 +564,7 @@ def _build_matlab_component_package(run_output_dir: Path, manifest: Dict[str, ob
             'step_by_step_demo': str(component_dir / 'demo' / 'demo_step_by_step.m'),
             'sim_platform_demo': str(component_dir / 'demo' / 'demo_sim_platform_loop.m'),
         },
+        'deliver': deliver_info,
         'wrapper_files': wrapper_paths,
     }
 

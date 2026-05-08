@@ -1029,6 +1029,42 @@ For a 6-port separator model, this means:
 
 This component-package path is the recommended Matlab handoff format when a model is ready for downstream integration.
 
+### 10.5.2 Deliver subfolder for minimal handoff
+
+Each versioned Matlab component package now also includes a dedicated minimal handoff folder:
+
+- `.../<run_name>/matlab_exports/matlab_component/v1_<timestamp>/deliver/`
+
+This `deliver/` folder is the one to copy when you want the smallest deployment-ready set. It contains:
+
+- `matlab_model_bundle.mat`
+- `matlab_model_bundle_manifest.json`
+- the minimum runtime helpers needed by the deployed API
+- short deployment entrypoints:
+  - `init_model.m`
+  - `predict_model.m`
+  - `split_ports.m`
+- short model-specific aliases:
+  - `init_<short_tag>.m`
+  - `predict_<short_tag>.m`
+- a single deployment demo:
+  - `demo_deliver_two_call.m`
+
+Recommended deployed usage from `deliver/`:
+
+```matlab
+state = init_model();                % first slot / one-time init
+outputData = predict_model(state, x); % later slots reuse state
+ports = split_ports(outputData);
+```
+
+The `demo_deliver_two_call.m` script demonstrates exactly this pattern:
+
+- first call initializes and caches `state`
+- second call checks that `state` already exists and skips reloading the bundle
+
+If you are integrating into a slot-based Matlab simulation platform, prefer copying `deliver/` rather than the larger parent component folder.
+
 Recommended first-use order inside the copied component package:
 
 1. Run `demo/demo_quick_start.m`.

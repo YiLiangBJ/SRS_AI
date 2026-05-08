@@ -702,6 +702,15 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue((component_dir / 'demo' / 'demo_sim_platform_loop.m').exists())
         self.assertTrue((component_dir / 'demo' / 'README_DEMO.md').exists())
         self.assertTrue((component_dir / 'README_COMPONENT.md').exists())
+        deliver_dir = Path(manifest['matlab_component']['deliver']['deliver_dir'])
+        self.assertTrue(deliver_dir.exists())
+        self.assertTrue((deliver_dir / 'matlab_model_bundle.mat').exists())
+        self.assertTrue((deliver_dir / 'matlab_model_bundle_manifest.json').exists())
+        self.assertTrue((deliver_dir / 'init_model.m').exists())
+        self.assertTrue((deliver_dir / 'predict_model.m').exists())
+        self.assertTrue((deliver_dir / 'split_ports.m').exists())
+        self.assertTrue((deliver_dir / 'demo_deliver_two_call.m').exists())
+        self.assertTrue((deliver_dir / 'README_DELIVER.md').exists())
 
     def test_export_checkpoint_to_matlab_bundle_respects_explicit_checkpoint(self):
         manifest = export_checkpoint_to_matlab_bundle(checkpoint_path=self.explicit_checkpoint_path)
