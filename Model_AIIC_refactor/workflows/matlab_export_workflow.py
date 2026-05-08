@@ -151,6 +151,8 @@ def _build_deliver_package(component_dir: Path, short_tag: str) -> Dict[str, str
         - run `demo_deliver_two_call.m`
         - first call initializes and caches state
         - second call reuses cached state without repeating load / parse
+        - the final reference check uses Python-generated `sample_input` and Python-generated `reference_output`
+        - treat that check as the required parity-validation gate before deployment handoff
         """
     ).lstrip()
     readme_path = deliver_dir / 'README_DELIVER.md'
@@ -719,6 +721,13 @@ def export_run_to_matlab_bundle(
         'sample_input_shape': list(sample_input.shape),
         'reference_output_shape': list(reference_output.shape),
         'reference_sample_rule': 'sample_input/reference_output are always exported with batch size 1; Matlab inference accepts arbitrary batch size N.',
+        'python_reference_validation': {
+            'input_field': 'sample_input',
+            'output_field': 'reference_output',
+            'input_generation': 'Generated in Python during Matlab bundle export via build_dummy_input(...)',
+            'output_generation': 'Generated in Python by running the trained PyTorch model on sample_input during Matlab bundle export',
+            'required_deployment_gate': 'Before deployment handoff, run Matlab bundle inference on sample_input and compare against reference_output',
+        },
         'materialization_rule': 'Every learned affine layer used during inference is materialized explicitly. For staged models this includes each effective port-stage block, even when training used shared stage weights.',
         'matlab_entrypoints': [
             'import_refactor_matlab_bundle',
@@ -834,6 +843,13 @@ def export_checkpoint_to_matlab_bundle(
         'sample_input_shape': list(sample_input.shape),
         'reference_output_shape': list(reference_output.shape),
         'reference_sample_rule': 'sample_input/reference_output are always exported with batch size 1; Matlab inference accepts arbitrary batch size N.',
+        'python_reference_validation': {
+            'input_field': 'sample_input',
+            'output_field': 'reference_output',
+            'input_generation': 'Generated in Python during Matlab bundle export via build_dummy_input(...)',
+            'output_generation': 'Generated in Python by running the trained PyTorch model on sample_input during Matlab bundle export',
+            'required_deployment_gate': 'Before deployment handoff, run Matlab bundle inference on sample_input and compare against reference_output',
+        },
         'materialization_rule': 'Every learned affine layer used during inference is materialized explicitly. For staged models this includes each effective port-stage block, even when training used shared stage weights.',
         'matlab_entrypoints': [
             'import_refactor_matlab_bundle',

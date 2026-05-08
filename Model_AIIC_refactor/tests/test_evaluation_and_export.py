@@ -683,6 +683,8 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(manifest['model_spec']['normalize_energy'])
         self.assertTrue(manifest['input_normalization']['enabled'])
         self.assertEqual(manifest['sample_input_shape'][0], 1)
+        self.assertEqual(manifest['python_reference_validation']['input_field'], 'sample_input')
+        self.assertEqual(manifest['python_reference_validation']['output_field'], 'reference_output')
         self.assertTrue(Path(manifest['model_flow_json_path']).exists())
         self.assertTrue(Path(manifest['model_flow_markdown_path']).exists())
         self.assertTrue(Path(manifest['model_complexity_json_path']).exists())

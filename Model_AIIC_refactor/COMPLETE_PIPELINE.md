@@ -823,6 +823,13 @@ python ./Model_AIIC_refactor/export_matlab_bundle.py \
 
 The exporter always stores one reference sample. That only affects the bundled `sample_input` and `reference_output`; Matlab inference still accepts arbitrary batch size `N`.
 
+That reference pair is not just for convenience. It is the formal Python-to-Matlab parity anchor:
+
+- `sample_input` is generated in Python during export
+- `reference_output` is generated in Python by running the trained PyTorch model on that same `sample_input`
+
+Before a Matlab bundle is treated as deployment-ready, you should run the Matlab code path on that exact exported `sample_input` and compare the result against `reference_output`.
+
 ### 9.2 Matlab bundle output layout
 
 ```text
@@ -1062,6 +1069,12 @@ The `demo_deliver_two_call.m` script demonstrates exactly this pattern:
 
 - first call initializes and caches `state`
 - second call checks that `state` already exists and skips reloading the bundle
+- final reference check runs the Matlab code path on Python-generated `sample_input` and compares to Python-generated `reference_output`
+
+This parity check should be treated as the required deployment gate between:
+
+1. Matlab bundle export
+2. Matlab-side integration / deployment handoff
 
 If you are integrating into a slot-based Matlab simulation platform, prefer copying `deliver/` rather than the larger parent component folder.
 
