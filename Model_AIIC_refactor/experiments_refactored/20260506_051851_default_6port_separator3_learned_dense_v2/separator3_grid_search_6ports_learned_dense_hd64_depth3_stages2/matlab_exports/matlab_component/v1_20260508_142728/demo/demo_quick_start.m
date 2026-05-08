@@ -1,0 +1,9 @@
+%% Quick start: one-time init, then inference
+componentDir = fileparts(fileparts(mfilename('fullpath')));
+state = init_model(componentDir);
+inputData = randn(8, 24, 'single');
+[outputData, ports, debug] = predict_model(state, inputData);
+disp(size(inputData));
+disp(size(outputData));
+disp(size(ports{1}));
+%#ok<NASGU>

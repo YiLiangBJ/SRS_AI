@@ -38,13 +38,34 @@ def _sanitize_matlab_identifier(raw_name: str) -> str:
     return cleaned
 
 
-def _write_component_wrapper_scripts(component_dir: Path, run_name: str) -> Dict[str, str]:
-    run_identifier = _sanitize_matlab_identifier(run_name)
-    model_predict_file = f'predict_{run_identifier}_component.m'
-    model_debug_file = f'debug_{run_identifier}_step_by_step.m'
+def _short_model_tag(manifest: Dict[str, object]) -> str:
+    model_spec = manifest.get('model_spec', {}) if isinstance(manifest, dict) else {}
+    model_type = str(model_spec.get('model_type', 'model'))
+    prefix_map = {
+        'separator1': 'sep1',
+        'separator2': 'sep2',
+        'separator3': 'sep3',
+        'full_mlp': 'fmlp',
+    }
+    prefix = prefix_map.get(model_type, _sanitize_matlab_identifier(model_type).lower())
+    parts = [prefix]
+    if 'hidden_dim' in model_spec:
+        parts.append(f"hd{int(model_spec['hidden_dim'])}")
+    if 'mlp_depth' in model_spec:
+        parts.append(f"d{int(model_spec['mlp_depth'])}")
+    if 'num_stages' in model_spec:
+        parts.append(f"s{int(model_spec['num_stages'])}")
+    return '_'.join(parts)
+
+
+def _write_component_package_files(component_dir: Path, manifest: Dict[str, object]) -> Dict[str, str]:
+    run_name = str(manifest['run_name'])
+    short_tag = _short_model_tag(manifest)
+    demo_dir = component_dir / 'demo'
+    demo_dir.mkdir(parents=True, exist_ok=True)
 
     load_script = textwrap.dedent(
-        f"""
+        """
         function component = load_srs_ai_matlab_component(componentDir)
         %LOAD_SRS_AI_MATLAB_COMPONENT Load the colocated SRS AI Matlab bundle component.
         if nargin < 1 || isempty(componentDir)
@@ -55,36 +76,65 @@ def _write_component_wrapper_scripts(component_dir: Path, run_name: str) -> Dict
         """
     ).lstrip()
 
+    init_script = textwrap.dedent(
+        f"""
+        function state = init_model(componentDir)
+        %INIT_MODEL One-time initialization for deployed Matlab inference.
+        if nargin < 1 || isempty(componentDir)
+            componentDir = fileparts(mfilename('fullpath'));
+        end
+        state = load_srs_ai_matlab_component(componentDir);
+        state.component_dir = string(componentDir);
+        state.model_name = "{short_tag}";
+        state.seq_len = double(state.manifest.model_spec.seq_len);
+        state.input_width = state.seq_len * 2;
+        state.num_ports = double(state.manifest.model_spec.num_ports);
+        state.output_width = state.input_width;
+        end
+        """
+    ).lstrip()
+
     predict_script = textwrap.dedent(
         f"""
-        function [outputData, debug, component] = predict_srs_ai_matlab_component(inputData, componentOrDir)
-        %PREDICT_SRS_AI_MATLAB_COMPONENT Off-the-shelf inference entrypoint for {run_name}.
+        function [outputData, debug, state] = predict_srs_ai_matlab_component(inputData, stateOrDir)
+        %PREDICT_SRS_AI_MATLAB_COMPONENT Lower-level inference entrypoint for {run_name}.
         %
         % Usage:
-        %   outputData = predict_srs_ai_matlab_component(inputData)
-        %   outputData = predict_srs_ai_matlab_component(inputData, component)
+        %   outputData = predict_srs_ai_matlab_component(inputData, state)
         %   outputData = predict_srs_ai_matlab_component(inputData, componentDir)
         %
         % Input shape:
         %   N x 24 real-stacked float32 = [real_part, imag_part]
         % Output shape:
         %   N x 6 x 24 real-stacked float32
-        if nargin < 2 || isempty(componentOrDir)
-            component = load_srs_ai_matlab_component(fileparts(mfilename('fullpath')));
-        elseif isstruct(componentOrDir)
-            component = componentOrDir;
+        if nargin < 2 || isempty(stateOrDir)
+            state = init_model(fileparts(mfilename('fullpath')));
+        elseif isstruct(stateOrDir)
+            state = stateOrDir;
         else
-            component = load_srs_ai_matlab_component(componentOrDir);
+            state = init_model(stateOrDir);
         end
-        [outputData, debug] = predict_refactor_matlab_bundle(component, inputData);
+        [outputData, debug] = predict_refactor_matlab_bundle(state, inputData);
+        end
+        """
+    ).lstrip()
+
+    predict_model_script = textwrap.dedent(
+        """
+        function [outputData, ports, debug] = predict_model(state, inputData)
+        %PREDICT_MODEL Fast deployed inference using preinitialized state.
+        [outputData, debug] = predict_refactor_matlab_bundle(state, single(inputData));
+        if nargout >= 2
+            ports = split_ports(outputData);
+        end
         end
         """
     ).lstrip()
 
     split_script = textwrap.dedent(
         """
-        function ports = split_srs_ai_matlab_ports(outputData)
-        %SPLIT_SRS_AI_MATLAB_PORTS Convert N x 6 x 24 output into a 1x6 cell array of N x 24 slices.
+        function ports = split_ports(outputData)
+        %SPLIT_PORTS Convert N x 6 x 24 output into a 1x6 cell array of N x 24 slices.
         validateattributes(outputData, {'numeric'}, {'3d'});
         numPorts = size(outputData, 2);
         ports = cell(1, numPorts);
@@ -105,10 +155,10 @@ def _write_component_wrapper_scripts(component_dir: Path, run_name: str) -> Dict
         if nargin < 1 || isempty(batchSize)
             batchSize = 4;
         end
-        component = load_srs_ai_matlab_component(fileparts(mfilename('fullpath')));
+        component = init_model(fileparts(mfilename('fullpath')));
         inputData = prepare_refactor_input(component, batchSize, "bundle");
         [outputData, debug] = predict_srs_ai_matlab_component(inputData, component);
-        ports = split_srs_ai_matlab_ports(outputData);
+        ports = split_ports(outputData);
         disp("Component demo finished.");
         disp("  Input size: " + mat2str(size(inputData)));
         disp("  Output size: " + mat2str(size(outputData)));
@@ -118,59 +168,122 @@ def _write_component_wrapper_scripts(component_dir: Path, run_name: str) -> Dict
 
     model_predict_script = textwrap.dedent(
         f"""
-        function [outputData, ports, debug, component] = predict_{run_identifier}_component(inputData, componentOrDir)
-        %PREDICT_{run_identifier.upper()}_COMPONENT Model-specific wrapper for {run_name}.
-        if nargin < 1 || isempty(inputData)
-            inputData = randn(1, 24, 'single');
-        end
-        [outputData, debug, component] = predict_srs_ai_matlab_component(single(inputData), componentOrDir);
-        ports = split_srs_ai_matlab_ports(outputData);
+        function [outputData, ports, debug] = predict_{short_tag}(state, inputData)
+        %PREDICT_{short_tag.upper()} Short model-specific deployed inference entrypoint.
+        [outputData, ports, debug] = predict_model(state, inputData);
         end
         """
     ).lstrip()
 
-    debug_script = textwrap.dedent(
+    model_init_script = textwrap.dedent(
         f"""
-        %% Step 0: choose the component folder
-        % Run this script from inside the copied component package, or edit componentDir.
-        componentDir = fileparts(mfilename('fullpath'));
+        function state = init_{short_tag}(componentDir)
+        %INIT_{short_tag.upper()} Short model-specific initialization entrypoint.
+        state = init_model(componentDir);
+        end
+        """
+    ).lstrip()
 
-        %% Step 1: load the exported component and inspect metadata
-        component = load_srs_ai_matlab_component(componentDir);
-        manifest = component.manifest;
-        ioSpec = component.io_spec;
+    demo_quick_start = textwrap.dedent(
+        """
+        %% Quick start: one-time init, then inference
+        componentDir = fileparts(fileparts(mfilename('fullpath')));
+        state = init_model(componentDir);
+        inputData = randn(8, 24, 'single');
+        [outputData, ports, debug] = predict_model(state, inputData);
+        disp(size(inputData));
+        disp(size(outputData));
+        disp(size(ports{1}));
+        %#ok<NASGU>
+        """
+    ).lstrip()
+
+    demo_step_by_step = textwrap.dedent(
+        f"""
+        %% Step 1: locate the component package root
+        componentDir = fileparts(fileparts(mfilename('fullpath')));
+
+        %% Step 2: one-time initialization
+        state = init_model(componentDir);
+        manifest = state.manifest;
+        ioSpec = state.io_spec;
         disp(manifest.run_name);
         disp(ioSpec.input);
         disp(ioSpec.output);
 
-        %% Step 2: inspect the exported reference tensors
-        sampleInput = single(component.weights.sample_input);
-        referenceOutput = single(component.weights.reference_output);
+        %% Step 3: inspect exported reference tensors
+        sampleInput = single(state.weights.sample_input);
+        referenceOutput = single(state.weights.reference_output);
         disp(size(sampleInput));
         disp(size(referenceOutput));
 
-        %% Step 3: create your own dynamic-batch input (N x 24)
+        %% Step 4: create your own dynamic-batch input
         batchSize = 4;
-        inputData = prepare_refactor_input(component, batchSize, "bundle");
+        inputData = prepare_refactor_input(state, batchSize, "bundle");
         disp(size(inputData));
 
-        %% Step 4: run the off-the-shelf predictor
-        [outputData, debug] = predict_srs_ai_matlab_component(inputData, component);
+        %% Step 5: run deployed inference with preloaded state
+        [outputData, ports, debug] = predict_model(state, inputData);
         disp(size(outputData));
-
-        %% Step 5: split the 6 ports into separate N x 24 matrices
-        ports = split_srs_ai_matlab_ports(outputData);
         disp(size(ports{{1}}));
 
-        %% Step 6: verify the exported reference sample path
-        [referencePrediction, referenceDebug] = predict_srs_ai_matlab_component(sampleInput, component);
+        %% Step 6: verify the reference sample path once
+        [referencePrediction, referencePorts, referenceDebug] = predict_model(state, sampleInput);
         maxAbsDiff = max(abs(referencePrediction(:) - referenceOutput(:)));
         disp("Max abs diff vs reference_output: " + string(maxAbsDiff));
 
-        %% Step 7: model-specific wrapper usage
-        [wrappedOutput, wrappedPorts, wrappedDebug] = predict_{run_identifier}_component(inputData, component);
-        disp(size(wrappedOutput));
+        %% Step 7: short model-specific aliases
+        state2 = init_{short_tag}(componentDir);
+        [outputData2, ports2, debug2] = predict_{short_tag}(state2, inputData);
+        disp(size(outputData2));
         %#ok<NASGU>
+        """
+    ).lstrip()
+
+    demo_sim_platform = textwrap.dedent(
+        """
+        function [outputData, ports, state] = demo_sim_platform_loop(inputData, resetState)
+        %DEMO_SIM_PLATFORM_LOOP Template for first-slot init and later-slot reuse.
+        persistent cachedState
+        if nargin < 2
+            resetState = false;
+        end
+        if resetState
+            cachedState = [];
+        end
+        if isempty(cachedState)
+            componentDir = fileparts(fileparts(mfilename('fullpath')));
+            cachedState = init_model(componentDir);
+        end
+        [outputData, ports] = predict_model(cachedState, inputData);
+        state = cachedState;
+        end
+        """
+    ).lstrip()
+
+    demo_readme = textwrap.dedent(
+        f"""
+        # Demo Guide
+
+        Recommended order:
+
+        1. Run `demo_quick_start.m` to confirm the basic API.
+        2. Run `demo_step_by_step.m` section by section to inspect initialization, sample tensors, and reference-output matching.
+        3. Use `demo_sim_platform_loop.m` as the template for slot-based platform integration.
+
+        Deployment-first API:
+
+        ```matlab
+        state = init_model(componentDir);      % once
+        outputData = predict_model(state, x);  % every slot
+        ```
+
+        Short model-specific aliases:
+
+        ```matlab
+        state = init_{short_tag}(componentDir);
+        outputData = predict_{short_tag}(state, x);
+        ```
         """
     ).lstrip()
 
@@ -182,30 +295,33 @@ def _write_component_wrapper_scripts(component_dir: Path, run_name: str) -> Dict
 
         - `{run_name}`
 
-        Copy this entire folder to your Matlab project, then either:
+    Short deployment tag:
+
+    - `{short_tag}`
+
+    Copy this entire folder to your Matlab project.
+
+    Recommended deployment pattern:
 
         ```matlab
-        component = load_srs_ai_matlab_component();
-        outputData = predict_srs_ai_matlab_component(randn(8, 24, 'single'));
+    state = init_model();
+    outputData = predict_model(state, randn(8, 24, 'single'));
         ```
 
-        Model-specific wrapper:
+    Short model-specific aliases:
 
         ```matlab
-        [outputData, ports] = predict_{run_identifier}_component(randn(8, 24, 'single'));
+    state = init_{short_tag}();
+    [outputData, ports] = predict_{short_tag}(state, randn(8, 24, 'single'));
         ```
 
-        or:
+    If you want a quick smoke test:
 
         ```matlab
         [inputData, outputData, ports] = demo_srs_ai_matlab_component(8);
         ```
 
-        Step-by-step debug walkthrough:
-
-        ```matlab
-        debug_{run_identifier}_step_by_step
-        ```
+    Demo scripts are under `demo/`.
 
         Interface contract:
 
@@ -213,14 +329,12 @@ def _write_component_wrapper_scripts(component_dir: Path, run_name: str) -> Dict
         - output: `N x 6 x 24` real-stacked float32
         - `ports{{k}}`: `N x 24` output for port `k`
 
-        Recommended first debug order:
+        Deployment-first workflow:
 
-        1. `load_srs_ai_matlab_component`
-        2. inspect `component.manifest` and `component.io_spec`
-        3. `prepare_refactor_input`
-        4. `predict_srs_ai_matlab_component`
-        5. `split_srs_ai_matlab_ports`
-        6. compare against `reference_output`
+        1. `init_model(...)` is the one-time load/parse step.
+        2. `predict_model(state, inputData)` is the per-slot fast path.
+        3. Keep `state` in a persistent variable in your simulation platform.
+        4. Use `demo/demo_sim_platform_loop.m` as the integration template.
 
         Required colocated files in this folder:
 
@@ -234,16 +348,30 @@ def _write_component_wrapper_scripts(component_dir: Path, run_name: str) -> Dict
 
     files = {
         'load_srs_ai_matlab_component.m': load_script,
+        'init_model.m': init_script,
         'predict_srs_ai_matlab_component.m': predict_script,
-        'split_srs_ai_matlab_ports.m': split_script,
+        'predict_model.m': predict_model_script,
+        'split_ports.m': split_script,
         'demo_srs_ai_matlab_component.m': demo_script,
-        model_predict_file: model_predict_script,
-        model_debug_file: debug_script,
+        f'init_{short_tag}.m': model_init_script,
+        f'predict_{short_tag}.m': model_predict_script,
         'README_COMPONENT.md': readme,
     }
     for file_name, content in files.items():
         (component_dir / file_name).write_text(content, encoding='utf-8')
-    return {name: str(component_dir / name) for name in files}
+
+    demo_files = {
+        'demo_quick_start.m': demo_quick_start,
+        'demo_step_by_step.m': demo_step_by_step,
+        'demo_sim_platform_loop.m': demo_sim_platform,
+        'README_DEMO.md': demo_readme,
+    }
+    for file_name, content in demo_files.items():
+        (demo_dir / file_name).write_text(content, encoding='utf-8')
+
+    file_paths = {name: str(component_dir / name) for name in files}
+    file_paths.update({f'demo/{name}': str(demo_dir / name) for name in demo_files})
+    return file_paths
 
 
 def _build_matlab_component_package(run_output_dir: Path, manifest: Dict[str, object]) -> Dict[str, object]:
@@ -263,18 +391,21 @@ def _build_matlab_component_package(run_output_dir: Path, manifest: Dict[str, ob
     shutil.copy2(mat_path, copied_mat_path)
     shutil.copy2(manifest_path, copied_manifest_path)
 
-    wrapper_paths = _write_component_wrapper_scripts(component_dir, str(manifest['run_name']))
+    wrapper_paths = _write_component_package_files(component_dir, manifest)
     return {
         'component_root': str(component_root),
         'component_dir': str(component_dir),
         'version_tag': version_tag,
+        'short_tag': _short_model_tag(manifest),
         'mat_file': str(copied_mat_path),
         'manifest_file': str(copied_manifest_path),
         'entrypoints': {
-            'load': str(component_dir / 'load_srs_ai_matlab_component.m'),
-            'predict': str(component_dir / 'predict_srs_ai_matlab_component.m'),
-            'split_ports': str(component_dir / 'split_srs_ai_matlab_ports.m'),
-            'demo': str(component_dir / 'demo_srs_ai_matlab_component.m'),
+            'init': str(component_dir / 'init_model.m'),
+            'predict': str(component_dir / 'predict_model.m'),
+            'split_ports': str(component_dir / 'split_ports.m'),
+            'quick_demo': str(component_dir / 'demo' / 'demo_quick_start.m'),
+            'step_by_step_demo': str(component_dir / 'demo' / 'demo_step_by_step.m'),
+            'sim_platform_demo': str(component_dir / 'demo' / 'demo_sim_platform_loop.m'),
         },
         'wrapper_files': wrapper_paths,
     }

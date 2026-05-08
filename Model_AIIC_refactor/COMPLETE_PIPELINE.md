@@ -995,23 +995,31 @@ That versioned folder is designed to be copyable into another Matlab project as 
 - `matlab_model_bundle.mat`
 - `matlab_model_bundle_manifest.json`
 - the required runtime helpers such as `import_refactor_matlab_bundle.m` and `predict_refactor_matlab_bundle.m`
-- direct wrapper entrypoints:
+- short deployment-first entrypoints:
+  - `init_model.m`
+  - `predict_model.m`
+  - `split_ports.m`
+- short model-specific aliases:
+  - `init_<short_tag>.m`
+  - `predict_<short_tag>.m`
+- optional lower-level helpers:
   - `load_srs_ai_matlab_component.m`
   - `predict_srs_ai_matlab_component.m`
-  - `split_srs_ai_matlab_ports.m`
-  - `demo_srs_ai_matlab_component.m`
-- a run-specific wrapper:
-  - `predict_<run_name>_component.m`
-- a step-by-step debug walkthrough script:
-  - `debug_<run_name>_step_by_step.m`
+- `demo/` subfolder containing:
+  - `demo_quick_start.m`
+  - `demo_step_by_step.m`
+  - `demo_sim_platform_loop.m`
+  - `README_DEMO.md`
 
-Recommended usage after copying that versioned folder to your Matlab project:
+Recommended deployment usage after copying that versioned folder to your Matlab project:
 
 ```matlab
-component = load_srs_ai_matlab_component();
-outputData = predict_srs_ai_matlab_component(randn(8, 24, 'single'));
-ports = split_srs_ai_matlab_ports(outputData);
+state = init_model();
+outputData = predict_model(state, randn(8, 24, 'single'));
+ports = split_ports(outputData);
 ```
+
+This is intentionally split so you can do file loading and manifest parsing only once, then reuse `state` for every subsequent slot.
 
 For a 6-port separator model, this means:
 
@@ -1023,9 +1031,10 @@ This component-package path is the recommended Matlab handoff format when a mode
 
 Recommended first-use order inside the copied component package:
 
-1. Run `debug_<run_name>_step_by_step.m` section by section in the Matlab editor.
-2. Once the I/O and reference checks look correct, switch to `predict_<run_name>_component.m` for direct application integration.
-3. Keep `predict_srs_ai_matlab_component.m` as the generic fallback entrypoint when you want one stable API across multiple exported models.
+1. Run `demo/demo_quick_start.m`.
+2. Then open `demo/demo_step_by_step.m` and execute it section by section in the Matlab editor.
+3. When integrating into your simulation platform, copy the pattern from `demo/demo_sim_platform_loop.m`.
+4. If you want a short model-specific API, use `init_<short_tag>.m` and `predict_<short_tag>.m`.
 
 ### 10.6 ONNX-specific note
 

@@ -965,36 +965,5 @@
     "enabled": true,
     "rule": "Per-sample RMS over the complex sequence; output is rescaled by the same factor after separation."
   },
-  "manifest_path": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_model_bundle_manifest.json",
-  "matlab_component": {
-    "component_root": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component",
-    "component_dir": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728",
-    "version_tag": "v1_20260508_142728",
-    "short_tag": "sep3_hd64_d3_s2",
-    "mat_file": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\matlab_model_bundle.mat",
-    "manifest_file": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\matlab_model_bundle_manifest.json",
-    "entrypoints": {
-      "init": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\init_model.m",
-      "predict": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\predict_model.m",
-      "split_ports": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\split_ports.m",
-      "quick_demo": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\demo\\demo_quick_start.m",
-      "step_by_step_demo": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\demo\\demo_step_by_step.m",
-      "sim_platform_demo": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\demo\\demo_sim_platform_loop.m"
-    },
-    "wrapper_files": {
-      "load_srs_ai_matlab_component.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\load_srs_ai_matlab_component.m",
-      "init_model.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\init_model.m",
-      "predict_srs_ai_matlab_component.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\predict_srs_ai_matlab_component.m",
-      "predict_model.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\predict_model.m",
-      "split_ports.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\split_ports.m",
-      "demo_srs_ai_matlab_component.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\demo_srs_ai_matlab_component.m",
-      "init_sep3_hd64_d3_s2.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\init_sep3_hd64_d3_s2.m",
-      "predict_sep3_hd64_d3_s2.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\predict_sep3_hd64_d3_s2.m",
-      "README_COMPONENT.md": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\README_COMPONENT.md",
-      "demo/demo_quick_start.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\demo\\demo_quick_start.m",
-      "demo/demo_step_by_step.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\demo\\demo_step_by_step.m",
-      "demo/demo_sim_platform_loop.m": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\demo\\demo_sim_platform_loop.m",
-      "demo/README_DEMO.md": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_component\\v1_20260508_142728\\demo\\README_DEMO.md"
-    }
-  }
+  "manifest_path": "Model_AIIC_refactor\\experiments_refactored\\20260506_051851_default_6port_separator3_learned_dense_v2\\separator3_grid_search_6ports_learned_dense_hd64_depth3_stages2\\matlab_exports\\matlab_model_bundle_manifest.json"
 }
