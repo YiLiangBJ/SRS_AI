@@ -687,6 +687,16 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(Path(manifest['model_flow_markdown_path']).exists())
         self.assertTrue(Path(manifest['model_complexity_json_path']).exists())
         self.assertTrue(Path(manifest['model_complexity_markdown_path']).exists())
+        component_dir = Path(manifest['matlab_component']['component_dir'])
+        self.assertTrue(component_dir.exists())
+        self.assertTrue((component_dir / 'matlab_model_bundle.mat').exists())
+        self.assertTrue((component_dir / 'matlab_model_bundle_manifest.json').exists())
+        self.assertTrue((component_dir / 'load_srs_ai_matlab_component.m').exists())
+        self.assertTrue((component_dir / 'predict_srs_ai_matlab_component.m').exists())
+        self.assertTrue((component_dir / 'split_srs_ai_matlab_ports.m').exists())
+        self.assertTrue((component_dir / 'predict_demo_run_component.m').exists())
+        self.assertTrue((component_dir / 'debug_demo_run_step_by_step.m').exists())
+        self.assertTrue((component_dir / 'README_COMPONENT.md').exists())
 
     def test_export_checkpoint_to_matlab_bundle_respects_explicit_checkpoint(self):
         manifest = export_checkpoint_to_matlab_bundle(checkpoint_path=self.explicit_checkpoint_path)

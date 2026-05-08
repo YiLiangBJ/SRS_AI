@@ -304,7 +304,6 @@ numPorts = double(modelSpec.num_ports);
 seqLen = double(modelSpec.seq_len);
 numStages = double(modelSpec.num_stages);
 residualMode = string(local_manifest_field(modelSpec, "residual_correction_mode", "global"));
-featureWidth = seqLen * 2;
 
 stageInput = inputData;
 stageOutputs = cell(numStages, 1);
@@ -342,8 +341,8 @@ for stageIdx = 1:numStages
         layerIdx = layerIdx + 1;
     end
 
-    features = local_expand_port_features(x, numPorts, featureWidth);
-    residual = inputData - reshape(sum(features, 2), [size(inputData, 1), featureWidth]);
+    features = reshape(x, [size(inputData, 1), numPorts, seqLen * 2]);
+    residual = inputData - reshape(sum(features, 2), [size(inputData, 1), seqLen * 2]);
 
     switch residualMode
         case "learned_dense"
@@ -353,15 +352,15 @@ for stageIdx = 1:numStages
                     "Missing learned residual mask for stage %d.", stageIdx);
             end
             residualMask = single(weights.(maskName));
-            features = features + reshape(residual, [size(inputData, 1), 1, featureWidth]) .* reshape(residualMask, [1, numPorts, featureWidth]);
+            features = features + residual .* reshape(residualMask, [1, numPorts, seqLen * 2]);
         case "masked"
             error("predict_refactor_matlab_bundle:UnsupportedSeparator3Masked", ...
                 "separator3 masked residual mode is not implemented in Matlab bundle inference.");
         otherwise
-                features = features + reshape(residual, [size(inputData, 1), 1, featureWidth]);
+            features = features + reshape(residual, [size(inputData, 1), 1, seqLen * 2]);
     end
 
-            stageInput = local_flatten_port_features(features);
+    stageInput = reshape(features, [size(inputData, 1), numPorts * seqLen * 2]);
     stageOutputs{stageIdx} = features;
     if collectDetailedDebug
         stageTraces{stageIdx} = layerTrace;
@@ -471,13 +470,4 @@ if isstruct(structValue) && isfield(structValue, fieldName)
 else
     value = defaultValue;
 end
-end
-
-function features = local_expand_port_features(flattened, numPorts, featureWidth)
-batchSize = size(flattened, 1);
-features = permute(reshape(flattened.', [featureWidth, numPorts, batchSize]), [3 2 1]);
-end
-
-function flattened = local_flatten_port_features(features)
-flattened = reshape(permute(features, [3 2 1]), [], size(features, 1)).';
 end

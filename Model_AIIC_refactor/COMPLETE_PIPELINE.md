@@ -984,6 +984,49 @@ inputData = prepare_refactor_input(bundle, 8, "bundle");
 
 `prepare_refactor_input` generates `batchSize x (2*seq_len)` input automatically from the imported metadata.
 
+### 10.5.1 Off-the-shelf Matlab component package
+
+Every Matlab bundle export now also creates a versioned component package under:
+
+- `.../<run_name>/matlab_exports/matlab_component/v1_<timestamp>/`
+
+That versioned folder is designed to be copyable into another Matlab project as a self-contained deployment component. It includes:
+
+- `matlab_model_bundle.mat`
+- `matlab_model_bundle_manifest.json`
+- the required runtime helpers such as `import_refactor_matlab_bundle.m` and `predict_refactor_matlab_bundle.m`
+- direct wrapper entrypoints:
+  - `load_srs_ai_matlab_component.m`
+  - `predict_srs_ai_matlab_component.m`
+  - `split_srs_ai_matlab_ports.m`
+  - `demo_srs_ai_matlab_component.m`
+- a run-specific wrapper:
+  - `predict_<run_name>_component.m`
+- a step-by-step debug walkthrough script:
+  - `debug_<run_name>_step_by_step.m`
+
+Recommended usage after copying that versioned folder to your Matlab project:
+
+```matlab
+component = load_srs_ai_matlab_component();
+outputData = predict_srs_ai_matlab_component(randn(8, 24, 'single'));
+ports = split_srs_ai_matlab_ports(outputData);
+```
+
+For a 6-port separator model, this means:
+
+- input: `N x 24`
+- output: `N x 6 x 24`
+- `ports{k}`: `N x 24` for the `k`-th port
+
+This component-package path is the recommended Matlab handoff format when a model is ready for downstream integration.
+
+Recommended first-use order inside the copied component package:
+
+1. Run `debug_<run_name>_step_by_step.m` section by section in the Matlab editor.
+2. Once the I/O and reference checks look correct, switch to `predict_<run_name>_component.m` for direct application integration.
+3. Keep `predict_srs_ai_matlab_component.m` as the generic fallback entrypoint when you want one stable API across multiple exported models.
+
 ### 10.6 ONNX-specific note
 
 The Matlab helper now uses a version-compatible ONNX import path:
@@ -1003,6 +1046,8 @@ Use this mapping:
 - `run_refactor_separator1_demo.m`: advanced separator1 explicit layer-trace debugging
 
 If you are unsure, use only `run_refactor_model_demo.m`.
+
+If you are handing a model to another Matlab project and want the smallest copyable deployment unit, prefer the versioned `matlab_component/v1_<timestamp>/` package instead of the raw `matlab_exports/` directory.
 
 ### 10.8 Shape conventions in Matlab
 

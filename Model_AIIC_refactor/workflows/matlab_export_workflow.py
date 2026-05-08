@@ -3,6 +3,8 @@
 import json
 from datetime import datetime
 from pathlib import Path
+import shutil
+import textwrap
 from typing import Dict, List
 
 import numpy as np
@@ -11,6 +13,271 @@ import torch.nn as nn
 from scipy.io import savemat
 
 from utils import build_dummy_input, load_trained_model_from_checkpoint, load_trained_model_from_run, resolve_run_selection, save_model_complexity_artifacts, save_model_flow_artifacts
+
+
+MATLAB_COMPONENT_RUNTIME_FILES = [
+    'import_refactor_matlab_bundle.m',
+    'predict_refactor_matlab_bundle.m',
+    'describe_refactor_model_io.m',
+    'resolve_refactor_export_dir.m',
+    'prepare_refactor_input.m',
+    'import_refactor_model.m',
+    'predict_refactor_model.m',
+]
+
+
+def _matlab_runtime_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / 'matlab'
+
+
+def _sanitize_matlab_identifier(raw_name: str) -> str:
+    cleaned = ''.join(character if character.isalnum() else '_' for character in raw_name)
+    cleaned = cleaned.strip('_') or 'model_component'
+    if not cleaned[0].isalpha():
+        cleaned = f'model_{cleaned}'
+    return cleaned
+
+
+def _write_component_wrapper_scripts(component_dir: Path, run_name: str) -> Dict[str, str]:
+    run_identifier = _sanitize_matlab_identifier(run_name)
+    model_predict_file = f'predict_{run_identifier}_component.m'
+    model_debug_file = f'debug_{run_identifier}_step_by_step.m'
+
+    load_script = textwrap.dedent(
+        f"""
+        function component = load_srs_ai_matlab_component(componentDir)
+        %LOAD_SRS_AI_MATLAB_COMPONENT Load the colocated SRS AI Matlab bundle component.
+        if nargin < 1 || isempty(componentDir)
+            componentDir = fileparts(mfilename('fullpath'));
+        end
+        component = import_refactor_matlab_bundle(componentDir);
+        end
+        """
+    ).lstrip()
+
+    predict_script = textwrap.dedent(
+        f"""
+        function [outputData, debug, component] = predict_srs_ai_matlab_component(inputData, componentOrDir)
+        %PREDICT_SRS_AI_MATLAB_COMPONENT Off-the-shelf inference entrypoint for {run_name}.
+        %
+        % Usage:
+        %   outputData = predict_srs_ai_matlab_component(inputData)
+        %   outputData = predict_srs_ai_matlab_component(inputData, component)
+        %   outputData = predict_srs_ai_matlab_component(inputData, componentDir)
+        %
+        % Input shape:
+        %   N x 24 real-stacked float32 = [real_part, imag_part]
+        % Output shape:
+        %   N x 6 x 24 real-stacked float32
+        if nargin < 2 || isempty(componentOrDir)
+            component = load_srs_ai_matlab_component(fileparts(mfilename('fullpath')));
+        elseif isstruct(componentOrDir)
+            component = componentOrDir;
+        else
+            component = load_srs_ai_matlab_component(componentOrDir);
+        end
+        [outputData, debug] = predict_refactor_matlab_bundle(component, inputData);
+        end
+        """
+    ).lstrip()
+
+    split_script = textwrap.dedent(
+        """
+        function ports = split_srs_ai_matlab_ports(outputData)
+        %SPLIT_SRS_AI_MATLAB_PORTS Convert N x 6 x 24 output into a 1x6 cell array of N x 24 slices.
+        validateattributes(outputData, {'numeric'}, {'3d'});
+        numPorts = size(outputData, 2);
+        ports = cell(1, numPorts);
+        for portIdx = 1:numPorts
+            ports{portIdx} = squeeze(outputData(:, portIdx, :));
+            if size(outputData, 1) == 1
+                ports{portIdx} = reshape(ports{portIdx}, 1, []);
+            end
+        end
+        end
+        """
+    ).lstrip()
+
+    demo_script = textwrap.dedent(
+        """
+        function [inputData, outputData, ports, debug, component] = demo_srs_ai_matlab_component(batchSize)
+        %DEMO_SRS_AI_MATLAB_COMPONENT Quick self-test for the colocated component package.
+        if nargin < 1 || isempty(batchSize)
+            batchSize = 4;
+        end
+        component = load_srs_ai_matlab_component(fileparts(mfilename('fullpath')));
+        inputData = prepare_refactor_input(component, batchSize, "bundle");
+        [outputData, debug] = predict_srs_ai_matlab_component(inputData, component);
+        ports = split_srs_ai_matlab_ports(outputData);
+        disp("Component demo finished.");
+        disp("  Input size: " + mat2str(size(inputData)));
+        disp("  Output size: " + mat2str(size(outputData)));
+        end
+        """
+    ).lstrip()
+
+    model_predict_script = textwrap.dedent(
+        f"""
+        function [outputData, ports, debug, component] = predict_{run_identifier}_component(inputData, componentOrDir)
+        %PREDICT_{run_identifier.upper()}_COMPONENT Model-specific wrapper for {run_name}.
+        if nargin < 1 || isempty(inputData)
+            inputData = randn(1, 24, 'single');
+        end
+        [outputData, debug, component] = predict_srs_ai_matlab_component(single(inputData), componentOrDir);
+        ports = split_srs_ai_matlab_ports(outputData);
+        end
+        """
+    ).lstrip()
+
+    debug_script = textwrap.dedent(
+        f"""
+        %% Step 0: choose the component folder
+        % Run this script from inside the copied component package, or edit componentDir.
+        componentDir = fileparts(mfilename('fullpath'));
+
+        %% Step 1: load the exported component and inspect metadata
+        component = load_srs_ai_matlab_component(componentDir);
+        manifest = component.manifest;
+        ioSpec = component.io_spec;
+        disp(manifest.run_name);
+        disp(ioSpec.input);
+        disp(ioSpec.output);
+
+        %% Step 2: inspect the exported reference tensors
+        sampleInput = single(component.weights.sample_input);
+        referenceOutput = single(component.weights.reference_output);
+        disp(size(sampleInput));
+        disp(size(referenceOutput));
+
+        %% Step 3: create your own dynamic-batch input (N x 24)
+        batchSize = 4;
+        inputData = prepare_refactor_input(component, batchSize, "bundle");
+        disp(size(inputData));
+
+        %% Step 4: run the off-the-shelf predictor
+        [outputData, debug] = predict_srs_ai_matlab_component(inputData, component);
+        disp(size(outputData));
+
+        %% Step 5: split the 6 ports into separate N x 24 matrices
+        ports = split_srs_ai_matlab_ports(outputData);
+        disp(size(ports{{1}}));
+
+        %% Step 6: verify the exported reference sample path
+        [referencePrediction, referenceDebug] = predict_srs_ai_matlab_component(sampleInput, component);
+        maxAbsDiff = max(abs(referencePrediction(:) - referenceOutput(:)));
+        disp("Max abs diff vs reference_output: " + string(maxAbsDiff));
+
+        %% Step 7: model-specific wrapper usage
+        [wrappedOutput, wrappedPorts, wrappedDebug] = predict_{run_identifier}_component(inputData, component);
+        disp(size(wrappedOutput));
+        %#ok<NASGU>
+        """
+    ).lstrip()
+
+    readme = textwrap.dedent(
+        f"""
+        # SRS AI Matlab Component
+
+        This folder is a copyable off-the-shelf Matlab component package for run:
+
+        - `{run_name}`
+
+        Copy this entire folder to your Matlab project, then either:
+
+        ```matlab
+        component = load_srs_ai_matlab_component();
+        outputData = predict_srs_ai_matlab_component(randn(8, 24, 'single'));
+        ```
+
+        Model-specific wrapper:
+
+        ```matlab
+        [outputData, ports] = predict_{run_identifier}_component(randn(8, 24, 'single'));
+        ```
+
+        or:
+
+        ```matlab
+        [inputData, outputData, ports] = demo_srs_ai_matlab_component(8);
+        ```
+
+        Step-by-step debug walkthrough:
+
+        ```matlab
+        debug_{run_identifier}_step_by_step
+        ```
+
+        Interface contract:
+
+        - input: `N x 24` real-stacked float32
+        - output: `N x 6 x 24` real-stacked float32
+        - `ports{{k}}`: `N x 24` output for port `k`
+
+        Recommended first debug order:
+
+        1. `load_srs_ai_matlab_component`
+        2. inspect `component.manifest` and `component.io_spec`
+        3. `prepare_refactor_input`
+        4. `predict_srs_ai_matlab_component`
+        5. `split_srs_ai_matlab_ports`
+        6. compare against `reference_output`
+
+        Required colocated files in this folder:
+
+        - `matlab_model_bundle.mat`
+        - `matlab_model_bundle_manifest.json`
+        - runtime `*.m` helpers
+
+        This package is versioned so future migrated models can coexist without overwriting each other.
+        """
+    ).lstrip()
+
+    files = {
+        'load_srs_ai_matlab_component.m': load_script,
+        'predict_srs_ai_matlab_component.m': predict_script,
+        'split_srs_ai_matlab_ports.m': split_script,
+        'demo_srs_ai_matlab_component.m': demo_script,
+        model_predict_file: model_predict_script,
+        model_debug_file: debug_script,
+        'README_COMPONENT.md': readme,
+    }
+    for file_name, content in files.items():
+        (component_dir / file_name).write_text(content, encoding='utf-8')
+    return {name: str(component_dir / name) for name in files}
+
+
+def _build_matlab_component_package(run_output_dir: Path, manifest: Dict[str, object]) -> Dict[str, object]:
+    component_root = run_output_dir / 'matlab_component'
+    component_root.mkdir(parents=True, exist_ok=True)
+    version_tag = datetime.now().strftime('v1_%Y%m%d_%H%M%S')
+    component_dir = component_root / version_tag
+    component_dir.mkdir(parents=True, exist_ok=False)
+
+    for file_name in MATLAB_COMPONENT_RUNTIME_FILES:
+        shutil.copy2(_matlab_runtime_dir() / file_name, component_dir / file_name)
+
+    mat_path = Path(str(manifest['mat_path']))
+    manifest_path = Path(str(manifest['manifest_path']))
+    copied_mat_path = component_dir / mat_path.name
+    copied_manifest_path = component_dir / manifest_path.name
+    shutil.copy2(mat_path, copied_mat_path)
+    shutil.copy2(manifest_path, copied_manifest_path)
+
+    wrapper_paths = _write_component_wrapper_scripts(component_dir, str(manifest['run_name']))
+    return {
+        'component_root': str(component_root),
+        'component_dir': str(component_dir),
+        'version_tag': version_tag,
+        'mat_file': str(copied_mat_path),
+        'manifest_file': str(copied_manifest_path),
+        'entrypoints': {
+            'load': str(component_dir / 'load_srs_ai_matlab_component.m'),
+            'predict': str(component_dir / 'predict_srs_ai_matlab_component.m'),
+            'split_ports': str(component_dir / 'split_srs_ai_matlab_ports.m'),
+            'demo': str(component_dir / 'demo_srs_ai_matlab_component.m'),
+        },
+        'wrapper_files': wrapper_paths,
+    }
 
 
 def _to_numpy(tensor: torch.Tensor) -> np.ndarray:
@@ -236,6 +503,10 @@ def export_run_to_matlab_bundle(
     with open(manifest_path, 'w', encoding='utf-8') as manifest_file:
         json.dump(manifest, manifest_file, indent=2, ensure_ascii=False)
 
+    manifest['matlab_component'] = _build_matlab_component_package(run_output_dir, manifest)
+    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:
+        json.dump(manifest, manifest_file, indent=2, ensure_ascii=False)
+
     return manifest
 
 
@@ -344,6 +615,10 @@ def export_checkpoint_to_matlab_bundle(
 
     manifest_path = run_output_dir / 'matlab_model_bundle_manifest.json'
     manifest['manifest_path'] = str(manifest_path)
+    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:
+        json.dump(manifest, manifest_file, indent=2, ensure_ascii=False)
+
+    manifest['matlab_component'] = _build_matlab_component_package(run_output_dir, manifest)
     with open(manifest_path, 'w', encoding='utf-8') as manifest_file:
         json.dump(manifest, manifest_file, indent=2, ensure_ascii=False)
 
