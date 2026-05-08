@@ -361,7 +361,7 @@ for stageIdx = 1:numStages
                 features = features + reshape(residual, [size(inputData, 1), 1, featureWidth]);
     end
 
-            stageInput = local_flatten_port_features(features);
+    stageInput = local_flatten_port_features(features);
     stageOutputs{stageIdx} = features;
     if collectDetailedDebug
         stageTraces{stageIdx} = layerTrace;
