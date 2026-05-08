@@ -98,9 +98,8 @@ def _build_deliver_package(component_dir: Path, short_tag: str) -> Dict[str, str
         else
             disp("First call: state already exists");
         end
-        [outputA, portsA] = predict_model(state, inputA);
+        [outputA, debugA] = predict_model(state, inputA);
         disp("First call output size: " + mat2str(size(outputA)));
-        disp("First call port[1] size: " + mat2str(size(portsA{{1}})));
 
         inputB = randn(3, 24, 'single');
         if isempty(state)
@@ -108,13 +107,13 @@ def _build_deliver_package(component_dir: Path, short_tag: str) -> Dict[str, str
         else
             disp("Second call: reusing cached state, skipping init_model(...)");
         end
-        [outputB, portsB] = predict_model(state, inputB);
+        [outputB, debugB] = predict_model(state, inputB);
         disp("Second call output size: " + mat2str(size(outputB)));
-        disp("Second call port[1] size: " + mat2str(size(portsB{{1}})));
 
-        [refOutput, refPorts] = predict_model(state, single(state.weights.sample_input));
+        [refOutput, refDebug] = predict_model(state, single(state.weights.sample_input));
         maxAbsDiff = max(abs(refOutput(:) - single(state.weights.reference_output(:))));
         disp("Reference max abs diff: " + string(maxAbsDiff));
+        %#ok<NASGU>
         end
         """
     ).lstrip()
@@ -132,7 +131,6 @@ def _build_deliver_package(component_dir: Path, short_tag: str) -> Dict[str, str
         ```matlab
         state = init_model();
         outputData = predict_model(state, x);
-        ports = split_ports(outputData);
         ```
 
         Short model-specific aliases:
@@ -146,7 +144,7 @@ def _build_deliver_package(component_dir: Path, short_tag: str) -> Dict[str, str
 
         - input: `N x 24`
         - output: `N x 6 x 24`
-        - `ports{{k}}`: `N x 24`
+        - keep the output as a 3D tensor
 
         Demo:
 
@@ -236,28 +234,25 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
 
     predict_model_script = textwrap.dedent(
         """
-        function [outputData, ports, debug] = predict_model(state, inputData)
+        function [outputData, debug] = predict_model(state, inputData)
         %PREDICT_MODEL Fast deployed inference using preinitialized state.
         [outputData, debug] = predict_refactor_matlab_bundle(state, single(inputData));
-        if nargout >= 2
-            ports = split_ports(outputData);
-        end
         end
         """
     ).lstrip()
 
     split_script = textwrap.dedent(
         """
-        function ports = split_ports(outputData)
-        %SPLIT_PORTS Convert N x 6 x 24 output into a 1x6 cell array of N x 24 slices.
+        function portData = split_ports(outputData, portIndex)
+        %SPLIT_PORTS Return one port slice from N x num_ports x (2*seq_len) output.
         validateattributes(outputData, {'numeric'}, {'3d'});
-        numPorts = size(outputData, 2);
-        ports = cell(1, numPorts);
-        for portIdx = 1:numPorts
-            ports{portIdx} = squeeze(outputData(:, portIdx, :));
-            if size(outputData, 1) == 1
-                ports{portIdx} = reshape(ports{portIdx}, 1, []);
-            end
+        validateattributes(portIndex, {'numeric'}, {'scalar', 'integer', 'positive'});
+        if portIndex > size(outputData, 2)
+            error('split_ports:BadPortIndex', 'portIndex=%d exceeds available ports=%d.', portIndex, size(outputData, 2));
+        end
+        portData = squeeze(outputData(:, portIndex, :));
+        if size(outputData, 1) == 1
+            portData = reshape(portData, 1, []);
         end
         end
         """
@@ -265,7 +260,7 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
 
     demo_script = textwrap.dedent(
         """
-        function [inputData, outputData, ports, debug, component] = demo_srs_ai_matlab_component(batchSize)
+        function [inputData, outputData, debug, component] = demo_srs_ai_matlab_component(batchSize)
         %DEMO_SRS_AI_MATLAB_COMPONENT Quick self-test for the colocated component package.
         if nargin < 1 || isempty(batchSize)
             batchSize = 4;
@@ -273,7 +268,6 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
         component = init_model(fileparts(mfilename('fullpath')));
         inputData = prepare_refactor_input(component, batchSize, "bundle");
         [outputData, debug] = predict_srs_ai_matlab_component(inputData, component);
-        ports = split_ports(outputData);
         disp("Component demo finished.");
         disp("  Input size: " + mat2str(size(inputData)));
         disp("  Output size: " + mat2str(size(outputData)));
@@ -283,9 +277,9 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
 
     model_predict_script = textwrap.dedent(
         f"""
-        function [outputData, ports, debug] = predict_{short_tag}(state, inputData)
+        function [outputData, debug] = predict_{short_tag}(state, inputData)
         %PREDICT_{short_tag.upper()} Short model-specific deployed inference entrypoint.
-        [outputData, ports, debug] = predict_model(state, inputData);
+        [outputData, debug] = predict_model(state, inputData);
         end
         """
     ).lstrip()
@@ -306,10 +300,9 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
         addpath(componentDir);
         state = init_model(componentDir);
         inputData = randn(8, 24, 'single');
-        [outputData, ports, debug] = predict_model(state, inputData);
+        [outputData, debug] = predict_model(state, inputData);
         disp(size(inputData));
         disp(size(outputData));
-        disp(size(ports{1}));
         %#ok<NASGU>
         """
     ).lstrip()
@@ -340,18 +333,17 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
         disp(size(inputData));
 
         %% Step 5: run deployed inference with preloaded state
-        [outputData, ports, debug] = predict_model(state, inputData);
+        [outputData, debug] = predict_model(state, inputData);
         disp(size(outputData));
-        disp(size(ports{{1}}));
 
         %% Step 6: verify the reference sample path once
-        [referencePrediction, referencePorts, referenceDebug] = predict_model(state, sampleInput);
+        [referencePrediction, referenceDebug] = predict_model(state, sampleInput);
         maxAbsDiff = max(abs(referencePrediction(:) - referenceOutput(:)));
         disp("Max abs diff vs reference_output: " + string(maxAbsDiff));
 
         %% Step 7: short model-specific aliases
         state2 = init_{short_tag}(componentDir);
-        [outputData2, ports2, debug2] = predict_{short_tag}(state2, inputData);
+        [outputData2, debug2] = predict_{short_tag}(state2, inputData);
         disp(size(outputData2));
         %#ok<NASGU>
         """
@@ -359,7 +351,7 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
 
     demo_sim_platform = textwrap.dedent(
         """
-        function [outputData, ports, state] = demo_sim_platform_loop(inputData, resetState)
+        function [outputData, state] = demo_sim_platform_loop(inputData, resetState)
         %DEMO_SIM_PLATFORM_LOOP Template for first-slot init and later-slot reuse.
         persistent cachedState
         componentDir = fileparts(fileparts(mfilename('fullpath')));
@@ -373,43 +365,9 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
         if isempty(cachedState)
             cachedState = init_model(componentDir);
         end
-        [outputData, ports] = predict_model(cachedState, inputData);
+        [outputData, debug] = predict_model(cachedState, inputData);
         state = cachedState;
-        end
-        """
-    ).lstrip()
-
-    demo_init_wrapper = textwrap.dedent(
-        """
-        function state = init_model(componentDir)
-        %INIT_MODEL Demo-local wrapper so scripts under demo/ run directly.
-        if nargin < 1 || isempty(componentDir)
-            componentDir = fileparts(fileparts(mfilename('fullpath')));
-        end
-        addpath(componentDir);
-        state = feval('init_model', componentDir);
-        end
-        """
-    ).lstrip()
-
-    demo_predict_wrapper = textwrap.dedent(
-        """
-        function [outputData, ports, debug] = predict_model(state, inputData)
-        %PREDICT_MODEL Demo-local wrapper so scripts under demo/ run directly.
-        componentDir = fileparts(fileparts(mfilename('fullpath')));
-        addpath(componentDir);
-        [outputData, ports, debug] = feval('predict_model', state, inputData);
-        end
-        """
-    ).lstrip()
-
-    demo_split_wrapper = textwrap.dedent(
-        """
-        function ports = split_ports(outputData)
-        %SPLIT_PORTS Demo-local wrapper so scripts under demo/ run directly.
-        componentDir = fileparts(fileparts(mfilename('fullpath')));
-        addpath(componentDir);
-        ports = feval('split_ports', outputData);
+        %#ok<NASGU>
         end
         """
     ).lstrip()
@@ -465,13 +423,13 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
 
         ```matlab
     state = init_{short_tag}();
-    [outputData, ports] = predict_{short_tag}(state, randn(8, 24, 'single'));
+    outputData = predict_{short_tag}(state, randn(8, 24, 'single'));
         ```
 
     If you want a quick smoke test:
 
         ```matlab
-        [inputData, outputData, ports] = demo_srs_ai_matlab_component(8);
+        [inputData, outputData] = demo_srs_ai_matlab_component(8);
         ```
 
     Demo scripts are under `demo/`.
@@ -480,7 +438,7 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
 
         - input: `N x 24` real-stacked float32
         - output: `N x 6 x 24` real-stacked float32
-        - `ports{{k}}`: `N x 24` output for port `k`
+        - keep the output as a 3D tensor; slice the port dimension directly if needed
 
         Deployment-first workflow:
 
@@ -514,9 +472,6 @@ def _write_component_package_files(component_dir: Path, manifest: Dict[str, obje
         (component_dir / file_name).write_text(content, encoding='utf-8')
 
     demo_files = {
-        'init_model.m': demo_init_wrapper,
-        'predict_model.m': demo_predict_wrapper,
-        'split_ports.m': demo_split_wrapper,
         'demo_quick_start.m': demo_quick_start,
         'demo_step_by_step.m': demo_step_by_step,
         'demo_sim_platform_loop.m': demo_sim_platform,

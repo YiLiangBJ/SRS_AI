@@ -708,7 +708,6 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue((deliver_dir / 'matlab_model_bundle_manifest.json').exists())
         self.assertTrue((deliver_dir / 'init_model.m').exists())
         self.assertTrue((deliver_dir / 'predict_model.m').exists())
-        self.assertTrue((deliver_dir / 'split_ports.m').exists())
         self.assertTrue((deliver_dir / 'demo_deliver_two_call.m').exists())
         self.assertTrue((deliver_dir / 'README_DELIVER.md').exists())
 
