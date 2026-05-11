@@ -393,8 +393,15 @@ python ./Model_AIIC_refactor/train.py \
 
 - stage 1 maps `2*seq_len -> hidden_dim -> ... -> num_ports * 2 * seq_len`
 - later stages map `num_ports * 2 * seq_len -> hidden_dim -> ... -> num_ports * 2 * seq_len`
-- every stage ends with learned-dense residual correction
+- every stage ends with configurable residual correction
 - `stage_hidden_dims` can override the hidden width per stage, for example `[128, 64, 64]`
+
+`separator3` supports these residual-correction modes:
+
+- `global`: add the full residual back to every port
+- `masked`: add back only the residual taps selected by `pos_values`
+- `learned_dense`: learn one static dense residual mask per stage
+- `generated_dense`: generate a per-sample dense residual mask from the current stage features and residual while keeping the separator3 backbone unchanged
 
 Recommended starter templates for `stage_hidden_dims`:
 
@@ -880,6 +887,8 @@ For `separator3`, it contains every stage's joint MLP weights and the learned-de
 - `stage02_joint_l01_bias`
 - `stage02_residual_mask`
 
+For `generated_dense`, the checkpoint stores the joint MLP weights plus the dynamic mask-generator weights for each stage instead of a directly trained static residual mask parameter.
+
 If `use_hidden_layer_norm=true`, hidden layers also include per-branch LayerNorm parameters:
 
 - `p01_s01_real_l01_ln_weight`
@@ -1280,10 +1289,15 @@ checkpoint = {
     'losses': [...],
     'val_losses': [...],
     'loss_type': 'nmse',
+    'best_val_loss': float | None,
+    'best_val_nmse_db': float | None,
+    'best_val_batch': int | None,
     'metadata': {...},
     'eval_results': {...},
 }
 ```
+
+  When validation runs during training, `model.pth` now stores the best validation weights restored at the end of training, not simply the final-step weights. Final evaluation in the training workflow uses these same restored best-validation weights.
 
 Expected schema for new code:
 

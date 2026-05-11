@@ -5,6 +5,7 @@ Unit tests for training components.
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import torch
 from models import create_model
@@ -233,6 +234,53 @@ class TestTraining(unittest.TestCase):
             self.assertTrue((tensorboard_dir / 'loss_curves.jpg').exists())
             self.assertTrue((tensorboard_dir / 'nmse_curves.jpg').exists())
             self.assertTrue((tensorboard_dir / 'learning_rate.jpg').exists())
+
+    def test_trainer_restores_best_validation_weights(self):
+        model = create_model(
+            'separator1',
+            {
+                'seq_len': 12,
+                'num_ports': 4,
+                'hidden_dim': 16,
+                'num_stages': 1,
+                'mlp_depth': 2,
+                'normalize_energy': False,
+            },
+        )
+        trainer = Trainer(
+            model,
+            learning_rate=0.01,
+            loss_type='nmse',
+            device='cpu',
+            compile_model=False,
+        )
+
+        validation_losses = [10.0, 5.0, 8.0]
+        snapshots = []
+
+        def fake_validate(*args, **kwargs):
+            index = len(snapshots)
+            snapshots.append({key: value.detach().clone() for key, value in trainer._base_model().state_dict().items()})
+            return validation_losses[index], -20.0 + index
+
+        snr_config = parse_snr_config({'type': 'range', 'min': 10, 'max': 10})
+        with patch.object(trainer, 'validate', side_effect=fake_validate):
+            trainer.train(
+                num_batches=3,
+                batch_size=4,
+                snr_config=snr_config,
+                pos_values=[0, 3, 6, 9],
+                print_interval=10,
+                val_interval=1,
+                validation_batches=1,
+            )
+
+        restored_state = trainer._base_model().state_dict()
+        expected_state = snapshots[1]
+        self.assertEqual(trainer.best_val_metrics['best_val_batch'], 2)
+        self.assertAlmostEqual(trainer.best_val_metrics['best_val_loss'], 5.0)
+        for key, value in restored_state.items():
+            torch.testing.assert_close(value, expected_state[key])
 
 
 if __name__ == '__main__':

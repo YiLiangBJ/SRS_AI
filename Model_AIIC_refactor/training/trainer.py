@@ -13,6 +13,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
+from copy import deepcopy
 
 from .loss_functions import calculate_loss
 from .metrics import evaluate_model
@@ -232,6 +233,9 @@ class Trainer:
         }
         self.training_start_time = None
         self.current_batch = 0
+        self.best_val_loss = float('inf')
+        self.best_val_metrics = None
+        self.best_model_state_dict = None
         
         # Timing breakdown
         self.data_gen_time = 0
@@ -242,6 +246,12 @@ class Trainer:
         if hasattr(self.model, '_orig_mod'):
             return self.model._orig_mod
         return self.model
+
+    def _snapshot_model_state(self) -> Dict[str, torch.Tensor]:
+        return {key: value.detach().cpu().clone() for key, value in self._base_model().state_dict().items()}
+
+    def _restore_model_state(self, state_dict: Dict[str, torch.Tensor]):
+        self._base_model().load_state_dict(state_dict)
 
     def _resolve_learned_dense_mask_regularization(self, configured_value: Optional[float]) -> float:
         if configured_value is not None:
@@ -424,6 +434,10 @@ class Trainer:
         self.model.train()
         self.training_start_time = time.time()
         self.losses = []
+        self.val_losses = []
+        self.best_val_loss = float('inf')
+        self.best_val_metrics = None
+        self.best_model_state_dict = None
         for key in self.scalar_history:
             self.scalar_history[key] = []
         
@@ -601,6 +615,15 @@ class Trainer:
                     num_batches=validation_batches,
                 )
                 self.val_losses.append(val_loss)
+                if val_loss < self.best_val_loss:
+                    self.best_val_loss = val_loss
+                    self.best_val_metrics = {
+                        'best_val_loss': float(val_loss),
+                        'best_val_nmse_db': float(val_nmse_db),
+                        'best_val_batch': int(batch_idx + 1),
+                    }
+                    self.best_model_state_dict = self._snapshot_model_state()
+                    print(f"  🌟 New best validation checkpoint at batch {batch_idx + 1}: loss={val_loss:.6f}, NMSE={val_nmse_db:.2f}dB")
                 
                 # ✅ Update learning rate scheduler based on validation loss
                 if self.scheduler is not None:
@@ -625,6 +648,15 @@ class Trainer:
                         break
                 else:
                     early_stop_counter = 0
+
+        if self.best_model_state_dict is not None:
+            self._restore_model_state(self.best_model_state_dict)
+            if self.best_val_metrics is not None:
+                print(
+                    f"\n🏆 Restored best validation weights from batch {self.best_val_metrics['best_val_batch']} "
+                    f"(loss={self.best_val_metrics['best_val_loss']:.6f}, "
+                    f"NMSE={self.best_val_metrics['best_val_nmse_db']:.2f}dB)"
+                )
         
         training_duration = time.time() - self.training_start_time
         print(f"\n✓ Training completed in {training_duration:.1f}s")
@@ -755,7 +787,10 @@ class Trainer:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'losses': self.losses,
             'val_losses': self.val_losses,
-            'loss_type': self.loss_type
+            'loss_type': self.loss_type,
+            'best_val_loss': None if self.best_val_metrics is None else self.best_val_metrics['best_val_loss'],
+            'best_val_nmse_db': None if self.best_val_metrics is None else self.best_val_metrics['best_val_nmse_db'],
+            'best_val_batch': None if self.best_val_metrics is None else self.best_val_metrics['best_val_batch'],
         }
         
         if additional_info:

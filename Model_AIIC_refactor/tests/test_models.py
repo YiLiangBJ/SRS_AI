@@ -459,6 +459,70 @@ class TestModels(unittest.TestCase):
         loss = model(y).sum()
         loss.backward()
         self.assertIsNotNone(model.learned_residual_masks.grad)
+
+    def test_separator3_generated_dense_creation(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': False,
+            'hidden_dim': 64,
+            'num_stages': 2,
+            'mlp_depth': 2,
+            'residual_correction_mode': 'generated_dense',
+            'pos_values': [0, 3, 6, 9],
+        }
+        model = create_model('separator3', config)
+        self.assertIsInstance(model, Separator3)
+        self.assertEqual(model.residual_correction_mode, 'generated_dense')
+        self.assertIsNone(model.learned_residual_masks)
+        self.assertEqual(len(model.mask_generators), 2)
+
+    def test_separator3_generated_dense_zero_delta_uses_base_mask(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': False,
+            'hidden_dim': 64,
+            'num_stages': 2,
+            'mlp_depth': 2,
+            'residual_correction_mode': 'generated_dense',
+            'pos_values': [0, 3, 6, 9],
+        }
+        model = create_model('separator3', config)
+        for stage in model.stages:
+            for parameter in stage.parameters():
+                parameter.data.zero_()
+        for generator in model.mask_generators:
+            for parameter in generator.parameters():
+                parameter.data.zero_()
+
+        y = torch.arange(1.0, 25.0).unsqueeze(0)
+        h = model(y)
+
+        expected = torch.zeros_like(h)
+        for branch_idx, pos_value in enumerate(config['pos_values']):
+            expected[0, branch_idx, pos_value] = y[0, pos_value]
+            expected[0, branch_idx, pos_value + config['seq_len']] = y[0, pos_value + config['seq_len']]
+        self.assertTrue(torch.equal(h, expected))
+
+    def test_separator3_generated_dense_receives_gradients(self):
+        config = {
+            'seq_len': 12,
+            'num_ports': 4,
+            'normalize_energy': False,
+            'hidden_dim': 64,
+            'num_stages': 2,
+            'mlp_depth': 2,
+            'residual_correction_mode': 'generated_dense',
+            'pos_values': [0, 3, 6, 9],
+        }
+        model = create_model('separator3', config)
+        y = torch.randn(2, config['seq_len'] * 2)
+        loss = model(y).sum()
+        loss.backward()
+        for generator in model.mask_generators:
+            for parameter in generator.parameters():
+                self.assertIsNotNone(parameter.grad)
     
     def test_separator1_forward_real(self):
         """Test Separator1 forward pass with real stacked input"""

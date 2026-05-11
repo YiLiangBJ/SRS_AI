@@ -33,6 +33,29 @@ class Separator3(BaseSeparatorModel):
         def forward(self, x):
             return self.network(x)
 
+    class DynamicMaskGenerator(nn.Module):
+        """Generate one residual delta-mask per port from current features and residual."""
+
+        def __init__(self, feature_dim, hidden_dim):
+            super().__init__()
+            self.network = nn.Sequential(
+                nn.Linear(feature_dim * 2, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, feature_dim),
+                nn.Tanh(),
+            )
+            final_linear = self.network[2]
+            nn.init.zeros_(final_linear.weight)
+            nn.init.zeros_(final_linear.bias)
+
+        def forward(self, port_features, residual):
+            residual_expanded = residual.unsqueeze(1).expand(-1, port_features.shape[1], -1)
+            combined = torch.cat([port_features, residual_expanded], dim=-1)
+            batch_size, num_ports, combined_dim = combined.shape
+            return self.network(combined.reshape(batch_size * num_ports, combined_dim)).reshape(
+                batch_size, num_ports, -1
+            )
+
     @staticmethod
     def _resolve_stage_hidden_dims(hidden_dim, stage_hidden_dims, num_stages):
         if stage_hidden_dims is None:
@@ -70,10 +93,10 @@ class Separator3(BaseSeparatorModel):
         self.num_stages = int(num_stages)
         self.mlp_depth = int(mlp_depth)
 
-        if self.residual_correction_mode not in {'global', 'masked', 'learned_dense'}:
+        if self.residual_correction_mode not in {'global', 'masked', 'learned_dense', 'generated_dense'}:
             raise ValueError(
                 f"Unsupported residual_correction_mode {residual_correction_mode!r}; "
-                "expected 'global', 'masked', or 'learned_dense'"
+                "expected 'global', 'masked', 'learned_dense', or 'generated_dense'"
             )
         if self.residual_correction_mode == 'masked':
             if self.pos_values is None:
@@ -107,7 +130,7 @@ class Separator3(BaseSeparatorModel):
         ])
 
         residual_mask = torch.ones(self.num_ports, self.input_dim, dtype=torch.float32)
-        if self.residual_correction_mode == 'masked':
+        if self.residual_correction_mode in {'masked', 'generated_dense'} and self.pos_values is not None:
             residual_mask.zero_()
             for branch_idx, pos_value in enumerate(self.pos_values):
                 residual_mask[branch_idx, pos_value] = 1.0
@@ -121,6 +144,15 @@ class Separator3(BaseSeparatorModel):
         else:
             self.register_parameter('learned_residual_masks', None)
 
+        if self.residual_correction_mode == 'generated_dense':
+            generator_hidden_dim = max(16, min(64, self.hidden_dim // 2))
+            self.mask_generators = nn.ModuleList([
+                self.DynamicMaskGenerator(self.input_dim, generator_hidden_dim)
+                for _ in range(self.num_stages)
+            ])
+        else:
+            self.mask_generators = None
+
     def _apply_residual_correction(self, mixed_signal, features, stage_idx):
         y_recon = features.sum(dim=1)
         residual = mixed_signal - y_recon
@@ -128,6 +160,12 @@ class Separator3(BaseSeparatorModel):
             return features + residual.unsqueeze(1)
         if self.residual_correction_mode == 'masked':
             masked_residual = residual.unsqueeze(1) * self.residual_port_mask.unsqueeze(0).to(dtype=features.dtype)
+            return features + masked_residual
+        if self.residual_correction_mode == 'generated_dense':
+            base_mask = self.residual_port_mask.unsqueeze(0).to(dtype=features.dtype)
+            delta_mask = self.mask_generators[stage_idx](features, residual).to(dtype=features.dtype)
+            generated_mask = torch.clamp(base_mask + delta_mask, min=0.0, max=2.0)
+            masked_residual = residual.unsqueeze(1) * generated_mask
             return features + masked_residual
         residual_mask = self.learned_residual_masks[stage_idx]
         masked_residual = residual.unsqueeze(1) * residual_mask.unsqueeze(0).to(dtype=features.dtype)
