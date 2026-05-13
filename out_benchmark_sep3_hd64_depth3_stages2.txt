@@ -1,0 +1,45 @@
+nohup: ignoring input
+================================================================================
+Latency Benchmark
+================================================================================
+Device: cpu
+Runtime backends: ['onnxruntime']
+Execution modes: ['eager', 'jit', 'compile']
+Precision profiles: ['fp32']
+Batch sizes: 1,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192
+Thread counts: 1
+Warmup iterations: 20
+Measure iterations: 50
+
+Benchmark tasks: 14 total
+[1/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=1 threads=1
+  -> done: prep=4.877 ms, p50=0.019 ms, throughput=54947.712 samples/s
+[2/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=2 threads=1
+  -> done: prep=4.678 ms, p50=0.018 ms, throughput=113872.909 samples/s
+[3/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=4 threads=1
+  -> done: prep=4.721 ms, p50=0.020 ms, throughput=196589.371 samples/s
+[4/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=8 threads=1
+  -> done: prep=4.657 ms, p50=0.024 ms, throughput=323459.725 samples/s
+[5/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=16 threads=1
+  -> done: prep=4.672 ms, p50=0.033 ms, throughput=479309.698 samples/s
+[6/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=32 threads=1
+  -> done: prep=4.624 ms, p50=0.043 ms, throughput=726662.991 samples/s
+[7/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=64 threads=1
+  -> done: prep=4.953 ms, p50=0.071 ms, throughput=883197.905 samples/s
+[8/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=128 threads=1
+  -> done: prep=4.806 ms, p50=0.128 ms, throughput=991594.532 samples/s
+[9/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=256 threads=1
+  -> done: prep=4.846 ms, p50=0.240 ms, throughput=1050564.662 samples/s
+[10/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=512 threads=1
+  -> done: prep=4.769 ms, p50=0.515 ms, throughput=984003.713 samples/s
+[11/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=1024 threads=1
+  -> done: prep=4.663 ms, p50=1.106 ms, throughput=924059.975 samples/s
+[12/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=2048 threads=1
+  -> done: prep=4.901 ms, p50=2.115 ms, throughput=966939.133 samples/s
+[13/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=4096 threads=1
+  -> done: prep=4.932 ms, p50=4.334 ms, throughput=945621.299 samples/s
+[14/14] Benchmarking run=separator3_default_hidden_dim64_mlp_depth3_num_stages2 device=cpu backend=onnxruntime mode=onnxruntime precision=fp32 batch=8192 threads=1
+  -> done: prep=5.153 ms, p50=8.835 ms, throughput=926433.248 samples/s
+Benchmark completed
+  - separator3_default_hidden_dim64_mlp_depth3_num_stages2: /home/liangyi/SRS_AI/Model_AIIC_refactor/experiments_refactored/20260512_072121_default_6port_separator3_v2/separator3_default_hidden_dim64_mlp_depth3_num_stages2/latency/20260513_010313_cpu/LATENCY_REPORT.md
+Aggregate report: Model_AIIC_refactor/experiments_refactored/20260512_072121_default_6port_separator3_v2/latency/20260513_010313_separator3_default_hidden_dim64_mlp_depth3_num_stages2_cpu/LATENCY_REPORT.md
