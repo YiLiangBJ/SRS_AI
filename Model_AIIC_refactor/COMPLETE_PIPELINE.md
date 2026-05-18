@@ -720,7 +720,7 @@ Current plotting behavior mirrors evaluation:
 - if the input is one experiment directory, `plot.py` finds the latest aggregate experiment evaluation and also the latest evaluation under each run
 - in that experiment case, each run keeps its own model-specific curves under its own run evaluation directory
 - the experiment evaluation directory also gets comparison plots spanning multiple runs
-- plot legends are placed outside the plotting area as a single column and shrink their font size when needed so dense multi-line comparisons stay readable without stretching the curve area vertically
+- plot legends are placed below the plotting area with adaptive multi-column wrapping so the curve area keeps the same horizontal scale while long legends expand downward instead of squeezing the plot body
 
 Example after evaluating an experiment with two runs:
 

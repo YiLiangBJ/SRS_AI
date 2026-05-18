@@ -9,10 +9,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from utils import (
+    bottom_legend_figure_size,
     color_for_index,
     discover_run_dirs,
     linestyle_for_index,
     outside_legend_figure_size,
+    place_legend_below,
     place_legend_outside_right,
     resolve_existing_path,
     style_for_series,
@@ -20,8 +22,9 @@ from utils import (
 
 
 def _combined_plot_height(legend_count: int) -> float:
-    """Scale combined-plot height only when the legend becomes long."""
-    _, height, _, _ = outside_legend_figure_size(legend_count, base_width=12.0, base_height=7.0)
+    """Scale combined-plot height only when the bottom legend becomes long."""
+    combined_labels = [f'series_{index}' for index in range(legend_count)]
+    _, height, _, _ = bottom_legend_figure_size(combined_labels, base_width=12.0, base_height=7.0)
     return height
 
 
@@ -92,9 +95,10 @@ def generate_plots_programmatic(eval_results_path, output_dir):
     generated_files = []
     first_model = next(iter(results['models'].values()))
     tdl_list = list(first_model['tdl_results'].keys())
+    model_names = list(results['models'].keys())
 
     for tdl_config in tdl_list:
-        width, height, _, _ = outside_legend_figure_size(len(results['models']), base_width=10.0, base_height=6.0)
+        width, height, _, _ = bottom_legend_figure_size(model_names, base_width=10.0, base_height=6.0)
         fig, axis = plt.subplots(figsize=(width, height))
 
         for series_index, (model_name, model_data) in enumerate(results['models'].items()):
@@ -111,7 +115,7 @@ def generate_plots_programmatic(eval_results_path, output_dir):
         axis.set_ylabel('NMSE (dB)', fontsize=12)
         axis.set_title(f'NMSE vs SNR - TDL-{tdl_config}', fontsize=14, fontweight='bold')
         axis.grid(True, alpha=0.3)
-        place_legend_outside_right(fig, axis, fontsize=10)
+        place_legend_below(fig, axis, fontsize=10)
 
         plot_file = output_dir / f'nmse_vs_snr_TDL_{tdl_config.replace("-", "_")}.png'
         plt.savefig(plot_file, dpi=150, bbox_inches='tight')
@@ -121,7 +125,8 @@ def generate_plots_programmatic(eval_results_path, output_dir):
         print(f"  ✓ Generated: {plot_file.name}")
 
     combined_legend_count = len(results['models']) * len(tdl_list)
-    width, _, _, _ = outside_legend_figure_size(combined_legend_count, base_width=12.0, base_height=7.0)
+    combined_labels = [f'{model_name} - TDL-{tdl_config}' for model_name in model_names for tdl_config in tdl_list]
+    width, _, _, _ = bottom_legend_figure_size(combined_labels, base_width=12.0, base_height=7.0)
     fig, axis = plt.subplots(figsize=(width, _combined_plot_height(combined_legend_count)))
 
     for index, (model_name, model_data) in enumerate(results['models'].items()):
@@ -142,7 +147,7 @@ def generate_plots_programmatic(eval_results_path, output_dir):
     axis.set_ylabel('NMSE (dB)', fontsize=12)
     axis.set_title('NMSE vs SNR - All Configurations', fontsize=14, fontweight='bold')
     axis.grid(True, alpha=0.3)
-    place_legend_outside_right(fig, axis, fontsize=9)
+    place_legend_below(fig, axis, fontsize=9)
 
     combined_plot = output_dir / 'nmse_vs_snr_combined.png'
     plt.savefig(combined_plot, dpi=150, bbox_inches='tight')

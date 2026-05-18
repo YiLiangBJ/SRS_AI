@@ -2,7 +2,13 @@
 
 import unittest
 
-from utils.plot_style import legend_fontsize, outside_legend_figure_size, style_for_series
+from utils.plot_style import (
+    bottom_legend_column_count,
+    bottom_legend_figure_size,
+    legend_fontsize,
+    outside_legend_figure_size,
+    style_for_series,
+)
 
 
 class TestPlotStyle(unittest.TestCase):
@@ -15,6 +21,27 @@ class TestPlotStyle(unittest.TestCase):
         self.assertEqual(large_cols, 1)
         self.assertEqual(small_cols, 1)
         self.assertEqual(small_rect[2], large_rect[2])
+
+    def test_bottom_legend_figure_size_prefers_height_over_width_growth(self):
+        small_labels = ['model_a', 'model_b']
+        large_labels = [f'model_{index}_with_a_longer_label' for index in range(12)]
+
+        small_width, small_height, _, small_rect = bottom_legend_figure_size(small_labels, base_width=10.0, base_height=6.0)
+        large_width, large_height, large_cols, large_rect = bottom_legend_figure_size(large_labels, base_width=10.0, base_height=6.0)
+
+        self.assertEqual(large_width, small_width)
+        self.assertGreater(large_height, small_height)
+        self.assertGreaterEqual(large_cols, 1)
+        self.assertGreater(large_rect[1], small_rect[1])
+
+    def test_bottom_legend_column_count_shrinks_for_long_labels(self):
+        short_labels = [f'm{index}' for index in range(8)]
+        long_labels = [f'model_{index}_with_very_long_descriptor_text' for index in range(8)]
+
+        short_cols = bottom_legend_column_count(short_labels, base_width=12.0, max_cols=4)
+        long_cols = bottom_legend_column_count(long_labels, base_width=12.0, max_cols=4)
+
+        self.assertGreaterEqual(short_cols, long_cols)
 
     def test_style_for_series_distinguishes_neighboring_series(self):
         first = style_for_series(0)

@@ -62,12 +62,14 @@ from .run_selection import (
     resolve_run_selection,
 )
 from .plot_style import (
+    bottom_legend_figure_size,
     color_for_index,
     linestyle_for_index,
     marker_for_index,
     style_for_series,
     outside_legend_figure_size,
     panel_figure_size,
+    place_legend_below,
     place_legend_outside_right,
     max_legend_items,
 )
@@ -121,11 +123,13 @@ __all__ = [
     'discover_run_dirs',
     'resolve_run_selection',
     'color_for_index',
+    'bottom_legend_figure_size',
     'linestyle_for_index',
     'marker_for_index',
     'style_for_series',
     'outside_legend_figure_size',
     'panel_figure_size',
+    'place_legend_below',
     'place_legend_outside_right',
     'max_legend_items',
 ]

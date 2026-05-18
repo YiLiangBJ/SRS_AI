@@ -99,6 +99,41 @@ def legend_fontsize(item_count: int, base_fontsize: int = 10, base_height: float
     return max(5, base_fontsize - 4)
 
 
+def bottom_legend_column_count(
+    labels: Sequence[str],
+    base_width: float,
+    max_cols: int = 4,
+    min_col_width: float = 2.8,
+) -> int:
+    item_count = max(1, len(labels))
+    width_limited_cols = max(1, min(max_cols, int(base_width / min_col_width)))
+    if not labels:
+        return width_limited_cols
+
+    avg_label_len = sum(len(label) for label in labels) / item_count
+    max_label_len = max(len(label) for label in labels)
+    # Estimate how many legend columns fit before text becomes cramped.
+    estimated_chars_per_col = max(18.0, avg_label_len * 0.75 + max_label_len * 0.25)
+    char_limited_cols = max(1, int((base_width * 11.0) / estimated_chars_per_col))
+    return max(1, min(item_count, width_limited_cols, char_limited_cols))
+
+
+def bottom_legend_figure_size(
+    labels: Sequence[str],
+    base_width: float = 10.0,
+    base_height: float = 6.0,
+    max_cols: int = 4,
+) -> tuple[float, float, int, tuple[float, float, float, float]]:
+    ncol = bottom_legend_column_count(labels, base_width=base_width, max_cols=max_cols)
+    rows = legend_row_count(len(labels), ncol)
+    legend_height = 0.9 + 0.36 * max(1, rows)
+    bottom_margin = min(0.34, 0.11 + 0.065 * rows)
+    width = base_width
+    height = base_height + legend_height
+    rect = (0.0, bottom_margin, 1.0, 1.0)
+    return width, height, ncol, rect
+
+
 def place_legend_outside_right(figure, axis, fontsize: int = 10, max_rows_per_col: int = 18):
     handles, labels = axis.get_legend_handles_labels()
     if not handles:
@@ -117,6 +152,32 @@ def place_legend_outside_right(figure, axis, fontsize: int = 10, max_rows_per_co
         ncol=ncol,
         columnspacing=1.2,
         handlelength=3.0,
+        frameon=True,
+    )
+    figure.tight_layout(rect=rect)
+
+
+def place_legend_below(figure, axis, fontsize: int = 10, max_cols: int = 4):
+    handles, labels = axis.get_legend_handles_labels()
+    if not handles:
+        return
+
+    _, figure_height, ncol, rect = bottom_legend_figure_size(
+        labels,
+        base_width=figure.get_size_inches()[0],
+        base_height=figure.get_size_inches()[1],
+        max_cols=max_cols,
+    )
+    figure.legend(
+        handles,
+        labels,
+        loc='lower center',
+        bbox_to_anchor=(0.5, 0.02),
+        borderaxespad=0.0,
+        fontsize=legend_fontsize(len(labels), base_fontsize=fontsize, base_height=figure_height),
+        ncol=ncol,
+        columnspacing=1.4,
+        handlelength=2.8,
         frameon=True,
     )
     figure.tight_layout(rect=rect)
