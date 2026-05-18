@@ -849,6 +849,15 @@ Before a Matlab bundle is treated as deployment-ready, you should run the Matlab
   model_flow.json
 ```
 
+Each Matlab bundle export also emits a companion ONNX export from the same checkpoint and records it in the Matlab manifest:
+
+```text
+<run_dir>/
+  model.pth
+  model.onnx
+  model.export_manifest.json
+```
+
 ### 9.3 What the bundle contains
 
 Always present:
@@ -1012,6 +1021,9 @@ That versioned folder is designed to be copyable into another Matlab project as 
 
 - `matlab_model_bundle.mat`
 - `matlab_model_bundle_manifest.json`
+- the companion ONNX artifact and its export manifest copied from the selected checkpoint:
+  - `<checkpoint_stem>.onnx`
+  - `<checkpoint_stem>.export_manifest.json`
 - the required runtime helpers such as `import_refactor_matlab_bundle.m` and `predict_refactor_matlab_bundle.m`
 - short deployment-first entrypoints:
   - `init_model.m`
@@ -1057,6 +1069,7 @@ This `deliver/` folder is the one to copy when you want the smallest deployment-
 
 - `matlab_model_bundle.mat`
 - `matlab_model_bundle_manifest.json`
+- the companion ONNX artifact and export manifest copied from the selected checkpoint
 - the minimum runtime helpers needed by the deployed API
 - short deployment entrypoints:
   - `init_model.m`

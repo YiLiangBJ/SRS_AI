@@ -689,10 +689,14 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(Path(manifest['model_flow_markdown_path']).exists())
         self.assertTrue(Path(manifest['model_complexity_json_path']).exists())
         self.assertTrue(Path(manifest['model_complexity_markdown_path']).exists())
+        self.assertTrue(Path(manifest['companion_onnx']['onnx_path']).exists())
+        self.assertTrue(Path(manifest['companion_onnx']['manifest_path']).exists())
         component_dir = Path(manifest['matlab_component']['component_dir'])
         self.assertTrue(component_dir.exists())
         self.assertTrue((component_dir / 'matlab_model_bundle.mat').exists())
         self.assertTrue((component_dir / 'matlab_model_bundle_manifest.json').exists())
+        self.assertTrue((component_dir / Path(manifest['companion_onnx']['onnx_path']).name).exists())
+        self.assertTrue((component_dir / Path(manifest['companion_onnx']['manifest_path']).name).exists())
         self.assertEqual(manifest['matlab_component']['short_tag'], 'sep1_hd8_d2_s1')
         self.assertTrue((component_dir / 'init_model.m').exists())
         self.assertTrue((component_dir / 'predict_model.m').exists())
@@ -708,6 +712,8 @@ class TestEvaluationAndExport(unittest.TestCase):
         self.assertTrue(deliver_dir.exists())
         self.assertTrue((deliver_dir / 'matlab_model_bundle.mat').exists())
         self.assertTrue((deliver_dir / 'matlab_model_bundle_manifest.json').exists())
+        self.assertTrue((deliver_dir / Path(manifest['companion_onnx']['onnx_path']).name).exists())
+        self.assertTrue((deliver_dir / Path(manifest['companion_onnx']['manifest_path']).name).exists())
         self.assertTrue((deliver_dir / 'init_model.m').exists())
         self.assertTrue((deliver_dir / 'predict_model.m').exists())
         self.assertTrue((deliver_dir / 'demo_deliver_two_call.m').exists())
@@ -718,6 +724,8 @@ class TestEvaluationAndExport(unittest.TestCase):
 
         self.assertEqual(Path(manifest['checkpoint_path']), self.explicit_checkpoint_path)
         self.assertTrue(Path(manifest['mat_path']).exists())
+        self.assertEqual(Path(manifest['companion_onnx']['onnx_path']), self.explicit_checkpoint_path.with_suffix('.onnx'))
+        self.assertEqual(Path(manifest['companion_onnx']['manifest_path']), self.explicit_checkpoint_path.with_suffix('.export_manifest.json'))
 
     def test_export_run_to_matlab_bundle_supports_full_mlp(self):
         run_dir = self._create_run(

@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 from scipy.io import savemat
 
+from workflows.export_workflow import export_checkpoint_to_onnx
 from utils import build_dummy_input, load_trained_model_from_checkpoint, load_trained_model_from_run, resolve_run_selection, save_model_complexity_artifacts, save_model_flow_artifacts
 
 
@@ -58,7 +59,24 @@ def _short_model_tag(manifest: Dict[str, object]) -> str:
     return '_'.join(parts)
 
 
-def _build_deliver_package(component_dir: Path, short_tag: str) -> Dict[str, str]:
+def _copy_companion_onnx_into_component(component_dir: Path, manifest: Dict[str, object]) -> Dict[str, str] | None:
+    companion_onnx = manifest.get('companion_onnx')
+    if not isinstance(companion_onnx, dict):
+        return None
+
+    onnx_path = Path(str(companion_onnx['onnx_path']))
+    manifest_path = Path(str(companion_onnx['manifest_path']))
+    copied_onnx_path = component_dir / onnx_path.name
+    copied_manifest_path = component_dir / manifest_path.name
+    shutil.copy2(onnx_path, copied_onnx_path)
+    shutil.copy2(manifest_path, copied_manifest_path)
+    return {
+        'onnx_file': str(copied_onnx_path),
+        'manifest_file': str(copied_manifest_path),
+    }
+
+
+def _build_deliver_package(component_dir: Path, short_tag: str, component_onnx: Dict[str, str] | None = None) -> Dict[str, str]:
     deliver_dir = component_dir / 'deliver'
     deliver_dir.mkdir(parents=True, exist_ok=True)
 
@@ -79,6 +97,12 @@ def _build_deliver_package(component_dir: Path, short_tag: str) -> Dict[str, str
     ]
     for file_name in required_files:
         shutil.copy2(component_dir / file_name, deliver_dir / file_name)
+
+    if component_onnx is not None:
+        onnx_path = Path(component_onnx['onnx_file'])
+        onnx_manifest_path = Path(component_onnx['manifest_file'])
+        shutil.copy2(onnx_path, deliver_dir / onnx_path.name)
+        shutil.copy2(onnx_manifest_path, deliver_dir / onnx_manifest_path.name)
 
     demo_script = textwrap.dedent(
         f"""
@@ -153,12 +177,22 @@ def _build_deliver_package(component_dir: Path, short_tag: str) -> Dict[str, str
         - second call reuses cached state without repeating load / parse
         - the final reference check uses Python-generated `sample_input` and Python-generated `reference_output`
         - treat that check as the required parity-validation gate before deployment handoff
+
+        Companion ONNX:
+
+        - `{Path(component_onnx['onnx_file']).name if component_onnx else '<none>'}` is copied here together with its export manifest
+        - use it if your Matlab side prefers ONNX import/execution instead of the explicit-weight bundle
         """
     ).lstrip()
     readme_path = deliver_dir / 'README_DELIVER.md'
     readme_path.write_text(readme_text, encoding='utf-8')
 
     deliver_files = {name: str(deliver_dir / name) for name in required_files}
+    if component_onnx is not None:
+        onnx_path = Path(component_onnx['onnx_file'])
+        onnx_manifest_path = Path(component_onnx['manifest_file'])
+        deliver_files[onnx_path.name] = str(deliver_dir / onnx_path.name)
+        deliver_files[onnx_manifest_path.name] = str(deliver_dir / onnx_manifest_path.name)
     deliver_files['demo_deliver_two_call.m'] = str(demo_path)
     deliver_files['README_DELIVER.md'] = str(readme_path)
     return {
@@ -503,10 +537,11 @@ def _build_matlab_component_package(run_output_dir: Path, manifest: Dict[str, ob
     copied_manifest_path = component_dir / manifest_path.name
     shutil.copy2(mat_path, copied_mat_path)
     shutil.copy2(manifest_path, copied_manifest_path)
+    component_onnx = _copy_companion_onnx_into_component(component_dir, manifest)
 
     wrapper_paths = _write_component_package_files(component_dir, manifest)
-    deliver_info = _build_deliver_package(component_dir, _short_model_tag(manifest))
-    return {
+    deliver_info = _build_deliver_package(component_dir, _short_model_tag(manifest), component_onnx=component_onnx)
+    matlab_component = {
         'component_root': str(component_root),
         'component_dir': str(component_dir),
         'version_tag': version_tag,
@@ -523,6 +558,23 @@ def _build_matlab_component_package(run_output_dir: Path, manifest: Dict[str, ob
         },
         'deliver': deliver_info,
         'wrapper_files': wrapper_paths,
+    }
+    if component_onnx is not None:
+        matlab_component['companion_onnx'] = component_onnx
+    return matlab_component
+
+
+def _export_companion_onnx_manifest(checkpoint_path) -> Dict[str, object]:
+    onnx_manifest = export_checkpoint_to_onnx(
+        checkpoint_path=checkpoint_path,
+        dynamic_batch=True,
+        validate=False,
+    )
+    return {
+        'onnx_path': str(onnx_manifest['onnx_path']),
+        'manifest_path': str(onnx_manifest['manifest_path']),
+        'opset_version': int(onnx_manifest['opset_version']),
+        'dynamic_batch': bool(onnx_manifest['dynamic_batch']),
     }
 
 
@@ -704,6 +756,7 @@ def export_run_to_matlab_bundle(
         model_spec=model_spec,
         component_specs=artifacts.component_specs,
     )
+    companion_onnx = _export_companion_onnx_manifest(artifacts.checkpoint_path)
 
     manifest = {
         'timestamp': datetime.now().isoformat(),
@@ -749,6 +802,7 @@ def export_run_to_matlab_bundle(
             'enabled': bool(model_spec.get('normalize_energy', False)),
             'rule': 'Per-sample RMS over the complex sequence; output is rescaled by the same factor after separation.',
         },
+        'companion_onnx': companion_onnx,
     }
 
     manifest_path = run_output_dir / 'matlab_model_bundle_manifest.json'
@@ -826,6 +880,7 @@ def export_checkpoint_to_matlab_bundle(
         model_spec=model_spec,
         component_specs=artifacts.component_specs,
     )
+    companion_onnx = _export_companion_onnx_manifest(artifacts.checkpoint_path)
 
     manifest = {
         'timestamp': datetime.now().isoformat(),
@@ -871,6 +926,7 @@ def export_checkpoint_to_matlab_bundle(
             'enabled': bool(model_spec.get('normalize_energy', False)),
             'rule': 'Per-sample RMS over the complex sequence; output is rescaled by the same factor after separation.',
         },
+        'companion_onnx': companion_onnx,
     }
 
     manifest_path = run_output_dir / 'matlab_model_bundle_manifest.json'
