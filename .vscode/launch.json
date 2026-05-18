@@ -10,6 +10,30 @@
             // "justMyCode": true
         },
         {
+            "name": "Python: test data_generator (122.88M)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${command:python.interpreterPath}",
+            "module": "unittest",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "windows": {
+                "console": "internalConsole",
+                "redirectOutput": true,
+                "env": {
+                    "PYTHONSTARTUP": "",
+                    "PYTHON_BASIC_REPL": ""
+                }
+            },
+            "linux": {
+                "console": "integratedTerminal"
+            },
+            "args": [
+                "tests.test_data_generator"
+            ]
+        },
+        {
             "name": "Python: train.py (separator1 learned_dense v2)",
             "type": "debugpy",
             "request": "launch",
@@ -64,6 +88,47 @@
                 // ,"--onnx_validate"
                 // ,"--plan_only"
                 // ,"--onnx_output_dir", "./custom_onnx_dir"
+            ]
+        },
+        {
+            "name": "Python: train single learned_dense d2 s2 debug (122.88M)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${command:python.interpreterPath}",
+            "program": "${workspaceFolder}/Model_AIIC_refactor/train.py",
+            "cwd": "${workspaceFolder}/Model_AIIC_refactor",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "windows": {
+                "console": "internalConsole",
+                "redirectOutput": true,
+                "env": {
+                    "PYTHONSTARTUP": "",
+                    "PYTHON_BASIC_REPL": ""
+                }
+            },
+            "linux": {
+                "console": "integratedTerminal"
+            },
+            "args": [
+                "--experiment",
+                "default_6port_separator1_learned_dense_v2",
+                "--runs",
+                "separator1_grid_search_6ports_learned_dense_depth2_stages2_share0",
+                "--override",
+                "task.sampling_rate=122880000.0",
+                "--model_override",
+                "mlp_depth=3",
+                "--model_override",
+                "num_stages=2",
+                "--num_batches",
+                "20",
+                "--batch_size",
+                "2048",
+                "--device",
+                "cpu",
+                "--no-amp",
+                "--no-compile"
             ]
         },
         {
@@ -318,8 +383,8 @@
                 "hidden_dim=128",
                 "--model_override",
                 "mlp_depth=2",
-                "--task_override",
-                "pos_values=[0,2,4,6,8,10]",
+                "--override",
+                "task.pos_values=[0,2,4,6,8,10]",
                 "--num_batches",
                 "20",
                 "--batch_size",

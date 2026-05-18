@@ -3,6 +3,7 @@ tasks:
     type: channel_separator
     params:
       seq_len: 12
+      sampling_rate: 122880000.0
       pos_values: [0, 3, 6, 9]
       snr_config:
         type: range
@@ -15,6 +16,7 @@ tasks:
     type: channel_separator
     params:
       seq_len: 12
+      sampling_rate: 122880000.0
       pos_values: [0, 3, 6, 9]
       snr_config:
         type: range
@@ -29,6 +31,7 @@ tasks:
     type: channel_separator
     params:
       seq_len: 12
+      sampling_rate: 122880000.0
       pos_values: [0, 2, 4, 6, 8, 10]
       snr_config:
         type: range
@@ -41,6 +44,7 @@ tasks:
     type: channel_separator
     params:
       seq_len: 12
+      sampling_rate: 122880000.0
       pos_values: [0, 2, 4, 6, 8, 10]
       snr_config:
         type: range

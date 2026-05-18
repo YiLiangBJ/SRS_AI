@@ -56,6 +56,7 @@ class ChannelSeparatorTask(BaseTask):
             'pos_values': deepcopy(model_spec['pos_values']),
             'tdl_config': deepcopy(self.params['tdl_config']),
             'seq_len': int(model_spec['seq_len']),
+            'sampling_rate': self.params.get('sampling_rate'),
             'print_interval': training_spec['print_interval'],
             'val_interval': training_spec.get('validation_interval'),
             'validation_batches': training_spec.get('validation_batches', 4),
@@ -70,6 +71,7 @@ class ChannelSeparatorTask(BaseTask):
             pos_values=deepcopy(model_spec['pos_values']),
             tdl_config=deepcopy(self.params['tdl_config']),
             seq_len=int(model_spec['seq_len']),
+            sampling_rate=self.params.get('sampling_rate'),
         )
 
     def evaluate_at_snr(
@@ -98,6 +100,7 @@ class ChannelSeparatorTask(BaseTask):
         autocast_context = torch.cuda.amp.autocast if use_amp and resolved_device.type == 'cuda' else None
 
         with torch.no_grad():
+            sampling_rate = self.params.get('sampling_rate')
             for _ in range(num_batches):
                 y, h_targets, _, _, _ = generate_training_batch(
                     batch_size=batch_size,
@@ -106,6 +109,7 @@ class ChannelSeparatorTask(BaseTask):
                     snr_db=snr_db,
                     tdl_config=tdl_config,
                     return_complex=False,
+                    sampling_rate=sampling_rate,
                     device=resolved_device,
                 )
 

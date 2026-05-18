@@ -361,6 +361,7 @@ class Trainer:
         snr_for_batch,
         tdl_config: Union[str, List[str]],
         snr_per_sample: bool = False,
+        sampling_rate: float | None = None,
     ):
         """Generate one batch and return both logging SNR and loss SNR inputs."""
         y, h_targets, _, _, actual_snr, snr_tensor = generate_training_batch(
@@ -371,6 +372,7 @@ class Trainer:
             tdl_config=tdl_config,
             snr_per_sample=snr_per_sample,
             return_complex=False,
+            sampling_rate=sampling_rate,
             device=self.device,
             return_snr_tensor=True,
         )
@@ -385,6 +387,7 @@ class Trainer:
         pos_values: List[int] = None,
         tdl_config: Union[str, List[str]] = 'A-30',
         seq_len: int = None,
+        sampling_rate: float | None = None,
         print_interval: int = 100,
         val_interval: int = None,
         validation_batches: int = 4,
@@ -405,6 +408,7 @@ class Trainer:
             pos_values: Port positions (default: [0, 3, 6, 9])
             tdl_config: TDL configuration (default: 'A-30')
             seq_len: Sequence length (default: from model)
+            sampling_rate: Optional TDL generation sampling rate in Hz
             print_interval: Print progress every N batches
             val_interval: Validate every N batches (optional)
             validation_batches: Number of batches to average for validation
@@ -480,6 +484,7 @@ class Trainer:
                 snr_for_batch=snr_for_batch,
                 tdl_config=tdl_config,
                 snr_per_sample=snr_per_sample,
+                sampling_rate=sampling_rate,
             )
             self.data_gen_time += time.time() - t0_data
             
@@ -612,6 +617,7 @@ class Trainer:
                     pos_values=pos_values,
                     tdl_config=tdl_config,
                     seq_len=seq_len,
+                    sampling_rate=sampling_rate,
                     num_batches=validation_batches,
                 )
                 self.val_losses.append(val_loss)
@@ -680,6 +686,7 @@ class Trainer:
         pos_values: List[int],
         tdl_config: Union[str, List[str]],
         seq_len: int,
+        sampling_rate: float | None = None,
         num_batches: int = 4,
     ) -> tuple[float, float]:
         """
@@ -704,6 +711,7 @@ class Trainer:
                     snr_for_batch=snr_for_batch,
                     tdl_config=tdl_config,
                     snr_per_sample=snr_per_sample,
+                    sampling_rate=sampling_rate,
                 )
 
                 h_pred = self.model(y)
@@ -721,7 +729,8 @@ class Trainer:
         snr_db: float = 20.0,
         pos_values: List[int] = None,
         tdl_config: str = 'A-30',
-        seq_len: int = None
+        seq_len: int = None,
+        sampling_rate: float | None = None,
     ) -> dict:
         """
         Comprehensive evaluation
@@ -745,6 +754,7 @@ class Trainer:
                 snr_db=snr_db,
                 tdl_config=tdl_config,
                 return_complex=False,
+                sampling_rate=sampling_rate,
                 device=self.device  # ✅ Generate on device
             )
             

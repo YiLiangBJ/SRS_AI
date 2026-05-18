@@ -22,6 +22,7 @@ def generate_training_batch(
     snr_sampler = None,
     snr_per_sample: bool = False,
     return_complex: bool = False,
+    sampling_rate: Optional[float] = None,
     device: str = 'cpu',  # ✅ NEW: GPU support
     return_snr_tensor: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor, List[int], torch.Tensor, float]:
@@ -43,6 +44,11 @@ def generate_training_batch(
         snr_sampler: Optional SNRSampler for smart sampling (stratified/round-robin)
         snr_per_sample: If True, each sample gets different SNR (for SNR-invariant learning)
         return_complex: If True, return complex tensors; else real stacked [real; imag]
+        sampling_rate: Optional TDL generation sampling rate in Hz.
+                  If provided, channels are first generated at this resolution,
+                  transformed to frequency domain, decimated by Ktc, then split
+                  into seq_len-sized blocks before the usual timing-offset and
+                  12-point IFFT steps.
         device: Device to generate data on ('cpu', 'cuda', 'cuda:0', etc.) ✅ NEW
         return_snr_tensor: If True, also return a batch-shaped SNR tensor for loss weighting
     
@@ -83,7 +89,8 @@ def generate_training_batch(
     scs = 30e3  # Subcarrier spacing (Hz)
     Ktc = 4
     Tc = 1.0 / (480e3 * 4096)  # 3GPP basic time unit (~0.509 ns)
-    Ts = 1.0 / (scs * Ktc * seq_len)  # Sampling interval
+    base_sampling_rate = scs * Ktc * seq_len
+    Ts = 1.0 / base_sampling_rate  # Sampling interval for the seq_len-sized block
     
     # ✅ Generate timing offsets directly on device (uniform distribution)
     timing_offset_Tc = (torch.rand(batch_size, num_ports, device=device) * 512 - 256)
@@ -117,20 +124,65 @@ def generate_training_batch(
         carrier_frequency=3.5e9,
         normalize=True
     )
-    
-    sampling_rate = scs * Ktc * seq_len
-    h_base = tdl.generate_batch_parallel(
-        batch_size=batch_size,
-        num_ports=num_ports,
-        seq_len=seq_len,
-        sampling_rate=sampling_rate,
-        return_torch=True,
-        device=device  # ✅ Generate directly on GPU
-    )
-    # ✅ No need to move - already on device!
-    
+
+    H_fft = None
+    if sampling_rate is None:
+        h_base = tdl.generate_batch_parallel(
+            batch_size=batch_size,
+            num_ports=num_ports,
+            seq_len=seq_len,
+            sampling_rate=base_sampling_rate,
+            return_torch=True,
+            device=device
+        )
+        H_fft = torch.fft.fft(h_base, dim=-1)
+    else:
+        if sampling_rate <= 0:
+            raise ValueError(f"sampling_rate must be positive, got {sampling_rate}")
+
+        fft_size = int(round(sampling_rate / scs))
+        if not np.isclose(fft_size * scs, sampling_rate, rtol=0.0, atol=1e-6 * scs):
+            raise ValueError(
+                f"sampling_rate must be an integer multiple of subcarrier spacing {scs}, got {sampling_rate}"
+            )
+        if fft_size % Ktc != 0:
+            raise ValueError(f"FFT size {fft_size} must be divisible by Ktc={Ktc}")
+
+        num_decimated_bins = fft_size // Ktc
+        if num_decimated_bins < seq_len:
+            raise ValueError(
+                f"sampling_rate={sampling_rate} provides only {num_decimated_bins} usable bins after Ktc decimation,"
+                f" but seq_len={seq_len} is required"
+            )
+
+        blocks_per_realization = num_decimated_bins // seq_len
+        base_batch_size = int(np.ceil(batch_size / blocks_per_realization))
+        usable_bins = blocks_per_realization * seq_len
+
+        h_full = tdl.generate_batch_parallel(
+            batch_size=base_batch_size,
+            num_ports=num_ports,
+            seq_len=fft_size,
+            sampling_rate=sampling_rate,
+            return_torch=True,
+            device=device
+        )
+
+        H_full = torch.fft.fft(h_full, dim=-1)
+        H_decimated = H_full[:, :, ::Ktc]
+        H_blocks = H_decimated[:, :, :usable_bins].reshape(
+            base_batch_size,
+            num_ports,
+            blocks_per_realization,
+            seq_len,
+        )
+        H_fft = H_blocks.permute(0, 2, 1, 3).reshape(
+            base_batch_size * blocks_per_realization,
+            num_ports,
+            seq_len,
+        )[:batch_size]
+
     # Apply timing offset via frequency domain phase rotation
-    H_fft = torch.fft.fft(h_base, dim=-1)
     k = torch.arange(seq_len, dtype=torch.float32, device=device)  # ✅ On device
     # ✅ timing_offset_samples already on device, no conversion needed
     phase_shift = torch.exp(

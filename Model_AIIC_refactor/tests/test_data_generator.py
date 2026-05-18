@@ -67,6 +67,29 @@ class TestDataGenerator(unittest.TestCase):
         self.assertTrue(y.dtype in [torch.complex64, torch.complex128])
         self.assertEqual(h_targets.shape, (32, 4, 12))
 
+    def test_generate_batch_high_sampling_rate_blocks(self):
+        """Test block extraction from a high-resolution TDL realization."""
+        y, h_targets, pos, h_true, snr = generate_training_batch(
+            batch_size=86,
+            snr_db=20.0,
+            tdl_config='A-30',
+            sampling_rate=4096 * 30e3,
+        )
+
+        self.assertEqual(y.shape, (86, 24))
+        self.assertEqual(h_targets.shape, (86, 4, 24))
+        self.assertEqual(h_true.shape, (86, 4, 24))
+        self.assertEqual(pos, [0, 3, 6, 9])
+        self.assertAlmostEqual(snr, 20.0, places=1)
+
+    def test_generate_batch_rejects_invalid_sampling_rate(self):
+        """Test sampling rate validation for the high-resolution path."""
+        with self.assertRaises(ValueError):
+            generate_training_batch(
+                batch_size=8,
+                sampling_rate=12345.0,
+            )
+
     def test_generate_batch_returns_per_sample_snr_tensor(self):
         """Test optional per-sample SNR tensor output for loss weighting."""
         _, _, _, _, snr_mean, snr_tensor = generate_training_batch(

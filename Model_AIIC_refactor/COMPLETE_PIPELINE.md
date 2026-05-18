@@ -74,6 +74,7 @@ This layout keeps research iteration practical:
 ### 4.1 Recommended split
 
 - `configs/v2/tasks.yaml`: data-generation policy, port layout, sequence length, normalization flag, SNR sampling, and TDL selection
+- `configs/v2/tasks.yaml`: optional `sampling_rate` can be set to drive high-resolution TDL generation before KTC decimation and `seq_len` block extraction, for example `122880000.0` for `4096 * 30 kHz`
 - `configs/v2/models.yaml`: architecture family plus model-side hyperparameter sweeps
 - `configs/v2/training_strategies.yaml`: optimizer, loss, validation cadence, scheduler, and checkpoint policy
 - `configs/v2/experiments.yaml`: reusable workflow presets binding task + model + training strategy
@@ -97,6 +98,7 @@ tasks:
         sampling: stratified
         num_bins: 10
       tdl_config: [A-30, B-100, C-300]
+      sampling_rate: 122880000.0
 ```
 
 Model recipe with sweeps:
